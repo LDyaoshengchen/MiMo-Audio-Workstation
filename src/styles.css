@@ -566,6 +566,19 @@ h1 {
 
 .sidebar-actions-row button {
   white-space: nowrap;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.board-sidebar.is-compact .sidebar-actions-row {
+  grid-template-columns: 1fr;
 }
 
 .sidebar-btn-full {
@@ -576,6 +589,10 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .board-list {
@@ -667,15 +684,35 @@ h1 {
   align-items: flex-start;
   flex-direction: column;
   text-align: left;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 .board-item strong {
-  font-size: 15px;
+  font-size: 14px;
+  width: 100%;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.35;
+  max-height: 2.7em;
 }
 
 .board-item span {
   color: #9f947b;
   font-size: 12px;
+  width: 100%;
+  max-width: 100%;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: block !important;
 }
 
 .board-item.active {
@@ -6450,6 +6487,17 @@ button.is-generating {
   white-space: normal !important;
   line-height: 1.35 !important;
   max-height: 2.7em !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.board-item span {
+  width: 100% !important;
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: block !important;
 }
 
 .player-speed-btn {

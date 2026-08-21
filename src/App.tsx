@@ -5176,7 +5176,7 @@ function StudioApp() {
         style={{ gridTemplateColumns: sidebarCollapsed ? "50px 1fr" : `${sidebarWidth}px 12px 1fr` }}
       >
         <aside
-          className={`board-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
+          className={`board-sidebar ${sidebarCollapsed ? "collapsed" : ""} ${!sidebarCollapsed && sidebarWidth < 250 ? "is-compact" : ""}`}
           style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
         >
           <div className="sidebar-title">
