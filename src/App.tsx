@@ -639,6 +639,7 @@ interface ThemeConfig {
   darkTheme: ThemeColorSet;
   brandTitleZh?: string;
   brandTitleEn?: string;
+  autoHideTopbar?: boolean;
 }
 
 const lightPresets: Record<string, { label: string; bgColor: string; fgColor: string; accentColor: string; nodeColor: string }> = {
@@ -676,7 +677,8 @@ function getInitialTheme(): ThemeConfig {
           lightTheme: { ...defaultLight, ...parsed.lightTheme },
           darkTheme: { ...defaultDark, ...parsed.darkTheme },
           brandTitleZh: parsed.brandTitleZh ?? "铸光音频工作站",
-          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION"
+          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION",
+          autoHideTopbar: parsed.autoHideTopbar ?? true
         };
       }
       if (parsed.mode) {
@@ -687,7 +689,8 @@ function getInitialTheme(): ThemeConfig {
             ? { preset: "custom", bgColor: parsed.bgColor || defaultDark.bgColor, fgColor: parsed.fgColor || defaultDark.fgColor, accentColor: parsed.accentColor || defaultDark.accentColor, nodeColor: defaultDark.nodeColor }
             : defaultDark,
           brandTitleZh: parsed.brandTitleZh ?? "铸光音频工作站",
-          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION"
+          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION",
+          autoHideTopbar: parsed.autoHideTopbar ?? true
         };
       }
     }
@@ -698,7 +701,8 @@ function getInitialTheme(): ThemeConfig {
     lightTheme: defaultLight,
     darkTheme: defaultDark,
     brandTitleZh: "铸光音频工作站",
-    brandTitleEn: "ZHUGUANG AUDIO WORKSTATION"
+    brandTitleEn: "ZHUGUANG AUDIO WORKSTATION",
+    autoHideTopbar: true
   };
 }
 
@@ -726,6 +730,18 @@ function StudioApp() {
     actionText?: string;
     onAction?: () => void;
   } | null>(null);
+
+  const modalBackdropMouseDownRef = useRef<EventTarget | null>(null);
+
+  function handleBackdropMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    modalBackdropMouseDownRef.current = e.target;
+  }
+
+  function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>, onClose: () => void) {
+    if (e.target === e.currentTarget && modalBackdropMouseDownRef.current === e.currentTarget) {
+      onClose();
+    }
+  }
 
   const showToast = useCallback((text: string, actionText?: string, onAction?: () => void) => {
     const id = Date.now();
@@ -1200,6 +1216,20 @@ function StudioApp() {
     }));
   }
 
+  function updateAutoHideTopbar(val: boolean) {
+    setThemeConfig((prev) => ({
+      ...prev,
+      autoHideTopbar: val
+    }));
+    if (!val) {
+      setTopbarCollapsed(false);
+      if (topbarHoverTimerRef.current) {
+        window.clearTimeout(topbarHoverTimerRef.current);
+        topbarHoverTimerRef.current = null;
+      }
+    }
+  }
+
   function resetTheme() {
     localStorage.removeItem("mimo_theme_settings");
     setThemeConfig({
@@ -1207,8 +1237,10 @@ function StudioApp() {
       lightTheme: { preset: "default", ...lightPresets.default },
       darkTheme: { preset: "default", ...darkPresets.default },
       brandTitleZh: "铸光音频工作站",
-      brandTitleEn: "ZHUGUANG AUDIO WORKSTATION"
+      brandTitleEn: "ZHUGUANG AUDIO WORKSTATION",
+      autoHideTopbar: true
     });
+    setTopbarCollapsed(false);
   }
 
   const autoSaveKey = useMemo(() => {
@@ -1236,16 +1268,33 @@ function StudioApp() {
     void loadWorkspaceList();
     void loadStoragePathInfo();
 
-    const collapseTimer = window.setTimeout(() => {
-      setTopbarCollapsed(true);
-    }, 5000);
+    let collapseTimer: number | undefined;
+    if (themeConfig.autoHideTopbar ?? true) {
+      collapseTimer = window.setTimeout(() => {
+        setTopbarCollapsed(true);
+      }, 5000);
+    }
 
-    return () => window.clearTimeout(collapseTimer);
+    return () => {
+      if (collapseTimer) {
+        window.clearTimeout(collapseTimer);
+      }
+    };
   }, []);
 
   useEffect(() => {
+    if (themeConfig.autoHideTopbar === false) {
+      setTopbarCollapsed(false);
+      if (topbarHoverTimerRef.current) {
+        window.clearTimeout(topbarHoverTimerRef.current);
+        topbarHoverTimerRef.current = null;
+      }
+    }
+  }, [themeConfig.autoHideTopbar]);
+
+  useEffect(() => {
     function handleMouseMove(e: globalThis.MouseEvent) {
-      if (e.clientY < 20) {
+      if ((themeConfig.autoHideTopbar ?? true) && e.clientY < 20) {
         setTopbarCollapsed(false);
         if (topbarHoverTimerRef.current) {
           window.clearTimeout(topbarHoverTimerRef.current);
@@ -1255,7 +1304,7 @@ function StudioApp() {
 
     document.addEventListener("mousemove", handleMouseMove);
     return () => document.removeEventListener("mousemove", handleMouseMove);
-  }, []);
+  }, [themeConfig.autoHideTopbar]);
 
   useEffect(() => {
     function handleDragOver(e: globalThis.DragEvent) {
@@ -1971,7 +2020,9 @@ function StudioApp() {
 
   function closeApiKeyModal() {
     setShowApiKeyModal(false);
-    topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 3000);
+    if (themeConfig.autoHideTopbar ?? true) {
+      topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 3000);
+    }
   }
 
   async function loadWorkspaceList(preferredId?: string) {
@@ -4461,14 +4512,14 @@ function StudioApp() {
         </div>
       )}
       <header
-        className={`studio-topbar ${topbarCollapsed ? "collapsed" : ""}`}
+        className={`studio-topbar ${(themeConfig.autoHideTopbar ?? true) && topbarCollapsed ? "collapsed" : ""}`}
         onMouseEnter={() => {
           if (topbarHoverTimerRef.current) {
             window.clearTimeout(topbarHoverTimerRef.current);
           }
         }}
         onMouseLeave={() => {
-          if (!showApiKeyModal) {
+          if ((themeConfig.autoHideTopbar ?? true) && !showApiKeyModal) {
             topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 2000);
           }
         }}
@@ -4501,7 +4552,11 @@ function StudioApp() {
       ) : null}
 
       {showApiKeyModal && (
-        <div className="api-key-modal" onClick={closeApiKeyModal}>
+        <div
+          className="api-key-modal"
+          onMouseDown={handleBackdropMouseDown}
+          onClick={(e) => handleBackdropClick(e, closeApiKeyModal)}
+        >
           <div className="api-key-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="api-key-modal-header">
               <h3>
@@ -4623,7 +4678,11 @@ function StudioApp() {
         </div>
       )}
       {showAppearanceModal && (
-        <div className="api-key-modal" onClick={() => setShowAppearanceModal(false)}>
+        <div
+          className="api-key-modal"
+          onMouseDown={handleBackdropMouseDown}
+          onClick={(e) => handleBackdropClick(e, () => setShowAppearanceModal(false))}
+        >
           <div className="appearance-modal-card" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
             <div className="api-key-modal-header">
               <h3><Palette size={18} /> 外观与主题</h3>
@@ -4659,6 +4718,34 @@ function StudioApp() {
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* 顶部标题栏自动隐藏开关 */}
+              <div
+                className="appearance-card"
+                style={{ cursor: "pointer" }}
+                onClick={() => updateAutoHideTopbar(!(themeConfig.autoHideTopbar ?? true))}
+              >
+                <div className="appearance-card-main">
+                  <div>
+                    <div className="appearance-card-title">顶部标题栏自动隐藏</div>
+                    <div className="appearance-card-sub">开启后鼠标移开时自动收起顶部栏，移至窗口顶部即可重新展开。</div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={themeConfig.autoHideTopbar ?? true}
+                    className={`capsule-switch ${themeConfig.autoHideTopbar ?? true ? "checked" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateAutoHideTopbar(!(themeConfig.autoHideTopbar ?? true));
+                    }}
+                    style={{ border: "none", outline: "none", cursor: "pointer" }}
+                    title={themeConfig.autoHideTopbar ?? true ? "已开启自动隐藏（点击切换为常驻显示）" : "已关闭自动隐藏（点击开启）"}
+                  >
+                    <span className="capsule-switch-thumb" />
+                  </button>
                 </div>
               </div>
 
@@ -4954,7 +5041,11 @@ function StudioApp() {
       )}
 
       {showStoragePathModal && (
-        <div className="api-key-modal" onClick={() => setShowStoragePathModal(false)}>
+        <div
+          className="api-key-modal"
+          onMouseDown={handleBackdropMouseDown}
+          onClick={(e) => handleBackdropClick(e, () => setShowStoragePathModal(false))}
+        >
           <div className="api-key-modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
             <div className="api-key-modal-header">
               <h3>
@@ -5017,7 +5108,11 @@ function StudioApp() {
       )}
 
       {deleteModalState.isOpen && (
-        <div className="api-key-modal" onClick={() => setDeleteModalState((s) => ({ ...s, isOpen: false }))}>
+        <div
+          className="api-key-modal"
+          onMouseDown={handleBackdropMouseDown}
+          onClick={(e) => handleBackdropClick(e, () => setDeleteModalState((s) => ({ ...s, isOpen: false })))}
+        >
           <div
             className="api-key-modal-content"
             style={{ maxWidth: 440 }}
@@ -5743,10 +5838,18 @@ function BoardCreateDialog({
     }
   }
 
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return (
-    <div className="modal-backdrop" onClick={() => {
-      if (!isGenerating && !isCreatingAudiobook) onClose();
-    }}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          if (!isGenerating && !isCreatingAudiobook) onClose();
+        }
+      }}
+    >
       <section className="board-modal" onClick={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>
@@ -7541,8 +7644,18 @@ function ExcelPasteModal({
     onClose();
   }
 
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div className="api-key-modal-content excel-paste-modal" onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
@@ -10538,8 +10651,18 @@ function SaveAsModal({
     }
   }
 
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div className="api-key-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
@@ -10615,8 +10738,18 @@ function SaveAsTemplateModal({
     }
   }
 
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div className="api-key-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
@@ -11041,8 +11174,18 @@ function ExportWorkspaceModal({
     }
   }
 
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div className="export-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
