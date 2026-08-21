@@ -15,14 +15,14 @@
     "preview": "vite preview --host 0.0.0.0",
     "electron": "npm run build && electron electron/main.cjs",
     "dist:win": "node scripts/package-win.js",
-    "dist:installer": "npm run build && electron-builder --win nsis",
+    "dist:installer": "node scripts/package-installer.js",
     "dist:all": "node scripts/package-win.js && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.mimo.audio-workstation",
     "productName": "MiMo Audio Workstation",
     "directories": {
-      "output": "desktop-build"
+      "output": "installer-build"
     },
     "files": [
       "electron/**/*",

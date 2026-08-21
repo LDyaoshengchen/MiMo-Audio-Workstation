@@ -81,8 +81,15 @@ const zipName = `MiMo-Audio-Workstation-v${pkg.version}-win64-portable.zip`;
 const zipPath = path.join(outputDir, zipName);
 
 console.log("\n🗜️  正在生成免解压便携 ZIP 压缩包...");
-if (fs.existsSync(zipPath)) {
-  fs.rmSync(zipPath, { force: true });
+for (let i = 0; i < 5; i++) {
+  try {
+    if (fs.existsSync(zipPath)) {
+      fs.rmSync(zipPath, { force: true });
+    }
+    break;
+  } catch {
+    execSync("node -e \"setTimeout(() => {}, 500)\"");
+  }
 }
 
 try {
