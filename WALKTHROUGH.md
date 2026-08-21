@@ -26,4 +26,4 @@
 
 ### 📦 最终打包产物
 - **绿色客户端可执行文件**：`desktop-build/MiMo-Audio-Workstation-win32-x64/MiMo-Audio-Workstation.exe`
-- **免解压便携包**：`desktop-build/MiMo-Audio-Workstation-v0.2.0-win64-portable.zip`
+- **免解压便携包**：`desktop-build/MiMo-Audio-Workstation-v0.8.2-win64-portable.zip`

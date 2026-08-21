@@ -95,7 +95,7 @@ npm run dist:win
 ```
 打包产物将自动生成于 `desktop-build/` 目录下：
 - **可执行文件目录**：`desktop-build/MiMo-Audio-Workstation-win32-x64/MiMo-Audio-Workstation.exe`
-- **免解压便携压缩包**：`desktop-build/MiMo-Audio-Workstation-v0.2.0-win64-portable.zip`
+- **免解压便携压缩包**：`desktop-build/MiMo-Audio-Workstation-v0.8.2-win64-portable.zip`
 
 ---
 
