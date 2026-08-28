@@ -10211,7 +10211,6 @@ let activeGlobalAudio: HTMLAudioElement | null = null;
 function StudioAudioPlayer({ src }: { src: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -10224,35 +10223,9 @@ function StudioAudioPlayer({ src }: { src: string }) {
     }
   }, [playbackRate]);
 
-  function loadAndPlay() {
-    setIsLoaded(true);
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (!audio.src && src) {
-      audio.src = src;
-    }
-
-    if (activeGlobalAudio && activeGlobalAudio !== audio) {
-      activeGlobalAudio.pause();
-    }
-    activeGlobalAudio = audio;
-    audio.playbackRate = playbackRate;
-    void audio.play().then(() => {
-      setIsPlaying(true);
-    }).catch(() => {
-      setIsPlaying(false);
-    });
-  }
-
   function togglePlay() {
     const audio = audioRef.current;
     if (!audio) return;
-
-    if (!isLoaded || !audio.src) {
-      loadAndPlay();
-      return;
-    }
 
     if (audio.paused) {
       if (activeGlobalAudio && activeGlobalAudio !== audio) {
@@ -10278,15 +10251,9 @@ function StudioAudioPlayer({ src }: { src: string }) {
 
   function seek(value: string) {
     const nextTime = Number(value);
-    if (!isLoaded) {
-      setIsLoaded(true);
-    }
     const audio = audioRef.current;
     if (!audio || Number.isNaN(nextTime)) {
       return;
-    }
-    if (!audio.src && src) {
-      audio.src = src;
     }
     audio.currentTime = nextTime;
     setCurrentTime(nextTime);
@@ -10296,11 +10263,16 @@ function StudioAudioPlayer({ src }: { src: string }) {
     <div className="studio-player nodrag">
       <audio
         ref={audioRef}
-        src={isLoaded ? src : undefined}
-        preload="none"
+        src={src}
+        preload="metadata"
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration || 0);
           event.currentTarget.playbackRate = playbackRate;
+        }}
+        onDurationChange={(event) => {
+          if (event.currentTarget.duration) {
+            setDuration(event.currentTarget.duration);
+          }
         }}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onPlay={(event) => {
