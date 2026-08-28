@@ -8557,16 +8557,22 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
   const [isZipping, setIsZipping] = useState(false);
   const items = data.batchArtifacts || [];
   const listRef = useRef<HTMLDivElement>(null);
+  const lastItemRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     updateNodeInternals(id);
   }, [id, updateNodeInternals, items.length]);
 
   useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
-  }, [items.length]);
+    const timer = setTimeout(() => {
+      if (lastItemRef.current) {
+        lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else if (listRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight;
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [items.length, items[items.length - 1]?.id]);
 
   async function handleDownloadZip() {
     if (!items || items.length === 0) return;
@@ -8626,6 +8632,7 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
               const itemSeq = item.seqIndex ?? (index + 1);
               const parentTitle = data.parentTitle || "";
               const fullStashName = formatHierarchyName(parentTitle, nodeTitle, itemSeq);
+              const isLatest = index === items.length - 1;
 
               const artifactForStash: ArtifactData = {
                 fileName: item.fileName,
@@ -8639,9 +8646,18 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
               const isStashed = data.isArtifactStashed?.(artifactForStash) ?? false;
 
               return (
-                <div key={item.id} className="batch-artifact-item-card">
+                <div
+                  key={item.id}
+                  ref={isLatest ? lastItemRef : undefined}
+                  className={`batch-artifact-item-card ${isLatest && items.length > 1 ? "is-latest" : ""}`}
+                >
                   <div className="batch-artifact-item-header">
-                    <span className="batch-artifact-item-name">{fullStashName}</span>
+                    <div className="batch-artifact-name-wrap">
+                      <span className="batch-artifact-item-name">{fullStashName}</span>
+                      {isLatest && items.length > 1 && (
+                        <span className="batch-artifact-latest-tag">最新</span>
+                      )}
+                    </div>
                     <div className="batch-artifact-item-actions">
                       <button
                         type="button"
@@ -9768,18 +9784,13 @@ function StudioNodeFrame({
       <header className="node-header" title="按住拖拽移动节点">
         <div className="node-title-wrap">
           {icon}
-          {tone === "batch-clone" ? (
-            <span className="node-title-static" title="批量音频克隆">
-              {data.title || "批量音频克隆"}
-            </span>
-          ) : (
-            <input
-              className="node-title-input nodrag"
-              title="节点命名"
-              value={data.title}
-              onChange={(event) => data.onPatch?.(id, { title: event.target.value })}
-            />
-          )}
+          <input
+            className="node-title-input nodrag"
+            title="点击修改节点名称"
+            value={data.title ?? ""}
+            placeholder="节点名称"
+            onChange={(event) => data.onPatch?.(id, { title: event.target.value })}
+          />
         </div>
         <div className="node-header-actions">
           {tone === "style" || tone === "design" ? (

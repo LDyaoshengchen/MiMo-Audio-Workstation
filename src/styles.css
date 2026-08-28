@@ -1457,6 +1457,12 @@ a.stash-round-action:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: all 200ms ease;
+}
+
+.batch-artifact-item-card.is-latest {
+  border-color: rgba(234, 179, 8, 0.6);
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.15);
 }
 
 .batch-artifact-item-header {
@@ -1464,6 +1470,24 @@ a.stash-round-action:hover {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+
+.batch-artifact-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.batch-artifact-latest-tag {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eab308;
+  color: #000000;
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 .batch-artifact-item-name {
@@ -3734,6 +3758,18 @@ a.stash-round-action:hover {
 [data-theme="light"] .batch-artifact-item-card {
   background: #f8fafc;
   border-color: #cbd5e1;
+}
+
+[data-theme="light"] .batch-artifact-item-card.is-latest {
+  background: #fefce8;
+  border-color: #eab308;
+  box-shadow: 0 2px 8px rgba(234, 179, 8, 0.18);
+}
+
+[data-theme="light"] .batch-artifact-latest-tag {
+  background: #eab308;
+  color: #000000;
+  font-weight: 900;
 }
 
 [data-theme="light"] .batch-artifact-item-name {
