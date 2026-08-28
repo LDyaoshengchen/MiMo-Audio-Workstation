@@ -121,6 +121,8 @@ async function startApiServer() {
   return `http://127.0.0.1:${address.port}`;
 }
 
+app.name = "MiMo 音色复刻调试台";
+
 async function createWindow() {
   const localUrl = await startApiServer();
   const appRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
@@ -133,13 +135,18 @@ async function createWindow() {
     height: 960,
     minWidth: 1024,
     minHeight: 720,
-    title: "MiMo Audio Workstation",
+    title: "MiMo 音色复刻调试台",
     icon: iconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
+  });
+
+  window.on("page-title-updated", (event, title) => {
+    event.preventDefault();
+    window.setTitle(title);
   });
 
   await window.loadURL(localUrl);
