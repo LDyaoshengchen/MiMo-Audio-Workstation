@@ -9681,12 +9681,20 @@ function IntegratedRowArtifactList({
 }) {
   const artifacts = row.artifacts || [];
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastItemRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [artifacts.length]);
+    const timer = setTimeout(() => {
+      if (lastItemRef.current) {
+        lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+      const parentCell = containerRef.current?.closest(".cell-artifact");
+      if (parentCell) {
+        parentCell.scrollTop = parentCell.scrollHeight;
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [artifacts.length, artifacts[artifacts.length - 1]?.id]);
 
   return (
     <div
@@ -9710,6 +9718,7 @@ function IntegratedRowArtifactList({
             const itemSubTitle = `${rowName}_${String(itemSeq).padStart(2, "0")}`;
             const parentTitle = data.title || "全能综合台";
             const fullStashName = `${parentTitle}_${rowName}_${itemSubTitle}`;
+            const isLatest = index === artifacts.length - 1;
 
             const artifactForStash: ArtifactData = {
               fileName: art.fileName,
@@ -9723,9 +9732,18 @@ function IntegratedRowArtifactList({
             const isStashed = data.isArtifactStashed?.(artifactForStash) ?? false;
 
             return (
-              <div key={art.id} className="batch-artifact-item-card">
+              <div
+                key={art.id}
+                ref={isLatest ? lastItemRef : undefined}
+                className={`batch-artifact-item-card ${isLatest && artifacts.length > 1 ? "is-latest" : ""}`}
+              >
                 <div className="batch-artifact-item-header">
-                  <span className="batch-artifact-item-name">{itemSubTitle}</span>
+                  <div className="batch-artifact-name-wrap">
+                    <span className="batch-artifact-item-name">{itemSubTitle}</span>
+                    {isLatest && artifacts.length > 1 && (
+                      <span className="batch-artifact-latest-tag">最新</span>
+                    )}
+                  </div>
                   <div className="batch-artifact-item-actions">
                     <button
                       type="button"
