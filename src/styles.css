@@ -1469,13 +1469,17 @@ a.stash-round-action:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .batch-artifact-name-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
 }
 
@@ -1494,6 +1498,8 @@ a.stash-round-action:hover {
   color: #efe7cf;
   font-size: 12px;
   font-weight: 700;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1502,7 +1508,8 @@ a.stash-round-action:hover {
 .batch-artifact-item-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .batch-artifact-item-btn {
@@ -1511,12 +1518,16 @@ a.stash-round-action:hover {
   border-radius: 4px;
   color: #efe7cf;
   font-size: 11px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-height: auto;
+  gap: 3px;
+  min-height: 24px;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  line-height: 1 !important;
+  box-sizing: border-box;
 }
 
 .batch-artifact-item-btn:hover {

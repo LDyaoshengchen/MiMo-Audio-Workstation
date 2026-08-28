@@ -2838,6 +2838,26 @@ function StudioApp() {
     }
   }
 
+  async function handleOptimizeCurrentWorkspace() {
+    if (!activeWorkspace) return;
+    try {
+      const res = await fetch(`/api/workspaces/${activeWorkspace.id}/optimize`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "整理画板失败");
+
+      setAppToast({
+        id: Date.now(),
+        text: `✨ 成功整理并瘦身当前画板！已将 ${data.optimizedCount || 0} 个音频无损存至本地 audios 文件夹，大幅释放内存。`,
+        actionText: "打开音频目录",
+        onAction: () => void openLocalAudiosFolder()
+      });
+    } catch (err) {
+      alert("整理画板失败：" + (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
   function handleWorkspaceClick(event: React.MouseEvent, workspace: WorkspaceSummary, index: number) {
     if (event.ctrlKey || event.metaKey) {
       setSelectedWorkspaceIds((prev) => {
@@ -5341,11 +5361,21 @@ function StudioApp() {
                   <button
                     className="subtle"
                     type="button"
-                    onClick={() => void openLocalWorkspaceFolder(activeWorkspace?.id)}
-                    title="在本地资源管理器中打开并选中存储文件"
+                    onClick={() => void handleOptimizeCurrentWorkspace()}
+                    title="整理并瘦身当前画板：将画板中的音频实体无损转存至本地 audios/ 目录并大幅释放内存"
+                    style={{ color: "#38bdf8" }}
                   >
-                    <FolderOpen size={15} />
-                    本地打开
+                    <Sparkles size={14} />
+                    整理瘦身
+                  </button>
+                  <button
+                    className="subtle"
+                    type="button"
+                    onClick={() => void openLocalAudiosFolder()}
+                    title="在资源管理器中打开生成的音频保存目录 (audios/)"
+                  >
+                    <FolderOpen size={14} />
+                    音频目录
                   </button>
                   <button
                     className="subtle"

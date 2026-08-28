@@ -813,6 +813,77 @@ app.post("/api/workspaces/import", async (req, res, next) => {
   }
 });
 
+app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
+  try {
+    const store = await readWorkspaceStore();
+    const workspace = store.workspaces.find((w) => w.id === req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ error: "Workspace not found." });
+    }
+
+    const audiosDir = getAudiosDir();
+    await mkdir(audiosDir, { recursive: true });
+    let optimizedCount = 0;
+
+    if (workspace.type === "board") {
+      for (const node of (workspace.nodes as any[])) {
+        if (node && node.type === "batchArtifact" && Array.isArray(node.data?.batchArtifacts)) {
+          for (const item of node.data.batchArtifacts) {
+            if (item && item.audioDataUrl && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
+              const base64 = item.audioDataUrl.split(",")[1];
+              if (base64) {
+                const fname = item.fileName || `mimo-optimized-${item.id || Date.now()}.wav`;
+                try {
+                  await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
+                  optimizedCount++;
+                } catch {}
+              }
+            }
+          }
+        }
+        if (node && node.type === "integratedStudio" && Array.isArray(node.data?.batchRows)) {
+          for (const row of node.data.batchRows) {
+            for (const art of row?.artifacts || []) {
+              if (art && art.audioDataUrl && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
+                const base64 = art.audioDataUrl.split(",")[1];
+                if (base64) {
+                  const fname = art.fileName || `mimo-integrated-${art.id || Date.now()}.wav`;
+                  try {
+                    await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
+                    optimizedCount++;
+                  } catch {}
+                }
+              }
+            }
+          }
+        }
+        if (node && node.type === "artifact" && node.data?.artifact?.audioDataUrl?.startsWith("data:")) {
+          const base64 = node.data.artifact.audioDataUrl.split(",")[1];
+          if (base64) {
+            const fname = node.data.artifact.fileName || `mimo-artifact-${Date.now()}.wav`;
+            try {
+              await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
+              optimizedCount++;
+            } catch {}
+          }
+        }
+      }
+    }
+
+    workspace.updatedAt = new Date().toISOString();
+    await writeWorkspaceStore(store);
+
+    res.json({
+      ok: true,
+      optimizedCount,
+      audiosDir,
+      workspace
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/workspaces/open-folder", async (req, res, next) => {
   try {
     const customTarget = req.body?.folderPath || req.body?.filePath || req.body?.targetPath;
