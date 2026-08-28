@@ -1,31 +1,28 @@
-# 🚀 v0.8.12 严格恢复批量产物原设计排版 & 批量9单产物间距两倍严格等距 Walkthrough
+# 🚀 v0.8.13 批量产物一行3个折行网格 & 产物节点严格跟随各自上游后方 Walkthrough
 
-针对您反馈的 **【批量产物节点严格按照原设计排版】** 以及 **【批量9个单产物间距扩大为两倍（60px），上下间距与左右间距严格等距】**，已在 **v0.8.12** 中严格执行并落地！
-
----
-
-### ✨ 核心调整说明 (v0.8.12)
-
-#### 1. 📋 严格执行原始批量产物排版设计
-- 严格遵循原设计的 Level 分层规则：
-  - `Level 0`: 参考音频 (`referenceAudio`)、提示词 (`prompt`)、音色描述 (`voiceStyle`)、音色设计 (`voiceDesign`)；
-  - `Level 1`: 音色克隆 (`voiceClone`)、批量音频克隆 (`batchVoiceClone`)、批量音色设计 (`batchVoiceDesign`)、工作台 (`integratedStudio`)；
-  - `Level 2`: 批量产物 (`batchArtifact`)、单产物 (`artifact`)；
-  - `Level 3`: 音频整合 (`audioMerge`)。
-- **批量产物卡片 (`batchArtifact`)**：严格排列在生成节点的下游列，自上而下规整垂直排列；
-- **多工作流自动换列**：依然支持超过 5 组工作流自动换至右侧第二列（保持 280px 宽敞间距）。
-
-#### 2. 📐 批量 9 个单产物间距扩大为两倍（60px 等距）
-- **左右间距扩大为现在的两倍**：`colGap = 60px`（原为 28px）；
-- **上下间距与左右间距完全一致**：`rowGap = 60px`；
-- **实时生成与一键排版完全同步**：
-  - `stepX = 400`（340 + 60）；
-  - `stepY = 205`（145 + 60）；
-  - 无论是点击批量生成 9 个还是点击「整齐排版」，九宫格均呈现规整、通透、严格等距的布局！
+针对您反馈的 **【批量产物节点一行3个，大于3个排第二行】**、**【上下大小容纳3个音频播放组件】** 以及 **【产物节点在各自上游后方，符合图3手绘架构与图2历史排版】**，已在 **v0.8.13** 中彻底实现并严密落地！
 
 ---
 
-### 📦 最终打包产物 (Windows v0.8.12)
-- **Windows Setup 安装包 (.exe)**：`desktop-build/MiMo-Audio-Workstation-Setup-v0.8.12-win64.exe`
-- **免解压便携压缩包 (.zip)**：`desktop-build/MiMo-Audio-Workstation-v0.8.12-win64-portable.zip`
+### ✨ 核心调整说明 (v0.8.13)
+
+#### 1. 🔲 批量产物节点一行 3 个网格折行排布（告别单列超长堆叠）
+- **一行 3 个，超出自动换行**：
+  - `batchArtifact`（批量产物卡片）与 `artifact`（单产物卡片）均严格遵循 **3 列网格排布规则**（`maxCols = 3`）；
+  - 当批量克隆产生 10 个产物时，自动排为 **3 列 × 4 行** 的规整矩阵，彻底消除原本纵向数千像素的单一竖列堆叠问题！
+- **间隙与卡片尺寸规范**：
+  - `batchArtifact`：`itemW = 440`, `itemH = 280`, `colGap = 40`, `rowGap = 40`；
+  - `artifact`（9 个单产物）：`itemW = 340`, `itemH = 145`, `colGap = 60`, `rowGap = 60`（宽高严格等距）。
+
+#### 2. 🌲 产物节点严格跟随各自上游父节点后方（还原图 2 与图 3 架构）
+- **父节点独立分支对齐**：
+  - 当同一画板内存在多个音色克隆或批量克隆分支时，算法将产物节点按其**所属的直接上游父节点独立分组**；
+  - 每个父节点的产物卡片以该父节点的 Y 轴起始位置为锚点，向右展开 3 列网格排布；
+  - 完美呈现您图 3 手绘的「父节点 -> 右侧属于自己的产物矩阵」以及图 2 历史排版的规整视觉效果！
+
+---
+
+### 📦 最终打包产物 (Windows v0.8.13)
+- **Windows Setup 安装包 (.exe)**：`desktop-build/MiMo-Audio-Workstation-Setup-v0.8.13-win64.exe`
+- **免解压便携压缩包 (.zip)**：`desktop-build/MiMo-Audio-Workstation-v0.8.13-win64-portable.zip`
 - **本地绿色客户端目录**：`desktop-build/MiMo-Audio-Workstation-win32-x64/MiMo-Audio-Workstation.exe`

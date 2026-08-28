@@ -974,6 +974,9 @@ function StudioApp() {
       let maxColWidth = 400;
 
       columnBlocks.forEach((blockNodes) => {
+        const nodeMap = new Map<string, StudioNode>();
+        blockNodes.forEach((n) => nodeMap.set(n.id, n));
+
         const bChildMap = new Map<string, string[]>();
         const bParentMap = new Map<string, string[]>();
         blockNodes.forEach((n) => {
@@ -996,9 +999,9 @@ function StudioApp() {
           if (t === "prompt" || t === "voiceStyle") return 0;
           if (t === "voiceDesign") return 0;
           if (t === "voiceClone") return 1;
-          if (t === "audioMerge") return 2;
           if (t === "batchVoiceClone" || t === "batchVoiceDesign" || t === "integratedStudio") return 1;
           if (t === "batchArtifact" || t === "artifact") return 2;
+          if (t === "audioMerge") return 3;
           return 3;
         }
 
@@ -1070,9 +1073,9 @@ function StudioApp() {
           } else if (artifactNodes.length >= 2 && colNodes.length === artifactNodes.length) {
             const isSingleArtifactGrid = artifactNodes.every((n) => n.type === "artifact");
             const maxCols = 3;
-            // 左右间距为现在的两倍 (60px)，上下间距和左右间距一样 (60px)
-            const colGap = isSingleArtifactGrid ? 60 : 36;
-            const rowGap = isSingleArtifactGrid ? 60 : 36;
+            // 批量产物节点按照原来的布局排列：一行3个，大于三个排第二行，以此类推
+            const colGap = isSingleArtifactGrid ? 60 : 40;
+            const rowGap = isSingleArtifactGrid ? 60 : 40;
 
             let maxItemW = isSingleArtifactGrid ? 340 : 440;
             let maxItemH = isSingleArtifactGrid ? 145 : 280;
@@ -1083,32 +1086,81 @@ function StudioApp() {
               maxItemH = Math.max(maxItemH, n.type === "artifact" ? (nh > 50 ? nh : 145) : nh);
             });
 
-            if (isSingleArtifactGrid) {
-              artifactNodes.sort((a, b) => (a.data.seqIndex || 0) - (b.data.seqIndex || 0));
-            }
+            // 按上游父节点及序号排序，确保各自的产物节点紧跟在各自上游后方
+            artifactNodes.sort((a, b) => {
+              const pA = bParentMap.get(a.id)?.[0];
+              const pB = bParentMap.get(b.id)?.[0];
+              if (pA && pB && pA !== pB) {
+                const posA = nodePositions.get(pA)?.y || 0;
+                const posB = nodePositions.get(pB)?.y || 0;
+                if (posA !== posB) return posA - posB;
+              }
+              const seqA = a.data.seqIndex ?? 999;
+              const seqB = b.data.seqIndex ?? 999;
+              if (seqA !== seqB) return seqA - seqB;
+              return a.position.y - b.position.y;
+            });
 
-            artifactNodes.forEach((node, idx) => {
-              if (isSingleArtifactGrid) {
+            // 检查是否有多个上游父节点，如果有多个上游父节点，按父节点独立分组排 3 列网格
+            const parentGroups = new Map<string, StudioNode[]>();
+            artifactNodes.forEach((node) => {
+              const pId = bParentMap.get(node.id)?.[0] || "_root_";
+              if (!parentGroups.has(pId)) parentGroups.set(pId, []);
+              parentGroups.get(pId)!.push(node);
+            });
+
+            if (parentGroups.size > 1) {
+              let gridMaxH = 0;
+              parentGroups.forEach((groupNodes, pId) => {
+                const pPos = nodePositions.get(pId);
+                const startY = pPos ? pPos.y : currentBlockStartY;
+
+                groupNodes.forEach((node, idx) => {
+                  const cIdx = idx % maxCols;
+                  const rIdx = Math.floor(idx / maxCols);
+                  const x = currentX + cIdx * (maxItemW + colGap);
+                  const y = startY + rIdx * (maxItemH + rowGap);
+                  nodePositions.set(node.id, { x, y });
+                });
+
+                const groupRows = Math.ceil(groupNodes.length / maxCols);
+                const groupH = startY + groupRows * (maxItemH + rowGap) - currentBlockStartY;
+                if (groupH > gridMaxH) gridMaxH = groupH;
+              });
+
+              if (gridMaxH > blockMaxHeight) blockMaxHeight = gridMaxH;
+            } else {
+              artifactNodes.forEach((node, idx) => {
                 const cIdx = idx % maxCols;
                 const rIdx = Math.floor(idx / maxCols);
                 const x = currentX + cIdx * (maxItemW + colGap);
                 const y = currentBlockStartY + rIdx * (maxItemH + rowGap);
                 nodePositions.set(node.id, { x, y });
-              } else {
-                // batchArtifact 按照垂直列表排布
-                const x = currentX;
-                const y = currentBlockStartY + idx * (maxItemH + rowGap);
-                nodePositions.set(node.id, { x, y });
-              }
-            });
+              });
 
-            const numRows = isSingleArtifactGrid ? Math.ceil(artifactNodes.length / maxCols) : artifactNodes.length;
-            const gridH = numRows * (maxItemH + rowGap) - rowGap;
-            if (gridH > blockMaxHeight) blockMaxHeight = gridH;
+              const numRows = Math.ceil(artifactNodes.length / maxCols);
+              const gridH = numRows * (maxItemH + rowGap) - rowGap;
+              if (gridH > blockMaxHeight) blockMaxHeight = gridH;
+            }
 
-            const gridW = isSingleArtifactGrid ? maxCols * maxItemW + (maxCols - 1) * colGap : maxItemW;
+            const numCols = Math.min(artifactNodes.length, maxCols);
+            const gridW = numCols * maxItemW + (numCols - 1) * colGap;
             currentX += gridW + 80;
           } else {
+            // Sort non-artifact column nodes by their upstream parent Y position
+            if (col > 0) {
+              colNodes.sort((a, b) => {
+                const pA = bParentMap.get(a.id)?.[0];
+                const pB = bParentMap.get(b.id)?.[0];
+                if (pA && pB) {
+                  const posA = nodePositions.get(pA)?.y || 0;
+                  const posB = nodePositions.get(pB)?.y || 0;
+                  if (posA !== posB) return posA - posB;
+                }
+                return a.position.y - b.position.y;
+              });
+            }
+
             let lastY = currentBlockStartY;
             let colMaxW = 340;
 
