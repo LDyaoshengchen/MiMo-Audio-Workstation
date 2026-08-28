@@ -884,6 +884,22 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
   }
 });
 
+app.get("/api/audio-cache/:fileName", (req, res) => {
+  try {
+    const rawFileName = req.params.fileName;
+    const safeFileName = path.basename(decodeURIComponent(rawFileName));
+    const filePath = path.join(getAudiosDir(), safeFileName);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Audio file not found.");
+    }
+    res.setHeader("Content-Type", "audio/wav");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    fs.createReadStream(filePath).pipe(res);
+  } catch {
+    res.status(500).send("Error streaming audio cache.");
+  }
+});
+
 app.post("/api/workspaces/open-folder", async (req, res, next) => {
   try {
     const customTarget = req.body?.folderPath || req.body?.filePath || req.body?.targetPath;
@@ -3218,6 +3234,101 @@ function createWorkflowEdge(source: string, sourceHandle: string, target: string
   };
 }
 
+async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
+  if (!workspace || workspace.type !== "board" || !Array.isArray(workspace.nodes)) return;
+  const audiosDir = getAudiosDir();
+  await mkdir(audiosDir, { recursive: true });
+
+  for (const node of workspace.nodes) {
+    if (!node || !node.data) continue;
+    // 1. batchArtifact
+    if (node.type === "batchArtifact" && Array.isArray(node.data.batchArtifacts)) {
+      for (const item of node.data.batchArtifacts) {
+        if (item && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
+          const base64 = item.audioDataUrl.split(",")[1];
+          if (base64) {
+            const fname = item.fileName || `mimo-batch-${item.id || Date.now()}.wav`;
+            const filePath = path.join(audiosDir, fname);
+            if (!fs.existsSync(filePath)) {
+              try {
+                await writeFile(filePath, Buffer.from(base64, "base64"));
+              } catch {}
+            }
+            item.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+          }
+        }
+      }
+    }
+    // 2. integratedStudio
+    if (node.type === "integratedStudio" && Array.isArray(node.data.batchRows)) {
+      for (const row of node.data.batchRows) {
+        for (const art of row?.artifacts || []) {
+          if (art && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
+            const base64 = art.audioDataUrl.split(",")[1];
+            if (base64) {
+              const fname = art.fileName || `mimo-integrated-${art.id || Date.now()}.wav`;
+              const filePath = path.join(audiosDir, fname);
+              if (!fs.existsSync(filePath)) {
+                try {
+                  await writeFile(filePath, Buffer.from(base64, "base64"));
+                } catch {}
+              }
+              art.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+            }
+          }
+        }
+      }
+    }
+    // 3. artifact
+    if (node.type === "artifact" && node.data?.artifact && typeof node.data.artifact.audioDataUrl === "string" && node.data.artifact.audioDataUrl.startsWith("data:")) {
+      const base64 = node.data.artifact.audioDataUrl.split(",")[1];
+      if (base64) {
+        const fname = node.data.artifact.fileName || `mimo-artifact-${node.id || Date.now()}.wav`;
+        const filePath = path.join(audiosDir, fname);
+        if (!fs.existsSync(filePath)) {
+          try {
+            await writeFile(filePath, Buffer.from(base64, "base64"));
+          } catch {}
+        }
+        node.data.artifact.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+      }
+    }
+    // 4. referenceAudio / audio
+    if (node.data?.audio && typeof node.data.audio.dataUrl === "string" && node.data.audio.dataUrl.startsWith("data:")) {
+      const base64 = node.data.audio.dataUrl.split(",")[1];
+      if (base64) {
+        const fname = node.data.audio.name || `mimo-ref-${node.id || Date.now()}.wav`;
+        const filePath = path.join(audiosDir, fname);
+        if (!fs.existsSync(filePath)) {
+          try {
+            await writeFile(filePath, Buffer.from(base64, "base64"));
+          } catch {}
+        }
+        node.data.audio.dataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+      }
+    }
+  }
+
+  // 5. stashItems
+  if (Array.isArray(workspace.stashItems)) {
+    for (const stash of workspace.stashItems) {
+      if (stash && typeof stash.audioDataUrl === "string" && stash.audioDataUrl.startsWith("data:")) {
+        const base64 = stash.audioDataUrl.split(",")[1];
+        if (base64) {
+          const fname = stash.fileName || `mimo-stash-${stash.id || Date.now()}.wav`;
+          const filePath = path.join(audiosDir, fname);
+          if (!fs.existsSync(filePath)) {
+            try {
+              await writeFile(filePath, Buffer.from(base64, "base64"));
+            } catch {}
+          }
+          stash.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+        }
+      }
+    }
+  }
+}
+
 async function readWorkspaceStore(): Promise<WorkspaceStore> {
   await workspaceWriteQueue;
   return readWorkspaceStoreNow();
@@ -3239,7 +3350,9 @@ async function readWorkspaceStoreNow(): Promise<WorkspaceStore> {
       const filePath = path.join(wsDir, `${item.id}.json`);
       try {
         const content = await readFile(filePath, "utf-8");
-        workspaces.push(normalizeStoredWorkspace(JSON.parse(content)));
+        const parsed = normalizeStoredWorkspace(JSON.parse(content));
+        await offloadWorkspaceAudiosToDisk(parsed);
+        workspaces.push(parsed);
       } catch (error) {
         const code = typeof error === "object" && error && "code" in error ? (error as { code?: string }).code : "";
         if (code === "ENOENT") {
@@ -3265,6 +3378,9 @@ async function readWorkspaceStoreNow(): Promise<WorkspaceStore> {
   try {
     const raw = await readFile(wsFile, "utf-8");
     const store = normalizeWorkspaceStore(parseWorkspaceStore(raw));
+    for (const ws of store.workspaces) {
+      await offloadWorkspaceAudiosToDisk(ws);
+    }
     await migrateToNewStorage(store);
     return store;
   } catch (error) {
@@ -3300,6 +3416,7 @@ async function migrateToNewStorage(store: WorkspaceStore): Promise<void> {
   await mkdir(wsDir, { recursive: true });
 
   for (const workspace of store.workspaces) {
+    await offloadWorkspaceAudiosToDisk(workspace);
     const filePath = path.join(wsDir, `${workspace.id}.json`);
     await writeJsonFile(filePath, workspace);
   }
@@ -3330,6 +3447,7 @@ async function writeWorkspaceStoreNow(store: WorkspaceStore): Promise<void> {
   await mkdir(wsDir, { recursive: true });
 
   for (const workspace of store.workspaces) {
+    await offloadWorkspaceAudiosToDisk(workspace);
     const filePath = path.join(wsDir, `${workspace.id}.json`);
     await writeJsonFile(filePath, workspace);
   }

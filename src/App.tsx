@@ -4524,7 +4524,8 @@ function StudioApp() {
     const usedNames = new Map<string, number>();
     for (const item of items) {
       const safeName = getUniqueFileName(getArtifactDownloadFileName(item.sourceNodeName || item.fileName, item.fileName, activeWorkspace.name), usedNames);
-      zip.file(safeName, dataUrlToUint8Array(item.audioDataUrl));
+      const bytes = await fetchAudioUint8Array(item.audioDataUrl);
+      zip.file(safeName, bytes);
     }
 
     const blob = await zip.generateAsync({ type: "blob" });
@@ -8638,11 +8639,11 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        const base64Data = item.audioDataUrl.split(",")[1];
-        if (base64Data) {
+        if (item.audioDataUrl) {
           const itemSeq = item.seqIndex ?? (i + 1);
           const fullItemFileName = `${formatHierarchyName(parentTitle, nodeTitle, itemSeq)}.wav`.replace(/[\\/:*?"<>|]/g, "_");
-          folder.file(fullItemFileName, base64Data, { base64: true });
+          const bytes = await fetchAudioUint8Array(item.audioDataUrl);
+          folder.file(fullItemFileName, bytes);
         }
       }
 
@@ -9457,15 +9458,16 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
       const folderName = (data.title || "全能工作台产物").replace(/[:：\s]/g, "_");
       const folder = zip.folder(folderName) || zip;
 
-      allArtifacts.forEach(({ rowTitle, item }, idx) => {
-        const base64Data = item.audioDataUrl.split(",")[1];
-        if (base64Data) {
+      for (let idx = 0; idx < allArtifacts.length; idx++) {
+        const { rowTitle, item } = allArtifacts[idx];
+        if (item.audioDataUrl) {
           const parentTitle = data.title || "全能工作台";
           const itemSeq = item.seqIndex ?? (idx + 1);
           const fullItemFileName = `${formatHierarchyName(parentTitle, rowTitle, itemSeq)}.wav`.replace(/[\\/:*?"<>|]/g, "_");
-          folder.file(fullItemFileName, base64Data, { base64: true });
+          const bytes = await fetchAudioUint8Array(item.audioDataUrl);
+          folder.file(fullItemFileName, bytes);
         }
-      });
+      }
 
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
@@ -10412,7 +10414,13 @@ async function mergeAudioAssets(assets: AudioAsset[]): Promise<AudioAsset> {
   if (!AudioContextConstructor) throw new Error("当前浏览器不支持本地音频整合。");
   const context = new AudioContextConstructor();
   try {
-    const decoded = await Promise.all(assets.map(async (asset) => context.decodeAudioData(await dataUrlToBlob(asset.dataUrl).arrayBuffer())));
+    const decoded = await Promise.all(
+      assets.map(async (asset) => {
+        const u8 = await fetchAudioUint8Array(asset.dataUrl);
+        const arrayBuf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+        return context.decodeAudioData(arrayBuf);
+      })
+    );
     const sampleRate = decoded[0].sampleRate;
     const channelCount = Math.max(...decoded.map((audio) => audio.numberOfChannels));
     const normalized = await Promise.all(decoded.map((audio) => resampleAudioBuffer(audio, sampleRate, channelCount)));
@@ -10555,12 +10563,31 @@ async function fileToAudioAsset(file: File): Promise<AudioAsset> {
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
-  const [meta, base64] = dataUrl.split(",");
-  const mimeType = meta.match(/data:(.*);base64/)?.[1] || "audio/mpeg";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return new Blob([bytes], { type: mimeType });
+  if (dataUrl.startsWith("data:")) {
+    const [meta, base64] = dataUrl.split(",");
+    const mimeType = meta.match(/data:(.*);base64/)?.[1] || "audio/wav";
+    const binary = atob(base64 || "");
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return new Blob([bytes], { type: mimeType });
+  }
+  return new Blob([], { type: "audio/wav" });
+}
+
+async function fetchAudioUint8Array(urlOrData: string): Promise<Uint8Array> {
+  if (!urlOrData) return new Uint8Array(0);
+  if (urlOrData.startsWith("data:")) {
+    const base64 = urlOrData.split(",")[1] ?? "";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+  const res = await fetch(urlOrData);
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
 }
 
 function dataUrlToFile(dataUrl: string, fileName: string, mimeType: string): File {
