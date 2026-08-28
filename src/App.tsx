@@ -974,152 +974,166 @@ function StudioApp() {
       let maxColWidth = 400;
 
       columnBlocks.forEach((blockNodes) => {
-        const nodeMap = new Map<string, StudioNode>();
-        blockNodes.forEach((n) => nodeMap.set(n.id, n));
-
-        const childrenMap = new Map<string, string[]>();
-        const parentMap = new Map<string, string[]>();
+        const bChildMap = new Map<string, string[]>();
+        const bParentMap = new Map<string, string[]>();
         blockNodes.forEach((n) => {
-          childrenMap.set(n.id, []);
-          parentMap.set(n.id, []);
+          bChildMap.set(n.id, []);
+          bParentMap.set(n.id, []);
         });
 
         currentEdges.forEach((e) => {
-          if (childrenMap.has(e.source) && childrenMap.has(e.target)) {
-            if (!childrenMap.get(e.source)!.includes(e.target)) {
-              childrenMap.get(e.source)!.push(e.target);
-            }
-            if (!parentMap.get(e.target)!.includes(e.source)) {
-              parentMap.get(e.target)!.push(e.source);
-            }
+          if (bChildMap.has(e.source) && bChildMap.has(e.target)) {
+            bChildMap.get(e.source)!.push(e.target);
+            bParentMap.get(e.target)!.push(e.source);
           }
         });
 
-        // Identify root nodes of this block (nodes with in-degree 0)
-        let rootIds = blockNodes
-          .filter((n) => (parentMap.get(n.id)?.length || 0) === 0)
-          .map((n) => n.id);
+        const bLevelMap = new Map<string, number>();
 
-        if (rootIds.length === 0) {
-          rootIds = [blockNodes.reduce((min, n) => (n.position.x < min.position.x ? n : min), blockNodes[0]).id];
+        function getBlockFallbackLevel(node: StudioNode): number {
+          const t = node.type as StudioNodeType;
+          if (t === "referenceAudio") return 0;
+          if (t === "prompt" || t === "voiceStyle") return 0;
+          if (t === "voiceDesign") return 0;
+          if (t === "voiceClone") return 1;
+          if (t === "audioMerge") return 2;
+          if (t === "batchVoiceClone" || t === "batchVoiceDesign" || t === "integratedStudio") return 1;
+          if (t === "batchArtifact" || t === "artifact") return 2;
+          return 3;
         }
 
-        rootIds.sort((a, b) => (nodeMap.get(a)?.position.y || 0) - (nodeMap.get(b)?.position.y || 0));
+        blockNodes.forEach((n) => bLevelMap.set(n.id, getBlockFallbackLevel(n)));
 
-        // Subtree Layout calculation
-        const layoutVisited = new Set<string>();
-
-        function layoutSubtree(nodeId: string, originX: number, originY: number): { width: number; height: number } {
-          layoutVisited.add(nodeId);
-          const node = nodeMap.get(nodeId);
-          if (!node) return { width: 0, height: 0 };
-
-          const nodeW = getNodeWidth(node);
-          const nodeH = getNodeHeight(node);
-
-          const rawChildren = (childrenMap.get(nodeId) || []).filter((cId) => !layoutVisited.has(cId));
-
-          if (rawChildren.length === 0) {
-            nodePositions.set(nodeId, { x: originX, y: originY });
-            return { width: nodeW, height: nodeH };
-          }
-
-          // Check if children are single artifact nodes (3x3 grid)
-          const allArtifacts = rawChildren.every((cId) => nodeMap.get(cId)?.type === "artifact");
-          if (allArtifacts && rawChildren.length >= 2) {
-            const maxCols = 3;
-            const colGap = 28;
-            const rowGap = 24;
-            const itemW = 340;
-            const itemH = 145;
-
-            rawChildren.sort((a, b) => {
-              const na = nodeMap.get(a);
-              const nb = nodeMap.get(b);
-              return (na?.data.seqIndex || 0) - (nb?.data.seqIndex || 0);
-            });
-
-            const gridStartX = originX + nodeW + 60;
-            const gridStartY = originY;
-
-            rawChildren.forEach((cId, idx) => {
-              layoutVisited.add(cId);
-              const cIdx = idx % maxCols;
-              const rIdx = Math.floor(idx / maxCols);
-              nodePositions.set(cId, {
-                x: gridStartX + cIdx * (itemW + colGap),
-                y: gridStartY + rIdx * (itemH + rowGap)
+        let changed = true;
+        for (let iter = 0; iter < 10 && changed; iter++) {
+          changed = false;
+          blockNodes.forEach((n) => {
+            const parents = bParentMap.get(n.id) || [];
+            if (parents.length > 0) {
+              let maxP = -1;
+              parents.forEach((pId) => {
+                const pL = bLevelMap.get(pId) ?? 0;
+                if (pL > maxP) maxP = pL;
               });
-            });
-
-            nodePositions.set(nodeId, { x: originX, y: originY });
-
-            const numCols = Math.min(rawChildren.length, maxCols);
-            const numRows = Math.ceil(rawChildren.length / maxCols);
-            const gridTotalW = numCols * itemW + (numCols - 1) * colGap;
-            const gridTotalH = numRows * itemH + (numRows - 1) * rowGap;
-
-            const totalW = nodeW + 60 + gridTotalW;
-            const totalH = Math.max(nodeH, gridTotalH);
-            return { width: totalW, height: totalH };
-          }
-
-          // General Tree Branching (Screenshot 4)
-          rawChildren.sort((a, b) => {
-            const na = nodeMap.get(a);
-            const nb = nodeMap.get(b);
-            const seqA = na?.data.seqIndex ?? 999;
-            const seqB = nb?.data.seqIndex ?? 999;
-            if (seqA !== seqB) return seqA - seqB;
-            return (na?.position.y || 0) - (nb?.position.y || 0);
-          });
-
-          const childrenStartX = originX + nodeW + 60;
-          let currentChildY = originY;
-          let maxChildSubtreeW = 0;
-
-          rawChildren.forEach((cId) => {
-            const childBox = layoutSubtree(cId, childrenStartX, currentChildY);
-            if (childBox.width > maxChildSubtreeW) {
-              maxChildSubtreeW = childBox.width;
+              const targetL = maxP + 1;
+              if (targetL > (bLevelMap.get(n.id) ?? 0)) {
+                bLevelMap.set(n.id, targetL);
+                changed = true;
+              }
             }
-            currentChildY += childBox.height + 36;
           });
-
-          const totalChildrenH = currentChildY - 36 - originY;
-          const totalSubtreeH = Math.max(nodeH, totalChildrenH);
-          const totalSubtreeW = nodeW + 60 + maxChildSubtreeW;
-
-          nodePositions.set(nodeId, { x: originX, y: originY });
-
-          return { width: totalSubtreeW, height: totalSubtreeH };
         }
 
-        let blockCurrentY = currentBlockStartY;
-        let blockMaxW = 0;
-
-        rootIds.forEach((rootId) => {
-          if (!layoutVisited.has(rootId)) {
-            const rootBox = layoutSubtree(rootId, globalColStartX, blockCurrentY);
-            if (rootBox.width > blockMaxW) blockMaxW = rootBox.width;
-            blockCurrentY += rootBox.height + 40;
-          }
-        });
+        const maxL = Math.max(...Array.from(bLevelMap.values()), 0);
+        const bBuckets: StudioNode[][] = Array.from({ length: maxL + 1 }, () => []);
 
         blockNodes.forEach((n) => {
-          if (!layoutVisited.has(n.id)) {
-            const nw = getNodeWidth(n);
-            const nh = getNodeHeight(n);
-            nodePositions.set(n.id, { x: globalColStartX, y: blockCurrentY });
-            if (nw > blockMaxW) blockMaxW = nw;
-            blockCurrentY += nh + 36;
-          }
+          const lvl = bLevelMap.get(n.id) ?? 0;
+          bBuckets[lvl].push(n);
         });
 
-        const blockTotalHeight = blockCurrentY - currentBlockStartY;
-        if (blockMaxW > maxColWidth) maxColWidth = blockMaxW;
+        let currentX = globalColStartX;
+        let blockMaxHeight = 220;
 
-        currentBlockStartY += Math.max(blockTotalHeight, 220) + 120;
+        for (let col = 0; col <= maxL; col++) {
+          const colNodes = bBuckets[col];
+          if (colNodes.length === 0) continue;
+
+          const singleClones = colNodes.filter((n) => n.type === "voiceClone" || n.type === "voiceDesign");
+          const artifactNodes = colNodes.filter((n) => n.type === "batchArtifact" || n.type === "artifact");
+
+          if (singleClones.length >= 3 && colNodes.length === singleClones.length) {
+            const maxCols = 3;
+            const colGap = 40;
+            const rowGap = 40;
+
+            let maxItemW = 360;
+            let maxItemH = 360;
+            singleClones.forEach((n) => {
+              maxItemW = Math.max(maxItemW, getNodeWidth(n));
+              maxItemH = Math.max(maxItemH, getNodeHeight(n));
+            });
+
+            singleClones.forEach((node, idx) => {
+              const cIdx = idx % maxCols;
+              const rIdx = Math.floor(idx / maxCols);
+              const x = currentX + cIdx * (maxItemW + colGap);
+              const y = currentBlockStartY + rIdx * (maxItemH + rowGap);
+              nodePositions.set(node.id, { x, y });
+            });
+
+            const numRows = Math.ceil(singleClones.length / maxCols);
+            const gridH = numRows * (maxItemH + rowGap) - rowGap;
+            if (gridH > blockMaxHeight) blockMaxHeight = gridH;
+
+            currentX += maxCols * maxItemW + (maxCols - 1) * colGap + 80;
+          } else if (artifactNodes.length >= 2 && colNodes.length === artifactNodes.length) {
+            const isSingleArtifactGrid = artifactNodes.every((n) => n.type === "artifact");
+            const maxCols = 3;
+            // 左右间距为现在的两倍 (60px)，上下间距和左右间距一样 (60px)
+            const colGap = isSingleArtifactGrid ? 60 : 36;
+            const rowGap = isSingleArtifactGrid ? 60 : 36;
+
+            let maxItemW = isSingleArtifactGrid ? 340 : 440;
+            let maxItemH = isSingleArtifactGrid ? 145 : 280;
+            artifactNodes.forEach((n) => {
+              const nw = getNodeWidth(n);
+              const nh = getNodeHeight(n);
+              maxItemW = Math.max(maxItemW, n.type === "artifact" ? (nw > 50 ? nw : 340) : nw);
+              maxItemH = Math.max(maxItemH, n.type === "artifact" ? (nh > 50 ? nh : 145) : nh);
+            });
+
+            if (isSingleArtifactGrid) {
+              artifactNodes.sort((a, b) => (a.data.seqIndex || 0) - (b.data.seqIndex || 0));
+            }
+
+            artifactNodes.forEach((node, idx) => {
+              if (isSingleArtifactGrid) {
+                const cIdx = idx % maxCols;
+                const rIdx = Math.floor(idx / maxCols);
+                const x = currentX + cIdx * (maxItemW + colGap);
+                const y = currentBlockStartY + rIdx * (maxItemH + rowGap);
+                nodePositions.set(node.id, { x, y });
+              } else {
+                // batchArtifact 按照垂直列表排布
+                const x = currentX;
+                const y = currentBlockStartY + idx * (maxItemH + rowGap);
+                nodePositions.set(node.id, { x, y });
+              }
+            });
+
+            const numRows = isSingleArtifactGrid ? Math.ceil(artifactNodes.length / maxCols) : artifactNodes.length;
+            const gridH = numRows * (maxItemH + rowGap) - rowGap;
+            if (gridH > blockMaxHeight) blockMaxHeight = gridH;
+
+            const gridW = isSingleArtifactGrid ? maxCols * maxItemW + (maxCols - 1) * colGap : maxItemW;
+            currentX += gridW + 80;
+          } else {
+            let lastY = currentBlockStartY;
+            let colMaxW = 340;
+
+            colNodes.forEach((node) => {
+              const nodeW = getNodeWidth(node);
+              const nodeH = getNodeHeight(node);
+              if (nodeW > colMaxW) colMaxW = nodeW;
+
+              nodePositions.set(node.id, { x: currentX, y: lastY });
+              lastY += nodeH + 40;
+            });
+
+            const colH = lastY - 40 - currentBlockStartY;
+            if (colH > blockMaxHeight) blockMaxHeight = colH;
+
+            currentX += colMaxW + 80;
+          }
+        }
+
+        const blockTotalWidth = currentX - globalColStartX;
+        if (blockTotalWidth > maxColWidth) {
+          maxColWidth = blockTotalWidth;
+        }
+
+        currentBlockStartY += Math.max(blockMaxHeight, 220) + 120;
       });
 
       // 第二列和第一列间隔空间大点 (280px)
@@ -10528,9 +10542,9 @@ function createArtifactNode(
 
   const col = (seqNum - 1) % 3;
   const rowPos = Math.floor((seqNum - 1) / 3);
-  const stepX = 368;
-  const stepY = 169;
-  const startX = sourceNode.position.x + (sourceNode.type === "voiceDesign" ? 400 : 380);
+  const stepX = 400;
+  const stepY = 205;
+  const startX = sourceNode.position.x + (sourceNode.type === "voiceDesign" ? 420 : 380);
 
   return {
     id: createId("artifact"),
