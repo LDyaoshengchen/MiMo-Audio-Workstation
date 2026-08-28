@@ -2824,6 +2824,20 @@ function StudioApp() {
     }
   }
 
+  async function openLocalAudiosFolder() {
+    try {
+      const res = await fetch("/api/workspaces/open-audios-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) {
+        throw new Error("无法在本地资源管理器中打开音频输出目录。");
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "打开音频输出目录失败。");
+    }
+  }
+
   function handleWorkspaceClick(event: React.MouseEvent, workspace: WorkspaceSummary, index: number) {
     if (event.ctrlKey || event.metaKey) {
       setSelectedWorkspaceIds((prev) => {
@@ -5089,13 +5103,21 @@ function StudioApp() {
                   ) : null}
                   <button type="button" className="storage-path-btn-default" onClick={() => void resetStoragePath()}>恢复默认</button>
                 </div>
-                <div className="storage-path-actions">
+                <div className="storage-path-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     className="storage-path-btn-open"
                     onClick={() => void openLocalWorkspaceFolder(activeWorkspace?.id)}
                   >
-                    <FolderOpen size={14} /> 在本地资源管理器打开并选中存储文件
+                    <FolderOpen size={14} /> 在本地资源管理器打开画板工程文件
+                  </button>
+                  <button
+                    type="button"
+                    className="storage-path-btn-open"
+                    onClick={() => void openLocalAudiosFolder()}
+                    style={{ background: "#2563eb", color: "#ffffff", borderColor: "#3b82f6" }}
+                  >
+                    <FolderOpen size={14} /> 📂 打开生成的音频保存目录 (audios/)
                   </button>
                 </div>
               </div>
@@ -10157,6 +10179,7 @@ let activeGlobalAudio: HTMLAudioElement | null = null;
 function StudioAudioPlayer({ src }: { src: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -10169,9 +10192,33 @@ function StudioAudioPlayer({ src }: { src: string }) {
     }
   }, [playbackRate]);
 
+  function loadAndPlay() {
+    setIsLoaded(true);
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (!audio.src && src) {
+      audio.src = src;
+    }
+
+    if (activeGlobalAudio && activeGlobalAudio !== audio) {
+      activeGlobalAudio.pause();
+    }
+    activeGlobalAudio = audio;
+    audio.playbackRate = playbackRate;
+    void audio.play().then(() => {
+      setIsPlaying(true);
+    }).catch(() => {
+      setIsPlaying(false);
+    });
+  }
+
   function togglePlay() {
     const audio = audioRef.current;
-    if (!audio) {
+    if (!audio) return;
+
+    if (!isLoaded || !audio.src) {
+      loadAndPlay();
       return;
     }
 
@@ -10180,9 +10227,11 @@ function StudioAudioPlayer({ src }: { src: string }) {
         activeGlobalAudio.pause();
       }
       activeGlobalAudio = audio;
-      void audio.play();
+      audio.playbackRate = playbackRate;
+      void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     } else {
       audio.pause();
+      setIsPlaying(false);
     }
   }
 
@@ -10197,11 +10246,16 @@ function StudioAudioPlayer({ src }: { src: string }) {
 
   function seek(value: string) {
     const nextTime = Number(value);
+    if (!isLoaded) {
+      setIsLoaded(true);
+    }
     const audio = audioRef.current;
     if (!audio || Number.isNaN(nextTime)) {
       return;
     }
-
+    if (!audio.src && src) {
+      audio.src = src;
+    }
     audio.currentTime = nextTime;
     setCurrentTime(nextTime);
   }
@@ -10210,8 +10264,8 @@ function StudioAudioPlayer({ src }: { src: string }) {
     <div className="studio-player nodrag">
       <audio
         ref={audioRef}
-        src={src}
-        preload="metadata"
+        src={isLoaded ? src : undefined}
+        preload="none"
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration || 0);
           event.currentTarget.playbackRate = playbackRate;
@@ -10225,7 +10279,10 @@ function StudioAudioPlayer({ src }: { src: string }) {
           setIsPlaying(true);
         }}
         onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
       />
       <button className="player-button" type="button" onClick={togglePlay} title={isPlaying ? "暂停" : "播放"}>
         {isPlaying ? <Pause size={15} /> : <Play size={15} />}

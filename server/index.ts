@@ -40,6 +40,10 @@ function getWorkspaceFilePath(): string {
   return path.join(getDataDir(), "workspaces.json");
 }
 
+function getAudiosDir(): string {
+  return path.join(getDataDir(), "audios");
+}
+
 function getSettingsFilePath(): string {
   return path.join(getDataDir(), "settings.json");
 }
@@ -866,6 +870,24 @@ app.post("/api/workspaces/open-folder", async (req, res, next) => {
   }
 });
 
+app.post("/api/workspaces/open-audios-folder", async (_req, res, next) => {
+  try {
+    const curAudiosDir = getAudiosDir();
+    await mkdir(curAudiosDir, { recursive: true });
+    const normPath = path.win32 ? path.win32.normalize(curAudiosDir) : curAudiosDir;
+    if (process.platform === "win32") {
+      exec(`explorer.exe "${normPath}"`);
+    } else if (process.platform === "darwin") {
+      exec(`open "${curAudiosDir}"`);
+    } else {
+      exec(`xdg-open "${curAudiosDir}"`);
+    }
+    res.json({ ok: true, path: normPath });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/workspaces/export-to-path", async (req, res, next) => {
   try {
     const { targetDir, ids, exportFormat = "individual_json", isTemplateFormat = false } = req.body ?? {};
@@ -1017,6 +1039,7 @@ app.get("/api/settings/storage-path", async (_req, res, next) => {
     const curDir = getDataDir();
     res.json({
       dataDir: curDir,
+      audiosDir: getAudiosDir(),
       workspaceFilePath: getWorkspaceFilePath(),
       isCustom: Boolean(activeCustomDataDir)
     });
@@ -1046,6 +1069,7 @@ app.post("/api/settings/storage-path", async (req, res, next) => {
     res.json({
       ok: true,
       dataDir: resolved,
+      audiosDir: getAudiosDir(),
       workspaceFilePath: getWorkspaceFilePath()
     });
   } catch (error) {
@@ -2303,9 +2327,18 @@ app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesi
       });
     }
 
+    const fileName = `mimo-voicedesign-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+    try {
+      const audiosDir = getAudiosDir();
+      await mkdir(audiosDir, { recursive: true });
+      await writeFile(path.join(audiosDir, fileName), Buffer.from(audioData, "base64"));
+    } catch (saveErr) {
+      console.warn("Failed to write voicedesign audio copy to disk:", saveErr);
+    }
+
     res.json({
       audioDataUrl: `data:audio/wav;base64,${audioData}`,
-      fileName: `mimo-voicedesign-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`,
+      fileName,
       elapsedMs,
       request: redactVoiceDesignPayload(payload),
       response: {
@@ -2410,9 +2443,18 @@ app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res
       });
     }
 
+    const fileName = `mimo-voiceclone-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+    try {
+      const audiosDir = getAudiosDir();
+      await mkdir(audiosDir, { recursive: true });
+      await writeFile(path.join(audiosDir, fileName), Buffer.from(audioData, "base64"));
+    } catch (saveErr) {
+      console.warn("Failed to write voiceclone audio copy to disk:", saveErr);
+    }
+
     res.json({
       audioDataUrl: `data:audio/wav;base64,${audioData}`,
-      fileName: `mimo-voiceclone-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`,
+      fileName,
       elapsedMs,
       request: redactPayload(payload, req.file),
       response: {
