@@ -757,6 +757,7 @@ function StudioApp() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspacePayload | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<StudioEdge>([]);
+  const selectedNodesCount = useMemo(() => nodes.filter((n) => n.selected).length, [nodes]);
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -867,10 +868,18 @@ function StudioApp() {
     }
   }, [activeWorkspace?.name]);
 
-  const tidyWorkspaceNodes = useCallback(() => {
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-    if (!currentNodes || currentNodes.length === 0) return;
+  const tidyWorkspaceNodes = useCallback((onlySelected?: boolean) => {
+    const allNodes = nodesRef.current;
+    const allEdges = edgesRef.current;
+    if (!allNodes || allNodes.length === 0) return;
+
+    // Check if user has selected multiple nodes
+    const selectedNodesList = allNodes.filter((n) => n.selected);
+    const isSelectionMode = (onlySelected === true || (selectedNodesList.length >= 2 && onlySelected !== false)) && selectedNodesList.length < allNodes.length;
+
+    const targetNodes = isSelectionMode ? selectedNodesList : allNodes;
+    const targetNodeIds = new Set(targetNodes.map((n) => n.id));
+    const targetEdges = allEdges.filter((e) => targetNodeIds.has(e.source) && targetNodeIds.has(e.target));
 
     function getNodeWidth(node: StudioNode): number {
       if (node.measured?.width && node.measured.width > 50) {
@@ -911,11 +920,11 @@ function StudioApp() {
       return 260;
     }
 
-    // 1. Group nodes into Connected Components (Disjoint Blocks)
+    // 1. Group target nodes into Connected Components (Disjoint Blocks)
     const adjMap = new Map<string, Set<string>>();
-    currentNodes.forEach((n) => adjMap.set(n.id, new Set()));
+    targetNodes.forEach((n) => adjMap.set(n.id, new Set()));
 
-    currentEdges.forEach((e) => {
+    targetEdges.forEach((e) => {
       if (adjMap.has(e.source)) adjMap.get(e.source)!.add(e.target);
       if (adjMap.has(e.target)) adjMap.get(e.target)!.add(e.source);
     });
@@ -924,7 +933,7 @@ function StudioApp() {
     const blocks: StudioNode[][] = [];
 
     // Sort initial nodes by Y position to maintain user's natural top-to-bottom order
-    const sortedNodes = [...currentNodes].sort((a, b) => a.position.y - b.position.y);
+    const sortedNodes = [...targetNodes].sort((a, b) => a.position.y - b.position.y);
 
     sortedNodes.forEach((n) => {
       if (visited.has(n.id)) return;
@@ -934,7 +943,7 @@ function StudioApp() {
 
       while (queue.length > 0) {
         const currId = queue.shift()!;
-        const currNode = currentNodes.find((cn) => cn.id === currId);
+        const currNode = targetNodes.find((cn) => cn.id === currId);
         if (currNode) component.push(currNode);
 
         const neighbors = adjMap.get(currId) || new Set();
@@ -961,16 +970,21 @@ function StudioApp() {
     const nodePositions = new Map<string, { x: number; y: number }>();
     const BLOCKS_PER_COLUMN = 5;
 
+    // Starting origin:
+    // If in selection mode, use the minimum top-left position of the selected nodes!
+    const originBaseX = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.x)) : 80;
+    const originBaseY = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.y)) : 80;
+
     // Split blocks into columns of 5 blocks each (数列超过5个工作流自动往右排一列)
     const blockColumns: StudioNode[][][] = [];
     for (let i = 0; i < blocks.length; i += BLOCKS_PER_COLUMN) {
       blockColumns.push(blocks.slice(i, i + BLOCKS_PER_COLUMN));
     }
 
-    let globalColStartX = 80;
+    let globalColStartX = originBaseX;
 
     blockColumns.forEach((columnBlocks) => {
-      let currentBlockStartY = 80;
+      let currentBlockStartY = originBaseY;
       let maxColWidth = 400;
 
       columnBlocks.forEach((blockNodes) => {
@@ -985,7 +999,7 @@ function StudioApp() {
           allParentsMap.set(n.id, []);
         });
 
-        currentEdges.forEach((e) => {
+        targetEdges.forEach((e) => {
           if (allChildrenMap.has(e.source) && allChildrenMap.has(e.target)) {
             if (!allChildrenMap.get(e.source)!.includes(e.target)) {
               allChildrenMap.get(e.source)!.push(e.target);
@@ -1044,7 +1058,7 @@ function StudioApp() {
           });
         });
 
-        // Identify primary root nodes of this block (nodes with no upstream non-artifact parents)
+        // Identify primary root nodes of this block (nodes with no upstream non-artifact parents in target set)
         let rootIds = blockNodes
           .filter((n) => {
             if (n.type === "artifact" || n.type === "batchArtifact") return false;
@@ -1130,9 +1144,9 @@ function StudioApp() {
           rawLogicChildren.sort((a, b) => (nodeMap.get(a)?.position.y || 0) - (nodeMap.get(b)?.position.y || 0));
 
           if (isTopLevelRoot && rawLogicChildren.length > 1) {
-            // 每 5 个分支或高度超过限制自动换至右侧新一列，Y轴回到顶部 80px
+            // 每 5 个分支或高度超过限制自动换至右侧新一列，Y轴回到顶部 originBaseY
             let branchColX = nextLogicStartX;
-            let branchColY = 80;
+            let branchColY = originBaseY;
             let currentBranchColMaxW = 0;
             let currentBranchColHeight = 0;
             let currentBranchCount = 0;
@@ -1145,7 +1159,7 @@ function StudioApp() {
                 (currentBranchCount > 0 && currentBranchColHeight >= 2200)
               ) {
                 branchColX += currentBranchColMaxW + 280; // X 轴自动右移留出 280px 通道
-                branchColY = 80; // Y 轴自动回到顶部 80px 开始垂直对齐
+                branchColY = originBaseY; // Y 轴自动回到顶部 originBaseY 开始垂直对齐
                 currentBranchColMaxW = 0;
                 currentBranchColHeight = 0;
                 currentBranchCount = 0;
@@ -1228,17 +1242,21 @@ function StudioApp() {
       globalColStartX += maxColWidth + 280;
     });
 
-    const nextNodes = currentNodes.map((node) => {
-      const pos = nodePositions.get(node.id) || { x: 80, y: 100 };
-      return {
-        ...node,
-        position: pos
-      };
+    const nextNodes = allNodes.map((node) => {
+      if (nodePositions.has(node.id)) {
+        return {
+          ...node,
+          position: nodePositions.get(node.id)!
+        };
+      }
+      return node;
     });
 
     setNodes(nextNodes);
     window.setTimeout(() => {
-      flowRef.current?.fitView({ padding: 0.2, duration: 400 });
+      if (!isSelectionMode) {
+        flowRef.current?.fitView({ padding: 0.2, duration: 400 });
+      }
       void saveWorkspace();
     }, 60);
   }, [setNodes]);
@@ -5594,9 +5612,14 @@ function StudioApp() {
                 <span>右键添加节点；拖拽空白处框选；Ctrl/Cmd+Z / Y 撤销、重做；Ctrl/Cmd+C、X、V 复制、剪切、粘贴；Delete / Backspace 删除节点</span>
               </div>
               <div className="canvas-titlebar-right">
-                <button type="button" className="canvas-titlebar-btn" onClick={tidyWorkspaceNodes} title="根据依赖自动整理并优雅排布画布节点">
+                <button
+                  type="button"
+                  className="canvas-titlebar-btn"
+                  onClick={() => tidyWorkspaceNodes()}
+                  title={selectedNodesCount >= 2 ? `一键整理当前框选的 ${selectedNodesCount} 个节点排版` : "根据依赖自动整理并优雅排布画布节点"}
+                >
                   <LayoutGrid size={15} />
-                  整齐排版
+                  {selectedNodesCount >= 2 ? `框选排版 (${selectedNodesCount})` : "整齐排版"}
                 </button>
                 <button type="button" className="canvas-titlebar-btn" onClick={() => setShowNodeSearchModal(true)} title="搜索并快速平滑聚焦节点 (Ctrl+F)">
                   <Search size={15} />
@@ -5658,6 +5681,11 @@ function StudioApp() {
                   onRedo={handleRedo}
                   canUndo={undoStackRef.current.length > 0}
                   canRedo={redoStackRef.current.length > 0}
+                  selectedCount={selectedNodesCount}
+                  onTidySelection={() => {
+                    setMenu(null);
+                    tidyWorkspaceNodes(true);
+                  }}
                 />
               ) : null}
             </div>
@@ -10026,7 +10054,13 @@ function StudioNodeFrame({
 
 function ContextMenu({
   menu,
-  onAdd
+  onAdd,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  selectedCount,
+  onTidySelection
 }: {
   menu: { x: number; y: number };
   onAdd: (type: StudioNodeType) => void;
@@ -10034,6 +10068,8 @@ function ContextMenu({
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  selectedCount?: number;
+  onTidySelection?: () => void;
 }) {
   return (
     <div
@@ -10042,6 +10078,31 @@ function ContextMenu({
       onClick={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >
+      {selectedCount && selectedCount >= 2 && onTidySelection ? (
+        <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
+          <button
+            type="button"
+            className="context-menu-item"
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(224, 185, 102, 0.12)",
+              borderColor: "rgba(224, 185, 102, 0.35)",
+              color: "#e8c97e",
+              fontWeight: 600,
+              padding: "8px 12px",
+              borderRadius: 6,
+              cursor: "pointer"
+            }}
+            onClick={onTidySelection}
+          >
+            <LayoutGrid size={15} style={{ flexShrink: 0 }} />
+            <span>整理框选节点 ({selectedCount})</span>
+          </button>
+        </div>
+      ) : null}
       <strong>添加工作节点</strong>
       <div className="context-menu-node-grid">
         {(Object.keys(nodeCatalog) as StudioNodeType[])
