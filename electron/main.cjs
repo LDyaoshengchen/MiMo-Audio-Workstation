@@ -1,7 +1,22 @@
 const { app, BrowserWindow, dialog, Menu } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
 
 let apiServer = null;
+
+function getPackageMeta() {
+  try {
+    const appRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
+    const pkgPath = path.join(appRoot, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      return JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    }
+  } catch {}
+  return { version: "0.8.17", name: "mimo-voiceclone-debugger" };
+}
+
+const pkgMeta = getPackageMeta();
+const APP_VERSION = pkgMeta.version || "0.8.17";
 
 function setupChineseMenu() {
   const isMac = process.platform === "darwin";
@@ -82,7 +97,7 @@ function setupChineseMenu() {
               type: "info",
               title: "关于 铸光音频工作站",
               message: "铸光音频工作站 (MiMo Audio Workstation)",
-              detail: "基于大模型的高性能音频设计、语音克隆与智能有声书制作工作流工作站\n版本: 0.2.0"
+              detail: `基于大模型的高性能音频设计、语音克隆与智能有声书制作工作流工作站\n版本: v${APP_VERSION}`
             });
           }
         }
@@ -123,12 +138,23 @@ async function startApiServer() {
 
 app.name = "MiMo 音色复刻调试台";
 
+function resolveAppIcon() {
+  const appRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
+  const candidates = [
+    path.join(appRoot, "public", "icon.png"),
+    path.join(appRoot, "build", "icon.png"),
+    path.join(appRoot, "dist", "icon.png"),
+    path.join(process.resourcesPath, "dist", "icon.png")
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.join(appRoot, "public", "icon.png");
+}
+
 async function createWindow() {
   const localUrl = await startApiServer();
-  const appRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, "dist", "icon.png")
-    : path.join(appRoot, "build", "icon.png");
+  const iconPath = resolveAppIcon();
 
   const window = new BrowserWindow({
     width: 1440,

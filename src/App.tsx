@@ -82,6 +82,14 @@ import { ChangeEvent, MouseEvent, ReactNode, memo, useCallback, useEffect, useLa
 import { createPortal } from "react-dom";
 import { getBezierPath, useReactFlow } from "@xyflow/react";
 import JSZip from "jszip";
+import {
+  getArtifactDownloadFileName,
+  getFileExtension,
+  sanitizeFileName,
+  audioSourceToFile,
+  audioSourceToBlob,
+  buildApiHeaders
+} from "./utils/audioNaming";
 
 type StatusResponse = {
   ok: boolean;
@@ -107,10 +115,12 @@ const NODE_COLOR_MAP: Record<string, string> = {
 };
 
 type ApiSettingsResponse = {
-  apiKey: string;
+  apiKey?: string;
   apiEndpoint: string;
   apiProvider?: string;
   configured: boolean;
+  hasApiKey?: boolean;
+  maskedApiKey?: string;
 };
 
 type WorkspaceSummary = {
@@ -469,11 +479,20 @@ const nodeCatalog: Record<
 };
 
 const autoSaveDelayMs = 30000;
-const DEFAULT_API_KEY = "sk-c082b7jneccm1zjoacep5mwy6kgwpw3votc8dqr2we9zy2sr";
+const DEFAULT_API_KEY = "";
 const DEFAULT_API_ENDPOINT = "https://api.xiaomimimo.com/v1/chat/completions";
 const API_KEY_STORAGE_KEY = "mimo-api-key";
 const API_ENDPOINT_STORAGE_KEY = "mimo-api-endpoint";
 const API_PROVIDER_STORAGE_KEY = "mimo-api-provider";
+
+export interface ApiProviderCapabilities {
+  textOptimization: boolean;     // 文本润色
+  presetTTS: boolean;            // 预置 TTS
+  voiceDesign: boolean;          // 音色设计
+  instantClone: boolean;         // 即时克隆
+  trainedClone: boolean;         // 训练式克隆
+  asr: boolean;                  // ASR 识别
+}
 
 interface ApiProviderPreset {
   id: string;
@@ -481,6 +500,7 @@ interface ApiProviderPreset {
   badge: string;
   endpoint: string;
   description: string;
+  capabilities: ApiProviderCapabilities;
   getKeyUrl?: string;
   hint?: string;
   subEndpoints?: Array<{ label: string; url: string }>;
@@ -492,9 +512,17 @@ const API_PROVIDERS: ApiProviderPreset[] = [
     name: "MiMo 官方 API",
     badge: "默认/推荐",
     endpoint: "https://api.xiaomimimo.com/v1/chat/completions",
-    description: "小米 MiMo 语音与大模型平台，支持高保真音色克隆与多情感演绎",
+    description: "小米 MiMo 语音与大模型平台，支持高保真音色克隆、自然语言音色设计与多情感演绎",
     getKeyUrl: "https://platform.xiaomimimo.com/",
     hint: "注册即可获取 API Key，支持导演音色风格控制与音频文本驱动",
+    capabilities: {
+      textOptimization: true,
+      presetTTS: false,
+      voiceDesign: true,
+      instantClone: true,
+      trainedClone: false,
+      asr: false
+    },
     subEndpoints: [
       { label: "默认官方地址", url: "https://api.xiaomimimo.com/v1/chat/completions" },
       { label: "Token 套餐地址", url: "https://token-plan-cn.xiaomimimo.com/v1/chat/completions" }
@@ -507,10 +535,17 @@ const API_PROVIDERS: ApiProviderPreset[] = [
     endpoint: "https://api.siliconflow.cn/v1/audio/speech",
     description: "汇聚 CosyVoice、FishSpeech、SenseVoice 等主流语音与音色克隆大模型 API",
     getKeyUrl: "https://cloud.siliconflow.cn/",
-    hint: "支持 CosyVoice 零样本声纹复刻，兼容 OpenAI 格式中转",
+    hint: "支持 CosyVoice 零样本声纹复刻与预置声音合成，兼容 OpenAI 格式中转",
+    capabilities: {
+      textOptimization: true,
+      presetTTS: true,
+      voiceDesign: false,
+      instantClone: true,
+      trainedClone: false,
+      asr: false
+    },
     subEndpoints: [
-      { label: "Speech 官方地址", url: "https://api.siliconflow.cn/v1/audio/speech" },
-      { label: "Chat Completions 代理", url: "https://api.siliconflow.cn/v1/chat/completions" }
+      { label: "Speech 官方地址", url: "https://api.siliconflow.cn/v1/audio/speech" }
     ]
   },
   {
@@ -520,47 +555,87 @@ const API_PROVIDERS: ApiProviderPreset[] = [
     endpoint: "https://api.fish.audio/v1/tts",
     description: "专注于极简短声纹高保真零样本克隆与超自然语音合成",
     getKeyUrl: "https://fish.audio/",
-    hint: "仅需 5 秒参考音频即可快速完成生动音色复刻"
+    hint: "仅需短音频样本或参考模型 ID 即可快速完成生动音色复刻",
+    capabilities: {
+      textOptimization: false,
+      presetTTS: true,
+      voiceDesign: false,
+      instantClone: true,
+      trainedClone: true,
+      asr: false
+    }
   },
   {
     id: "elevenlabs",
     name: "ElevenLabs",
     badge: "全球顶尖音色",
     endpoint: "https://api.elevenlabs.io/v1/text-to-speech",
-    description: "全球领先的 AI 语音生成与极速多语言声音克隆平台",
+    description: "全球领先的 AI 语音生成与极速多语言声音合成平台",
     getKeyUrl: "https://elevenlabs.io/",
-    hint: "支持 30+ 种语言朗读与精细化声线情感微调"
+    hint: "支持 30+ 种语言朗读与已训练 Voice ID 微调",
+    capabilities: {
+      textOptimization: false,
+      presetTTS: true,
+      voiceDesign: false,
+      instantClone: false,
+      trainedClone: true,
+      asr: false
+    }
   },
   {
     id: "openai",
     name: "OpenAI Audio / 兼容中转",
     badge: "标准 TTS 协议",
     endpoint: "https://api.openai.com/v1/audio/speech",
-    description: "OpenAI 官方语音 API 或兼容 OpenAI audio/speech 格式的 API 站",
+    description: "OpenAI 官方语音 API (alloy/echo/fable/onyx/nova/shimmer) 或兼容 audio/speech 格式 API",
     getKeyUrl: "https://platform.openai.com/api-keys",
-    hint: "通用 OpenAI 协议，支持绝大多数 One-API / New-API 中转服务"
+    hint: "官方标准 TTS 协议与 Whisper ASR，不开放公共即时克隆",
+    capabilities: {
+      textOptimization: true,
+      presetTTS: true,
+      voiceDesign: false,
+      instantClone: false,
+      trainedClone: false,
+      asr: true
+    }
   },
   {
     id: "volcengine",
     name: "火山引擎 (豆包语音)",
     badge: "字节豆包",
     endpoint: "https://openspeech.bytedance.com/api/v1/tts",
-    description: "字节跳动商业级豆包大模型语音合成与多角色声音定制",
+    description: "字节跳动商业级豆包大模型语音合成与多角色声音演播",
     getKeyUrl: "https://www.volcengine.com/product/speech",
-    hint: "适合小说有声书、广播剧与角色演播生成"
+    hint: "需配置 AppID 与 AccessToken，支持小说有声书、广播剧与角色演播",
+    capabilities: {
+      textOptimization: false,
+      presetTTS: true,
+      voiceDesign: false,
+      instantClone: false,
+      trainedClone: true,
+      asr: true
+    }
   },
   {
     id: "custom",
     name: "自定义 API 中转",
-    badge: "自定义",
+    badge: "自定义协议",
     endpoint: "",
-    description: "手动配置第三方中转站、自建大模型代理或专有服务器 Endpoint",
+    description: "手动配置第三方中转站、自建大模型代理或专有服务器 Endpoint（需声明协议）",
     getKeyUrl: "",
-    hint: "请根据中转服务商提供的 Endpoint 格式正确配置"
+    hint: "请根据中转服务商提供的协议类型（MiMo/OpenAI/Fish/SiliconFlow）正确配置",
+    capabilities: {
+      textOptimization: true,
+      presetTTS: true,
+      voiceDesign: true,
+      instantClone: true,
+      trainedClone: true,
+      asr: false
+    }
   }
 ];
 
-const allowedAudioTypes = new Set(["audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/x-wav", "audio/wave", "video/mp4"]);
+const allowedAudioTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave"]);
 const maxAudioBytes = Math.floor(7.5 * 1024 * 1024);
 function ensureArtifactSeqIndexes(node: StudioNode, allNodes?: StudioNode[], allEdges?: StudioEdge[]): StudioNode {
   let nodeMutated = false;
@@ -789,6 +864,7 @@ function StudioApp() {
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
   const rightDragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(API_KEY_STORAGE_KEY) || DEFAULT_API_KEY);
+  const [serverApiKeyConfigured, setServerApiKeyConfigured] = useState<boolean>(false);
   const [apiEndpoint, setApiEndpoint] = useState<string>(() => localStorage.getItem(API_ENDPOINT_STORAGE_KEY) || DEFAULT_API_ENDPOINT);
   const [apiProvider, setApiProvider] = useState<string>(() => localStorage.getItem(API_PROVIDER_STORAGE_KEY) || "mimo");
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -2100,27 +2176,27 @@ function StudioApp() {
       }
 
       const settings = (await response.json()) as ApiSettingsResponse;
+      const isServerConfigured = Boolean(settings.hasApiKey || settings.configured);
+      setServerApiKeyConfigured(isServerConfigured);
+
       const localKey = localStorage.getItem(API_KEY_STORAGE_KEY) || "";
       const localEndpoint = localStorage.getItem(API_ENDPOINT_STORAGE_KEY) || "";
       const localProvider = localStorage.getItem(API_PROVIDER_STORAGE_KEY) || "";
-      const nextKey = settings.apiKey || localKey || DEFAULT_API_KEY;
-      const nextEndpoint = settings.apiEndpoint || localEndpoint || DEFAULT_API_ENDPOINT;
-      const nextProvider = settings.apiProvider || localProvider || "mimo";
+      const nextKey = localKey || settings.apiKey || (isServerConfigured ? "" : DEFAULT_API_KEY);
+      const nextEndpoint = localEndpoint || settings.apiEndpoint || DEFAULT_API_ENDPOINT;
+      const nextProvider = localProvider || settings.apiProvider || "mimo";
 
       setApiKey(nextKey);
       setApiEndpoint(nextEndpoint);
       setApiProvider(nextProvider);
-      setApiKeyInput(nextKey);
+      setApiKeyInput(nextKey || (isServerConfigured ? (settings.maskedApiKey || "已配置 (环境变量/服务端)") : ""));
       setApiEndpointInput(nextEndpoint);
       setApiProviderInput(nextProvider);
 
-      if (!settings.configured && localKey) {
-        void persistApiSettings(localKey, localEndpoint || nextEndpoint, localProvider || nextProvider);
-        return;
-      }
-
-      if (!settings.configured && !localKey) {
+      if (!isServerConfigured && !localKey) {
         setShowApiKeyModal(true);
+      } else {
+        setShowApiKeyModal(false);
       }
     } catch (error) {
       console.warn("[settings] failed to load API settings", error);
@@ -2163,6 +2239,16 @@ function StudioApp() {
     } catch (error) {
       console.warn("[settings] failed to persist API settings", error);
     }
+  }
+
+  function getApiHeaders(isJson = false, extraHeaders?: Record<string, string>): Record<string, string> {
+    return buildApiHeaders({
+      apiKey,
+      apiEndpoint,
+      apiProvider,
+      isJson,
+      extraHeaders
+    });
   }
 
   function openApiKeyModal() {
@@ -2330,7 +2416,7 @@ function StudioApp() {
   async function createSmartWorkspace(formData: FormData) {
     const response = await fetch("/api/workspaces/smart", {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+      headers: getApiHeaders(false),
       body: formData
     });
     const workspace = (await response.json()) as WorkspacePayload & { error?: string };
@@ -2343,7 +2429,7 @@ function StudioApp() {
   async function createAudiobookWorkspace(data: { novelText: string; characterHints: string; name?: string }) {
     const response = await fetch("/api/audiobook", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+      headers: getApiHeaders(true),
       body: JSON.stringify(data)
     });
     const workspace = (await response.json()) as AudiobookWorkspacePayload & { error?: string };
@@ -2365,7 +2451,7 @@ function StudioApp() {
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/chapters`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+      headers: getApiHeaders(true),
       body: JSON.stringify(data)
     });
     const result = (await response.json()) as { workspace?: AudiobookWorkspacePayload; error?: string };
@@ -2379,7 +2465,8 @@ function StudioApp() {
     if (!activeWorkspace || activeWorkspace.type !== "audiobook") return;
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/chapters/${chapterId}/activate`, {
-      method: "POST"
+      method: "POST",
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { workspace?: AudiobookWorkspacePayload; error?: string };
     if (!response.ok || !result.workspace) {
@@ -2393,6 +2480,7 @@ function StudioApp() {
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/characters`, {
       method: "POST",
+      headers: getApiHeaders(false),
       body: formData
     });
     const result = (await response.json()) as { characters?: AudiobookCharacter[]; chapter?: AudiobookChapter; error?: string };
@@ -2410,7 +2498,7 @@ function StudioApp() {
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/characters/analyze`, {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint }
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { characters?: AudiobookCharacter[]; chapter?: AudiobookChapter; error?: string };
     if (!response.ok) {
@@ -2449,7 +2537,7 @@ function StudioApp() {
     });
     const response = await fetch(`/api/audiobook/${workspaceId}/characters/${charId}/voice`, {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint }
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { character?: AudiobookCharacter; error?: string };
     if (!response.ok) {
@@ -2477,7 +2565,8 @@ function StudioApp() {
     if (!activeWorkspace || activeWorkspace.type !== "audiobook") return;
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/characters/${charId}/voice`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { character?: AudiobookCharacter; error?: string };
     if (!response.ok) {
@@ -2497,7 +2586,7 @@ function StudioApp() {
     const workspaceId = activeWorkspace.id;
     const response = await fetch(`/api/audiobook/${workspaceId}/annotate`, {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint }
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { segments?: AudiobookSegment[]; chapter?: AudiobookChapter; error?: string };
     if (!response.ok) {
@@ -2523,7 +2612,7 @@ function StudioApp() {
     if (!activeWorkspace || activeWorkspace.type !== "audiobook") return;
     const response = await fetch(`/api/audiobook/${activeWorkspace.id}/segments/${segId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders(true),
       body: JSON.stringify(patch)
     });
     const result = (await response.json()) as { segment?: AudiobookSegment; error?: string };
@@ -2559,7 +2648,7 @@ function StudioApp() {
     });
     const response = await fetch(`/api/audiobook/${workspaceId}/generate`, {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint }
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { products?: AudiobookProduct[]; error?: string };
     if (!response.ok) {
@@ -2607,7 +2696,7 @@ function StudioApp() {
 
     const response = await fetch(`/api/audiobook/${workspaceId}/products/${productId}/retry`, {
       method: "POST",
-      headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint }
+      headers: getApiHeaders(false)
     });
     const result = (await response.json()) as { product?: AudiobookProduct; error?: string };
     if (result.product) {
@@ -3653,7 +3742,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -3677,14 +3766,15 @@ function StudioApp() {
     try {
       for (const [index, item] of cloneTexts.filter((entry) => entry.text.trim()).entries()) {
         const formData = new FormData();
-        formData.append("voice", dataUrlToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType));
+        const voiceFile = await audioSourceToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType);
+        formData.append("voice", voiceFile);
         formData.append("text", item.text.trim());
         formData.append("instruction", resolved.instruction.trim());
         formData.append("format", "wav");
 
         const response = await fetch("/api/tts/voiceclone", {
           method: "POST",
-          headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+          headers: getApiHeaders(false),
           body: formData
         });
         const payload = (await response.json()) as DebugResponse & { error?: string; details?: unknown };
@@ -3764,11 +3854,10 @@ function StudioApp() {
 
   async function runIntegratedBatch(nodeId: string) {
     const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
     const node = currentNodes.find((n) => n.id === nodeId);
     if (!node || node.type !== "integratedStudio") return;
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -3785,16 +3874,13 @@ function StudioApp() {
     try {
       let updatedRows = [...rows];
 
-      for (let index = 0; index < updatedRows.length; index++) {
-        const row = updatedRows[index];
-        if (!row.text.trim()) continue;
-
+      for (const [index, row] of validRows.entries()) {
         let refAudioDataUrl = row.refAudioUrl || node.data.refAudioUrl;
         let refAudioFileName = row.refAudioName || node.data.refAudioName || "ref.wav";
         let refAudioMimeType = "audio/wav";
 
         if (!refAudioDataUrl) {
-          const resolved = resolveCloneInputs(node, currentNodes, currentEdges);
+          const resolved = resolveCloneInputs(node, currentNodes, edgesRef.current);
           if (resolved.audio) {
             refAudioDataUrl = resolved.audio.dataUrl;
             refAudioFileName = resolved.audio.fileName;
@@ -3808,14 +3894,15 @@ function StudioApp() {
         }
 
         const formData = new FormData();
-        formData.append("voice", dataUrlToFile(refAudioDataUrl, refAudioFileName, refAudioMimeType));
+        const voiceFile = await audioSourceToFile(refAudioDataUrl, refAudioFileName, refAudioMimeType);
+        formData.append("voice", voiceFile);
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
         formData.append("format", "wav");
 
         const response = await fetch("/api/tts/voiceclone", {
           method: "POST",
-          headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+          headers: getApiHeaders(false),
           body: formData
         });
 
@@ -3865,7 +3952,7 @@ function StudioApp() {
     const node = currentNodes.find((n) => n.id === nodeId);
     if (!node || node.type !== "integratedStudio") return;
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -3900,14 +3987,15 @@ function StudioApp() {
 
     try {
       const formData = new FormData();
-      formData.append("voice", dataUrlToFile(refAudioDataUrl, refAudioFileName, refAudioMimeType));
+      const voiceFile = await audioSourceToFile(refAudioDataUrl, refAudioFileName, refAudioMimeType);
+      formData.append("voice", voiceFile);
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
       formData.append("format", "wav");
 
       const response = await fetch("/api/tts/voiceclone", {
         method: "POST",
-        headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+        headers: getApiHeaders(false),
         body: formData
       });
 
@@ -3956,7 +4044,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4025,14 +4113,15 @@ function StudioApp() {
         const targetArtifactNodeId = rowArtifactNode.id;
 
         const formData = new FormData();
-        formData.append("voice", dataUrlToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType));
+        const voiceFile = await audioSourceToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType);
+        formData.append("voice", voiceFile);
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
         formData.append("format", "wav");
 
         const response = await fetch("/api/tts/voiceclone", {
           method: "POST",
-          headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+          headers: getApiHeaders(false),
           body: formData
         });
 
@@ -4091,7 +4180,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4161,14 +4250,15 @@ function StudioApp() {
       const targetArtifactNodeId = rowArtifactNode.id;
 
       const formData = new FormData();
-      formData.append("voice", dataUrlToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType));
+      const voiceFile = await audioSourceToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType);
+      formData.append("voice", voiceFile);
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
       formData.append("format", "wav");
 
       const response = await fetch("/api/tts/voiceclone", {
         method: "POST",
-        headers: { "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+        headers: getApiHeaders(false),
         body: formData
       });
 
@@ -4225,7 +4315,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4293,11 +4383,7 @@ function StudioApp() {
 
         const response = await fetch("/api/tts/voicedesign", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": apiKey,
-            "X-API-Endpoint": apiEndpoint
-          },
+          headers: getApiHeaders(true),
           body: JSON.stringify({
             voiceDescription,
             naturalControl: (row.naturalControl || "").trim(),
@@ -4359,7 +4445,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4428,11 +4514,7 @@ function StudioApp() {
 
       const response = await fetch("/api/tts/voicedesign", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey,
-          "X-API-Endpoint": apiEndpoint
-        },
+        headers: getApiHeaders(true),
         body: JSON.stringify({
           voiceDescription,
           naturalControl: (row.naturalControl || "").trim(),
@@ -4494,7 +4576,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4528,7 +4610,7 @@ function StudioApp() {
         const item = validTextItems[runIdx % validTextItems.length];
         const response = await fetch("/api/tts/voicedesign", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+          headers: getApiHeaders(true),
           body: JSON.stringify({
             voiceDescription,
             naturalControl,
@@ -4578,7 +4660,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4594,7 +4676,7 @@ function StudioApp() {
     try {
       const response = await fetch("/api/voice-style/optimize", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+        headers: getApiHeaders(true),
         body: JSON.stringify({ style })
       });
       const payload = (await response.json()) as StyleOptimizeResponse;
@@ -4625,7 +4707,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && !serverApiKeyConfigured) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4645,7 +4727,7 @@ function StudioApp() {
     try {
       const response = await fetch("/api/voice-design/optimize", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": apiKey, "X-API-Endpoint": apiEndpoint },
+        headers: getApiHeaders(true),
         body: JSON.stringify({ voiceDescription })
       });
       const payload = (await response.json()) as StyleOptimizeResponse;
@@ -4718,7 +4800,7 @@ function StudioApp() {
           <h1>{themeConfig.brandTitleZh || "铸光音频工作站"}</h1>
         </div>
         <div className="topbar-actions">
-          <StatusPill apiKey={apiKey} onOpenModal={openApiKeyModal} />
+          <StatusPill apiKey={apiKey} serverConfigured={serverApiKeyConfigured} onOpenModal={openApiKeyModal} />
           <button type="button" onClick={() => setShowAppearanceModal(true)} title="调整外观色彩与主题">
             <Palette size={16} />
             外观
@@ -4730,10 +4812,10 @@ function StudioApp() {
         </div>
       </header>
 
-      {apiKey === DEFAULT_API_KEY && showDefaultKeyWarning ? (
+      {!apiKey && !serverApiKeyConfigured && showDefaultKeyWarning ? (
         <section className="api-warning">
           <AlertTriangle size={18} />
-          <span>当前使用的是默认 API Key，不保证长期可用。请点击右上角 API Key 区域配置自己的密钥。</span>
+          <span>尚未配置 API Key，无法生成音频。请点击右上角 API Key 区域配置您的服务密钥。</span>
           <button className="api-warning-close" type="button" onClick={() => setShowDefaultKeyWarning(false)}>
             <X size={16} />
           </button>
@@ -4757,10 +4839,21 @@ function StudioApp() {
               </button>
             </div>
             <div className="api-key-modal-body">
+              {/* 1. 服务商快捷选择 (紧凑 4 列横排) */}
               <div className="api-provider-section">
-                <span className="api-provider-section-title">
-                  <Sparkles size={14} /> 选择 AI 语音/模型服务商 API 入口：
-                </span>
+                <div className="api-provider-section-header">
+                  <span className="api-provider-section-title">
+                    <Sparkles size={14} /> AI 服务商 / API 协议：
+                  </span>
+                  {(() => {
+                    const currentPreset = API_PROVIDERS.find((p) => p.id === apiProviderInput) || API_PROVIDERS[0];
+                    return currentPreset.getKeyUrl ? (
+                      <a href={currentPreset.getKeyUrl} target="_blank" rel="noopener noreferrer" className="api-provider-quicklink">
+                        获取 {currentPreset.name} API Key ↗
+                      </a>
+                    ) : null;
+                  })()}
+                </div>
                 <div className="api-provider-grid">
                   {API_PROVIDERS.map((p) => {
                     const isActive = apiProviderInput === p.id;
@@ -4776,35 +4869,44 @@ function StudioApp() {
                           }
                         }}
                       >
-                        <div className="api-provider-card-header">
-                          <span className="api-provider-name">{p.name}</span>
-                          <span className="api-provider-badge">{p.badge}</span>
-                        </div>
-                        <span className="api-provider-card-desc">{p.description}</span>
+                        <span className="api-provider-name">{p.name}</span>
+                        <span className="api-provider-badge">{p.badge}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
+              {/* 2. 当前服务商能力与快捷预设 (单行紧凑整合) */}
               {(() => {
                 const currentPreset = API_PROVIDERS.find((p) => p.id === apiProviderInput) || API_PROVIDERS[0];
                 return (
-                  <div className="api-provider-info">
-                    <p className="api-key-modal-hint">
-                      {currentPreset.hint ?? currentPreset.description}
-                      {currentPreset.getKeyUrl ? (
-                        <>
-                          {" · "}
-                          <a href={currentPreset.getKeyUrl} target="_blank" rel="noopener noreferrer">
-                            前往 {currentPreset.name} 获取 API Key →
-                          </a>
-                        </>
-                      ) : null}
-                    </p>
+                  <div className="api-provider-compact-bar">
+                    <div className="api-cap-mini-list">
+                      <span className="api-cap-mini-label">支持能力：</span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.instantClone ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.instantClone ? "✓" : "✕"} 即时克隆
+                      </span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.presetTTS ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.presetTTS ? "✓" : "✕"} 预置TTS
+                      </span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.voiceDesign ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.voiceDesign ? "✓" : "✕"} 音色设计
+                      </span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.textOptimization ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.textOptimization ? "✓" : "✕"} 文本润色
+                      </span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.trainedClone ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.trainedClone ? "✓" : "✕"} 训练克隆
+                      </span>
+                      <span className={`api-cap-mini-tag ${currentPreset.capabilities.asr ? "supported" : "unsupported"}`}>
+                        {currentPreset.capabilities.asr ? "✓" : "✕"} ASR
+                      </span>
+                    </div>
+
                     {currentPreset.subEndpoints && currentPreset.subEndpoints.length > 0 ? (
                       <div className="endpoint-pill-group">
-                        <span className="node-muted" style={{ fontSize: 11 }}>预设 Endpoint 快捷选择：</span>
+                        <span className="endpoint-pill-label">预设地址快捷选：</span>
                         {currentPreset.subEndpoints.map((sub) => (
                           <button
                             key={sub.url}
@@ -4821,38 +4923,38 @@ function StudioApp() {
                 );
               })()}
 
-              <div className="api-key-field">
-                <p className="api-key-modal-hint" style={{ fontWeight: 800, marginBottom: 4 }}>
-                  API Key 密钥：
-                </p>
-                <input
-                  type="text"
-                  className="api-key-input"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="sk-..."
-                  spellCheck={false}
-                />
-                {apiKey === DEFAULT_API_KEY && (
-                  <p className="api-key-modal-warn" style={{ marginTop: 6 }}>
-                    <AlertTriangle size={14} />
-                    当前使用的默认 Key 不可长期使用，不保证可用性，建议尽快配置自己的密钥。
-                  </p>
-                )}
-              </div>
+              {/* 3. 输入表单 (API Key & Endpoint URL) */}
+              <div className="api-form-fields">
+                <div className="api-key-field">
+                  <div className="api-field-label">
+                    <span>API Key 密钥：</span>
+                    {serverApiKeyConfigured && !apiKeyInput && (
+                      <span className="api-field-badge-env">已加载系统 .env 环境变量</span>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    className="api-key-input"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder={serverApiKeyConfigured ? "已从环境变量加载 (留空保持默认，或在此填入覆盖)" : "sk-..."}
+                    spellCheck={false}
+                  />
+                </div>
 
-              <div className="api-endpoint-section">
-                <p className="api-key-modal-hint" style={{ fontWeight: 800, marginBottom: 4 }}>
-                  API 服务地址 (Endpoint URL)：
-                </p>
-                <input
-                  type="text"
-                  className="api-key-input"
-                  value={apiEndpointInput}
-                  onChange={(e) => setApiEndpointInput(e.target.value)}
-                  placeholder="https://..."
-                  spellCheck={false}
-                />
+                <div className="api-endpoint-section">
+                  <div className="api-field-label">
+                    <span>API 服务地址 (Endpoint URL)：</span>
+                  </div>
+                  <input
+                    type="text"
+                    className="api-key-input"
+                    value={apiEndpointInput}
+                    onChange={(e) => setApiEndpointInput(e.target.value)}
+                    placeholder="https://..."
+                    spellCheck={false}
+                  />
+                </div>
               </div>
             </div>
             <div className="api-key-modal-footer">
@@ -4860,7 +4962,7 @@ function StudioApp() {
                 取消
               </button>
               <button type="button" className="api-key-btn-save" onClick={saveApiKey}>
-                保存
+                保存配置
               </button>
             </div>
           </div>
@@ -5513,16 +5615,6 @@ function StudioApp() {
               </div>
               <div className="sidebar-actions">
                 <div className="sidebar-actions-row">
-                  <button
-                    className="subtle"
-                    type="button"
-                    onClick={() => void handleOptimizeCurrentWorkspace()}
-                    title="整理并瘦身当前画板：将画板中的音频实体无损转存至本地 audios/ 目录并大幅释放内存"
-                    style={{ color: "#38bdf8" }}
-                  >
-                    <Sparkles size={14} />
-                    整理瘦身
-                  </button>
                   <button
                     className="subtle"
                     type="button"
@@ -6519,15 +6611,17 @@ function AudiobookConsole({
 
     const zip = new JSZip();
     const usedNames = new Map<string, number>();
-    workspace.products.forEach((product, index) => {
+    for (let index = 0; index < workspace.products.length; index++) {
+      const product = workspace.products[index];
       if (!product.audioDataUrl) {
-        return;
+        continue;
       }
       const indexLabel = String(index + 1).padStart(2, "0");
       const characterName = sanitizeFileName(product.characterName || "旁白").replace(/\.[a-z0-9]{1,8}$/i, "");
       const fileName = getUniqueFileName(`segment-${indexLabel}-${characterName}.wav`, usedNames);
-      zip.file(fileName, dataUrlToUint8Array(product.audioDataUrl));
-    });
+      const audioBytes = await fetchAudioUint8Array(product.audioDataUrl);
+      zip.file(fileName, audioBytes);
+    }
 
     const blob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(blob);
@@ -10118,11 +10212,14 @@ function ContextMenu({
   );
 }
 
-function StatusPill({ apiKey, onOpenModal }: { apiKey: string; onOpenModal: () => void }) {
-  const masked = apiKey.length > 8 ? `${apiKey.slice(0, 3)}***${apiKey.slice(-4)}` : "***";
-  const isDefault = apiKey === DEFAULT_API_KEY;
+function StatusPill({ apiKey, serverConfigured, onOpenModal }: { apiKey: string; serverConfigured?: boolean; onOpenModal: () => void }) {
+  const isCustomConfigured = Boolean(apiKey && apiKey.trim());
+  const isConfigured = isCustomConfigured || Boolean(serverConfigured);
+  const masked = isCustomConfigured
+    ? (apiKey.length > 8 ? `${apiKey.slice(0, 3)}***${apiKey.slice(-4)}` : "***")
+    : (serverConfigured ? "已就绪 (.env/服务端)" : "未配置");
   return (
-    <button className={`status-pill ${isDefault ? "warn" : "good"}`} type="button" onClick={onOpenModal}>
+    <button className={`status-pill ${isConfigured ? "good" : "warn"}`} type="button" onClick={onOpenModal}>
       <Key size={14} />
       <span>API Key: {masked}</span>
     </button>
@@ -10732,6 +10829,9 @@ async function fileToAudioAsset(file: File): Promise<AudioAsset> {
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
+  if (!dataUrl) {
+    return new Blob([], { type: "audio/wav" });
+  }
   if (dataUrl.startsWith("data:")) {
     const [meta, base64] = dataUrl.split(",");
     const mimeType = meta.match(/data:(.*);base64/)?.[1] || "audio/wav";
@@ -10760,24 +10860,34 @@ async function fetchAudioUint8Array(urlOrData: string): Promise<Uint8Array> {
 }
 
 function dataUrlToFile(dataUrl: string, fileName: string, mimeType: string): File {
-  const [meta, base64] = dataUrl.split(",");
-  const resolvedMime = mimeType || meta.match(/data:(.*);base64/)?.[1] || "audio/mpeg";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  if (!dataUrl) {
+    return new File([], fileName, { type: mimeType || "audio/wav" });
   }
-  return new File([bytes], fileName, { type: resolvedMime });
+  if (dataUrl.startsWith("data:")) {
+    const [meta, base64] = dataUrl.split(",");
+    const resolvedMime = mimeType || meta.match(/data:(.*);base64/)?.[1] || "audio/mpeg";
+    const binary = atob(base64 || "");
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new File([bytes], fileName, { type: resolvedMime });
+  }
+  return new File([], fileName, { type: mimeType || "audio/wav" });
 }
 
 function dataUrlToUint8Array(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  if (!dataUrl) return new Uint8Array(0);
+  if (dataUrl.startsWith("data:")) {
+    const base64 = dataUrl.split(",")[1] ?? "";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
   }
-  return bytes;
+  return new Uint8Array(0);
 }
 
 function getSupportedRecordingMimeType(): string {
@@ -10870,27 +10980,6 @@ function guessMimeFromName(fileName: string): string {
   return "audio/mp3";
 }
 
-function sanitizeFileName(value: string): string {
-  return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim() || "audio.wav";
-}
-
-function getArtifactDownloadFileName(title: string, originalFileName: string, workspaceName?: string): string {
-  const safeTitle = sanitizeFileName(title).replace(/\.[a-z0-9]{1,8}$/i, "") || "audio";
-  const ext = getFileExtension(originalFileName);
-  if (workspaceName && workspaceName.trim()) {
-    const safeWsName = sanitizeFileName(workspaceName.trim());
-    if (safeTitle.startsWith(safeWsName)) {
-      return `${safeTitle}${ext}`;
-    }
-    return `${safeWsName}_${safeTitle}${ext}`;
-  }
-  return `${safeTitle}${ext}`;
-}
-
-function getFileExtension(fileName: string): string {
-  const match = sanitizeFileName(fileName).match(/(\.[a-z0-9]{1,8})$/i);
-  return match?.[1] ?? ".wav";
-}
 
 function getUniqueFileName(fileName: string, usedNames: Map<string, number>): string {
   const count = usedNames.get(fileName) ?? 0;

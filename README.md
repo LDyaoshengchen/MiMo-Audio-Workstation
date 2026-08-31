@@ -57,8 +57,8 @@
 
 ### 2. 安装依赖
 ```bash
-git clone https://github.com/LDyaoshengchen/mimo-tts-studio-game.git
-cd mimo-tts-studio-game
+git clone https://github.com/LDyaoshengchen/MiMo-Audio-Workstation.git
+cd MiMo-Audio-Workstation
 npm install
 ```
 
@@ -89,20 +89,22 @@ npm run dev
 npm run build
 ```
 
-### Windows 桌面绿色客户端打包
+### Windows 桌面客户端与安装包打包
 ```bash
-npm run dist:win
+# 构建 Windows 便携绿色版 (.zip) 与 Setup 安装包 (.exe)
+npm run dist:installer
 ```
 打包产物将自动生成于 `desktop-build/` 目录下：
+- **Setup 安装程序**：`desktop-build/MiMo-Audio-Workstation-Setup-v0.8.17-win64.exe`
+- **免解压便携压缩包**：`desktop-build/MiMo-Audio-Workstation-v0.8.17-win64-portable.zip`
 - **可执行文件目录**：`desktop-build/MiMo-Audio-Workstation-win32-x64/MiMo-Audio-Workstation.exe`
-- **免解压便携压缩包**：`desktop-build/MiMo-Audio-Workstation-v0.8.2-win64-portable.zip`
 
 ---
 
 ## 📁 目录结构
 
 ```
-mimo-tts-studio-main/
+MiMo-Audio-Workstation/
 ├── src/                  # 前端 React 主应用源码
 │   ├── App.tsx          # 画布核心、工作区、所有工作节点组件
 │   ├── main.tsx         # 入口文件
@@ -112,7 +114,8 @@ mimo-tts-studio-main/
 ├── electron/             # Electron 桌面端主进程
 │   └── main.cjs
 ├── scripts/              # 自动化构建与便携打包脚本
-│   └── package-win.js
+│   ├── package-win.js
+│   └── package-installer.js
 ├── public/               # 应用图标与静态资源
 ├── UPDATE_HISTORY.md     # 完整版本更新演进明细
 └── WALKTHROUGH.md        # 最新修复与功能 Walkthrough 说明

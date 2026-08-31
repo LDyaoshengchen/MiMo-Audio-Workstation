@@ -7,8 +7,16 @@ import path from "node:path";
 import multer from "multer";
 import { exec } from "node:child_process";
 import JSZip from "jszip";
+import { buildCleanAudioCacheFileName, sanitizeFileName, validateAndSanitizeEndpoint } from "./utils/audioNaming.js";
+import { getProviderAdapter, getAllProviderCapabilities } from "./providers/index.js";
 
 dotenv.config();
+if (!process.env.MIMO_API_KEY) {
+  const envExamplePath = path.resolve(process.cwd(), ".env.example");
+  if (fs.existsSync(envExamplePath)) {
+    dotenv.config({ path: envExamplePath });
+  }
+}
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -17,12 +25,9 @@ const maxAudioBytes = Math.floor(7.5 * 1024 * 1024);
 const allowedMimeTypes = new Set([
   "audio/mpeg",
   "audio/mp3",
-  "audio/mp4",
-  "audio/m4a",
   "audio/wav",
   "audio/x-wav",
-  "audio/wave",
-  "video/mp4"
+  "audio/wave"
 ]);
 const mimoEndpoint = "https://api.xiaomimimo.com/v1/chat/completions";
 const defaultDataDir = path.resolve(process.env.MIMO_DATA_DIR || path.join(process.cwd(), "data"));
@@ -251,29 +256,89 @@ type WorkspaceIndex = {
   workspaces: WorkspaceIndexItem[];
 };
 
-app.use(cors());
+const allowedOrigins = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^app:\/\/./,
+  /^file:\/\/./,
+  /^vscode-webview:\/\/./
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed = allowedOrigins.some((pattern) => pattern.test(origin));
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS: 禁止未经授权的跨域请求"));
+      }
+    },
+    credentials: true
+  })
+);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-const defaultApiKey = "sk-c082b7jneccm1zjoacep5mwy6kgwpw3votc8dqr2we9zy2sr";
 
-function getApiConfig(req: { headers: Record<string, string | string[] | undefined> }): { apiKey: string | undefined; apiEndpoint: string } {
+interface RequestApiConfig {
+  apiKey: string;
+  apiEndpoint: string;
+  apiProvider: string;
+  appId?: string;
+  accessToken?: string;
+  customProtocol?: "mimo-chat" | "openai-tts" | "fish-tts" | "siliconflow";
+}
+
+function getApiConfig(req: { headers: Record<string, string | string[] | undefined> }): RequestApiConfig {
   const headerKey = req.headers["x-api-key"];
   const apiKey = (typeof headerKey === "string" && headerKey.trim())
     ? headerKey.trim()
-    : (process.env.MIMO_API_KEY || defaultApiKey);
+    : (process.env.MIMO_API_KEY || "");
 
   const headerEndpoint = req.headers["x-api-endpoint"];
-  const apiEndpoint = (typeof headerEndpoint === "string" && headerEndpoint.trim()) ? headerEndpoint.trim() : mimoEndpoint;
+  let rawEndpoint = (typeof headerEndpoint === "string" && headerEndpoint.trim())
+    ? headerEndpoint.trim()
+    : (process.env.MIMO_API_ENDPOINT || "");
 
-  return { apiKey, apiEndpoint };
+  const headerProvider = req.headers["x-api-provider"];
+  const apiProvider = (typeof headerProvider === "string" && headerProvider.trim())
+    ? headerProvider.trim().toLowerCase()
+    : "mimo";
+
+  const headerAppId = req.headers["x-api-appid"];
+  const appId = typeof headerAppId === "string" ? headerAppId.trim() : undefined;
+
+  const headerAccessToken = req.headers["x-api-accesstoken"];
+  const accessToken = typeof headerAccessToken === "string" ? headerAccessToken.trim() : undefined;
+
+  const headerCustomProtocol = req.headers["x-api-custom-protocol"];
+  const customProtocol = (typeof headerCustomProtocol === "string" && headerCustomProtocol.trim())
+    ? (headerCustomProtocol.trim() as any)
+    : undefined;
+
+  let apiEndpoint = mimoEndpoint;
+  if (rawEndpoint) {
+    try {
+      apiEndpoint = validateAndSanitizeEndpoint(rawEndpoint);
+    } catch (err) {
+      console.warn(`[getApiConfig] API Endpoint 校验失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { apiKey, apiEndpoint, apiProvider, appId, accessToken, customProtocol };
 }
+
+app.get("/api/providers/capabilities", (_req, res) => {
+  res.json(getAllProviderCapabilities());
+});
 
 app.get("/api/status", (_req, res) => {
   res.json({
     ok: true,
     model: "mimo-v2.5-tts-voiceclone",
-    apiKeyConfigured: Boolean(process.env.MIMO_API_KEY || defaultApiKey),
-    hasEnvKey: Boolean(process.env.MIMO_API_KEY || defaultApiKey),
+    apiKeyConfigured: Boolean(process.env.MIMO_API_KEY),
+    hasEnvKey: Boolean(process.env.MIMO_API_KEY),
     maxAudioBytes,
     allowedMimeTypes: Array.from(allowedMimeTypes)
   });
@@ -282,11 +347,14 @@ app.get("/api/status", (_req, res) => {
 app.get("/api/settings", async (_req, res, next) => {
   try {
     const settings = await readApiSettings();
+    const effectiveKey = settings.apiKey ?? process.env.MIMO_API_KEY ?? "";
+    const maskedApiKey = effectiveKey ? `${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}` : "";
     res.json({
-      apiKey: settings.apiKey ?? process.env.MIMO_API_KEY ?? defaultApiKey,
+      hasApiKey: Boolean(effectiveKey),
+      maskedApiKey,
       apiEndpoint: settings.apiEndpoint ?? mimoEndpoint,
       apiProvider: settings.apiProvider ?? "mimo",
-      configured: Boolean(settings.apiKey || process.env.MIMO_API_KEY || defaultApiKey)
+      configured: Boolean(effectiveKey)
     });
   } catch (error) {
     next(error);
@@ -310,8 +378,10 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
     };
 
     await writeApiSettings(settings);
+    const maskedApiKey = `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
     res.json({
-      apiKey: settings.apiKey,
+      hasApiKey: true,
+      maskedApiKey,
       apiEndpoint: settings.apiEndpoint,
       apiProvider: settings.apiProvider,
       configured: true
@@ -322,14 +392,10 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
 });
 
 app.post("/api/voice-style/optimize", async (req: Request<unknown, unknown, VoiceStyleOptimizePayload>, res, next) => {
-  const startedAt = Date.now();
-
   try {
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
-      return res.status(500).json({
-        error: "未配置 API Key，请先点击右上角设置配置密钥。"
-      });
+    const config = getApiConfig(req);
+    if (!config.apiKey) {
+      return res.status(500).json({ error: "未配置 API Key，请先点击右上角设置配置密钥。" });
     }
 
     const style = String(req.body?.style || "").trim();
@@ -337,67 +403,31 @@ app.post("/api/voice-style/optimize", async (req: Request<unknown, unknown, Voic
       return res.status(400).json({ error: "语音风格描述不能为空。" });
     }
 
-    const payload: MimoChatPayload = {
-      model: "mimo-v2.5-pro",
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是专业的 TTS 语音风格提示词编辑。你的任务是把用户的语音风格描述优化为简短精炼的导演文本。只输出优化后的提示词，不要解释，不要使用 Markdown。"
-        },
-        {
-          role: "user",
-          content: [
-            "请优化下面的语音风格描述：",
-            "",
-            "要求：",
-            "1. 只保留三个核心要素：情感、语气、语速。",
-            "2. 不要补充其他内容，精炼表达。",
-            "3. 控制在 15 字左右。",
-            "",
-            `用户原文：${style}`
-          ].join("\n")
-        }
-      ],
-      temperature: 0.6,
-      thinking: { type: "disabled" }
-    };
+    const adapter = getProviderAdapter(config.apiProvider);
+    if (!adapter.capabilities.textOptimization) {
+      return res.status(400).json({ error: `${adapter.name} 暂不支持提示词文本润色功能，请切换至 MiMo 或 OpenAI/SiliconFlow。` });
+    }
 
-    const upstreamResponse = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+    const prompt = [
+      "请优化下面的语音风格描述：",
+      "",
+      "要求：",
+      "1. 只保留三个核心要素：情感、语气、语速。",
+      "2. 不要补充其他内容，精炼表达。",
+      "3. 控制在 15 字左右。",
+      "",
+      `用户原文：${style}`
+    ].join("\n");
+
+    const result = await adapter.optimizePrompt(
+      {
+        prompt,
+        systemPrompt: "你是专业的 TTS 语音风格提示词编辑。你的任务是把用户的语音风格描述优化为简短精炼的导演文本。只输出优化后的提示词，不要解释，不要使用 Markdown。"
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+      config
+    );
 
-    const responseText = await upstreamResponse.text();
-    const elapsedMs = Date.now() - startedAt;
-    const parsed = parseJson(responseText);
-
-    if (!upstreamResponse.ok) {
-      const detailError = extractUpstreamErrorMessage(parsed, `HTTP ${upstreamResponse.status}`);
-      return res.status(upstreamResponse.status).json({
-        error: `MiMo 语音风格优化请求失败: ${detailError}`,
-        status: upstreamResponse.status,
-        elapsedMs,
-        details: parsed ?? responseText
-      });
-    }
-
-    const rawText = extractMessageContent(parsed);
-    if (!rawText) {
-      return res.status(502).json({
-        error: "MiMo 响应内容缺少 message.content 字段。",
-        elapsedMs,
-        details: parsed
-      });
-    }
-
-    const optimizedText = rawText
+    const optimizedText = result.optimizedText
       .replace(/```(?:text|markdown)?\s*/gi, "")
       .replace(/```\s*/g, "")
       .replace(/^["'“‘](.*)["'”’]$/s, "$1")
@@ -406,7 +436,7 @@ app.post("/api/voice-style/optimize", async (req: Request<unknown, unknown, Voic
 
     res.json({
       optimizedText,
-      elapsedMs
+      elapsedMs: result.elapsedMs
     });
   } catch (error) {
     next(error);
@@ -414,14 +444,10 @@ app.post("/api/voice-style/optimize", async (req: Request<unknown, unknown, Voic
 });
 
 app.post("/api/voice-design/optimize", async (req: Request<unknown, unknown, VoiceDesignOptimizePayload>, res, next) => {
-  const startedAt = Date.now();
-
   try {
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
-      return res.status(500).json({
-        error: "未配置 API Key，请先点击右上角设置配置密钥。"
-      });
+    const config = getApiConfig(req);
+    if (!config.apiKey) {
+      return res.status(500).json({ error: "未配置 API Key，请先点击右上角设置配置密钥。" });
     }
 
     const voiceDescription = String(req.body?.voiceDescription || "").trim();
@@ -429,81 +455,40 @@ app.post("/api/voice-design/optimize", async (req: Request<unknown, unknown, Voi
       return res.status(400).json({ error: "音色设计描述不能为空。" });
     }
 
-    const payload: MimoChatPayload = {
-      model: "mimo-v2.5-pro",
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是专业的 TTS 音色设计提示词编辑。你的任务是把用户粗略的音色描述润色为适合 mimo-v2.5-tts-voicedesign 模型的 voice design prompt。只输出润色后的音色描述，不要解释，不要使用 Markdown。"
-        },
-        {
-          role: "user",
-          content: [
-            "请润色下面的音色描述，使其更适合用文本设计音色进行语音合成。",
-            "",
-            "要求：",
-            "1. 输出 1 到 4 句中文，清晰描述核心音色特征，不要过长。",
-            "2. 优先补全这些维度：性别与年龄、声音质感、情绪/语气、语速/节奏。",
-            "3. 可适度加入角色身份、说话风格、使用场景或时代质感，但不要堆砌。",
-            "4. 避免互相矛盾的要求，例如童稚声音和强烈 CEO 气场同时出现。",
-            "5. 不要使用混响、回声、EQ、压缩、母带等后期制作或音频工程术语。",
-            "6. 避免“普通、正常、外国”等缺少具体参考的模糊词。",
-            "7. 保留用户原本想要的音色方向，不要改成完全不同的声音。",
-            "",
-            `用户原文：${voiceDescription}`
-          ].join("\n")
-        }
-      ],
-      temperature: 0.45,
-      top_p: 0.9,
-      thinking: { type: "disabled" }
-    };
+    const adapter = getProviderAdapter(config.apiProvider);
+    if (!adapter.capabilities.textOptimization) {
+      return res.status(400).json({ error: `${adapter.name} 暂不支持音色设计提示词润色功能，请切换至 MiMo 或 OpenAI/SiliconFlow。` });
+    }
 
-    const upstreamResponse = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+    const prompt = [
+      "请根据用户提供的声音描述，优化并扩展为一段细节丰富、特征鲜明的 AI 音色设计提示词。",
+      "",
+      "要求：",
+      "1. 明确包含：性别、年龄感、声线特征（如沙哑/清亮/浑厚）、语速节奏、口吻与情绪基调。",
+      "2. 语言生动自然，控制在 50~100 字之间。",
+      "3. 直接输出设计好的提示词，不要包含多余开场白或解释。",
+      "",
+      `用户原始描述：${voiceDescription}`
+    ].join("\n");
+
+    const result = await adapter.optimizePrompt(
+      {
+        prompt,
+        systemPrompt: "你是专业的 AI 音色设计师与配音导演。你的任务是根据用户的简单描述，创造出符合专业配音要求的音色特征设定文本。"
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+      config
+    );
 
-    const responseText = await upstreamResponse.text();
-    const elapsedMs = Date.now() - startedAt;
-    const parsed = parseJson(responseText);
-
-    if (!upstreamResponse.ok) {
-      const detailError = extractUpstreamErrorMessage(parsed, `HTTP ${upstreamResponse.status}`);
-      return res.status(upstreamResponse.status).json({
-        error: `MiMo 音色创造优化请求失败: ${detailError}`,
-        status: upstreamResponse.status,
-        elapsedMs,
-        details: parsed ?? responseText
-      });
-    }
-
-    const rawText = extractMessageContent(parsed);
-    if (!rawText) {
-      return res.status(502).json({
-        error: "MiMo 响应内容缺少 message.content 字段。",
-        elapsedMs,
-        details: parsed
-      });
-    }
-
-    const optimizedText = rawText
+    const optimizedText = result.optimizedText
       .replace(/```(?:text|markdown)?\s*/gi, "")
       .replace(/```\s*/g, "")
       .replace(/^["'“‘](.*)["'”’]$/s, "$1")
-      .replace(/^(?:优化|润色)?(?:结果|提示词|描述)?[：:]\s*/i, "")
+      .replace(/^(?:优化|设计)?(?:结果|提示词|描述)?[：:]\s*/i, "")
       .trim();
 
     res.json({
       optimizedText,
-      elapsedMs
+      elapsedMs: result.elapsedMs
     });
   } catch (error) {
     next(error);
@@ -812,36 +797,6 @@ app.post("/api/workspaces/import", async (req, res, next) => {
     next(error);
   }
 });
-
-function buildCleanAudioCacheFileName(
-  title: string | undefined,
-  fallbackPrefix: string,
-  id: string | number | undefined,
-  originalFileName?: string,
-  workspaceName?: string
-): string {
-  const sanitize = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_").trim();
-  const ext = (originalFileName && originalFileName.match(/\.[a-z0-9]{1,8}$/i)?.[0]) || ".wav";
-
-  let baseTitle = "";
-  if (title && title.trim()) {
-    baseTitle = sanitize(title.trim()).replace(/\.[a-z0-9]{1,8}$/i, "");
-  }
-
-  if (!baseTitle && originalFileName) {
-    const safeOrig = sanitize(originalFileName).replace(/\.[a-z0-9]{1,8}$/i, "");
-    if (safeOrig && !safeOrig.startsWith("mimo-") && !safeOrig.startsWith("data:")) {
-      baseTitle = safeOrig;
-    }
-  }
-
-  if (!baseTitle) {
-    baseTitle = fallbackPrefix;
-  }
-
-  const shortId = id ? `_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-6)}` : `_${Date.now().toString().slice(-6)}`;
-  return `${baseTitle}${shortId}${ext}`;
-}
 
 app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
   try {
@@ -2258,9 +2213,9 @@ app.post("/api/audiobook/:id/generate", async (req, res, next) => {
       return res.status(404).json({ error: "有声书工作区不存在。" });
     }
 
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
-      return res.status(500).json({ error: "MIMO_API_KEY is not configured." });
+    const apiConfig = getApiConfig(req);
+    if (!apiConfig.apiKey) {
+      return res.status(500).json({ error: "API Key 未配置，请先点击右上角设置配置密钥。" });
     }
 
     const chapter = getActiveAudiobookChapter(workspace);
@@ -2285,7 +2240,7 @@ app.post("/api/audiobook/:id/generate", async (req, res, next) => {
           return targetChapter.products.map((product) => ({ ...product }));
         });
 
-      startAudiobookGenerationJob(req.params.id, apiKey, apiEndpoint);
+      startAudiobookGenerationJob(req.params.id, apiConfig);
       return res.status(202).json({ products, running: true });
     }
 
@@ -2314,7 +2269,7 @@ app.post("/api/audiobook/:id/generate", async (req, res, next) => {
       return targetChapter.products.map((product) => ({ ...product }));
     });
 
-    startAudiobookGenerationJob(req.params.id, apiKey, apiEndpoint);
+    startAudiobookGenerationJob(req.params.id, apiConfig);
     res.status(202).json({ products, running: true });
   } catch (error) {
     next(error);
@@ -2323,9 +2278,9 @@ app.post("/api/audiobook/:id/generate", async (req, res, next) => {
 
 app.post("/api/audiobook/:id/products/:productId/retry", async (req, res, next) => {
   try {
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
-      return res.status(500).json({ error: "MIMO_API_KEY is not configured." });
+    const apiConfig = getApiConfig(req);
+    if (!apiConfig.apiKey) {
+      return res.status(500).json({ error: "API Key 未配置，请先点击右上角设置配置密钥。" });
     }
 
     const product = await updateAudiobookProduct(req.params.id, req.params.productId, (target) => {
@@ -2338,7 +2293,7 @@ app.post("/api/audiobook/:id/products/:productId/retry", async (req, res, next) 
 
     const startMs = Date.now();
     try {
-      const audioDataUrl = await synthesizeAudiobookProduct(req.params.id, product, apiKey, apiEndpoint);
+      const audioDataUrl = await synthesizeAudiobookProduct(req.params.id, product, apiConfig);
       const updatedProduct = await updateAudiobookProduct(req.params.id, product.id, (target) => {
         target.audioDataUrl = audioDataUrl;
         target.status = "ready";
@@ -2360,13 +2315,11 @@ app.post("/api/audiobook/:id/products/:productId/retry", async (req, res, next) 
 });
 
 app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesignPayload>, res, next) => {
-  const startedAt = Date.now();
-
   try {
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
+    const config = getApiConfig(req);
+    if (!config.apiKey) {
       return res.status(500).json({
-        error: "MIMO_API_KEY is not configured. Copy .env.example to .env and set your key."
+        error: "未配置 API Key，请先点击右上角设置配置密钥。"
       });
     }
 
@@ -2376,99 +2329,56 @@ app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesi
     const instruction = String(req.body?.instruction || "").trim();
     const outputFormat = String(req.body?.format || "wav").trim();
 
-    if (outputFormat !== "wav") {
-      return res.status(400).json({ error: "Only wav output is supported in this debugger." });
-    }
-
     if (!voiceDescription && !naturalControl) {
       return res.status(400).json({ error: "请先填写音色设计描述或自然语言控制。" });
     }
 
     if (!text) {
-      return res.status(400).json({ error: "Synthesis text is required." });
+      return res.status(400).json({ error: "合成文本不能为空。" });
     }
 
-    let fullDescription = voiceDescription;
-    if (naturalControl) {
-      fullDescription = voiceDescription
-        ? `${voiceDescription} ${naturalControl}`
-        : naturalControl;
+    const adapter = getProviderAdapter(config.apiProvider);
+    if (!adapter.capabilities.voiceDesign) {
+      return res.status(400).json({
+        error: `${adapter.name} 暂未提供基于自然语言提示词的音色设计能力（建议切换至 MiMo 模型）。`
+      });
     }
 
-    const payload: MimoVoiceDesignPayload = {
-      model: "mimo-v2.5-tts-voicedesign",
-      messages: [
-        { role: "user", content: fullDescription },
-        { role: "assistant", content: text }
-      ],
-      audio: {
-        format: "wav"
-      }
-    };
-
-    const upstreamResponse = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+    const result = await adapter.synthesizeVoiceDesign(
+      {
+        text,
+        voiceDescription,
+        naturalControl,
+        instruction,
+        format: outputFormat
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+      config
+    );
 
-    const responseText = await upstreamResponse.text();
-    const elapsedMs = Date.now() - startedAt;
-    const parsed = parseJson(responseText);
+    const base64 = result.audioBuffer.toString("base64");
+    const fileName = buildCleanAudioCacheFileName(
+      voiceDescription.slice(0, 20) || "voicedesign",
+      "音色设计",
+      Date.now().toString().slice(-6),
+      `output.${result.format}`
+    );
 
-    if (!upstreamResponse.ok) {
-      const detailError = extractUpstreamErrorMessage(parsed, `HTTP ${upstreamResponse.status}`);
-      return res.status(upstreamResponse.status).json({
-        error: `MiMo 音色合成请求失败: ${detailError}`,
-        status: upstreamResponse.status,
-        elapsedMs,
-        details: parsed ?? responseText,
-        request: redactVoiceDesignPayload(payload)
-      });
-    }
-
-    if (!parsed) {
-      return res.status(502).json({
-        error: "MiMo API 返回了非 JSON 响应。",
-        elapsedMs,
-        details: responseText.slice(0, 1000),
-        request: redactVoiceDesignPayload(payload)
-      });
-    }
-
-    const audioData = extractAudioData(parsed);
-    if (!audioData) {
-      const detailError = extractUpstreamErrorMessage(parsed, "响应缺少音频数据 choices[0].message.audio.data");
-      return res.status(502).json({
-        error: `MiMo API 合成错误: ${detailError}`,
-        elapsedMs,
-        details: parsed,
-        request: redactVoiceDesignPayload(payload)
-      });
-    }
-
-    const fileName = `mimo-voicedesign-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
     try {
       const audiosDir = getAudiosDir();
       await mkdir(audiosDir, { recursive: true });
-      await writeFile(path.join(audiosDir, fileName), Buffer.from(audioData, "base64"));
+      await writeFile(path.join(audiosDir, fileName), result.audioBuffer);
     } catch (saveErr) {
       console.warn("Failed to write voicedesign audio copy to disk:", saveErr);
     }
 
     res.json({
-      audioDataUrl: `data:audio/wav;base64,${audioData}`,
+      audioDataUrl: `data:${result.mimeType};base64,${base64}`,
       fileName,
-      elapsedMs,
-      request: redactVoiceDesignPayload(payload),
+      elapsedMs: result.elapsedMs,
+      request: result.redactedRequest,
       response: {
-        audioBytesApprox: Math.floor((audioData.length * 3) / 4),
-        choiceCount: getChoiceCount(parsed)
+        audioBytesApprox: result.audioBuffer.length,
+        format: result.format
       }
     });
   } catch (error) {
@@ -2477,11 +2387,9 @@ app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesi
 });
 
 app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res: Response, next: NextFunction) => {
-  const startedAt = Date.now();
-
   try {
-    const { apiKey, apiEndpoint } = getApiConfig(req);
-    if (!apiKey) {
+    const config = getApiConfig(req);
+    if (!config.apiKey) {
       return res.status(500).json({
         error: "未配置 API Key，请先点击右上角设置配置密钥。"
       });
@@ -2490,101 +2398,67 @@ app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res
     const text = String(req.body.text || "").trim();
     const instruction = String(req.body.instruction || "").trim();
     const outputFormat = String(req.body.format || "wav").trim();
-
-    if (outputFormat !== "wav") {
-      return res.status(400).json({ error: "仅支持 wav 格式输出。" });
-    }
+    const voiceId = typeof req.body.voiceId === "string" ? req.body.voiceId.trim() : undefined;
+    const model = typeof req.body.model === "string" ? req.body.model.trim() : undefined;
 
     if (!text) {
       return res.status(400).json({ error: "合成文本不能为空。" });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: "请上传参考音频文件。" });
-    }
+    const adapter = getProviderAdapter(config.apiProvider);
 
-    const voiceMime = resolveVoiceMimeType(req.file);
-    if (!voiceMime) {
-      return res.status(400).json({
-        error: "不支持的音频格式，请上传 mp3, m4a/mp4 或 wav 音频文件。",
-        receivedMimeType: req.file.mimetype,
-        fileName: req.file.originalname
-      });
-    }
-
-    const audioBase64 = req.file.buffer.toString("base64");
-    const payload: MimoPayload = {
-      model: "mimo-v2.5-tts-voiceclone",
-      messages: [
-        { role: "user", content: instruction },
-        { role: "assistant", content: text }
-      ],
-      audio: {
-        format: "wav",
-        voice: `data:${voiceMime};base64,${audioBase64}`
+    let voiceMime: string | undefined;
+    if (req.file) {
+      voiceMime = resolveVoiceMimeType(req.file) || undefined;
+      if (!voiceMime) {
+        return res.status(400).json({
+          error: "不支持的音频格式，仅支持 MP3 与 WAV 格式（已禁止 M4A/MP4 格式）。",
+          receivedMimeType: req.file.mimetype,
+          fileName: req.file.originalname
+        });
       }
-    };
+    } else if (!adapter.capabilities.presetTTS && !adapter.capabilities.trainedClone && !voiceId) {
+      return res.status(400).json({ error: `${adapter.name} 需要上传参考音频文件或提供 Voice ID。` });
+    }
 
-    const upstreamResponse = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Content-Type": "application/json"
+    const result = await adapter.synthesizeVoiceClone(
+      {
+        text,
+        instruction,
+        format: outputFormat,
+        referenceAudioBuffer: req.file?.buffer,
+        referenceAudioMime: voiceMime,
+        referenceAudioName: req.file?.originalname,
+        voiceId,
+        model
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+      config
+    );
 
-    const responseText = await upstreamResponse.text();
-    const elapsedMs = Date.now() - startedAt;
-    const parsed = parseJson(responseText);
+    const base64 = result.audioBuffer.toString("base64");
+    const fileName = buildCleanAudioCacheFileName(
+      instruction.slice(0, 20) || (req.file ? req.file.originalname.replace(/\.[^.]+$/, "") : "voiceclone"),
+      "语音克隆",
+      Date.now().toString().slice(-6),
+      `output.${result.format}`
+    );
 
-    if (!upstreamResponse.ok) {
-      return res.status(upstreamResponse.status).json({
-        error: "MiMo 音频克隆 API 请求失败。",
-        status: upstreamResponse.status,
-        elapsedMs,
-        details: parsed ?? responseText,
-        request: redactPayload(payload, req.file)
-      });
-    }
-
-    if (!parsed) {
-      return res.status(502).json({
-        error: "MiMo API 返回了非 JSON 响应。",
-        elapsedMs,
-        details: responseText.slice(0, 1000),
-        request: redactPayload(payload, req.file)
-      });
-    }
-
-    const audioData = extractAudioData(parsed);
-    if (!audioData) {
-      return res.status(502).json({
-        error: "MiMo API response did not include choices[0].message.audio.data.",
-        elapsedMs,
-        details: parsed,
-        request: redactPayload(payload, req.file)
-      });
-    }
-
-    const fileName = `mimo-voiceclone-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
     try {
       const audiosDir = getAudiosDir();
       await mkdir(audiosDir, { recursive: true });
-      await writeFile(path.join(audiosDir, fileName), Buffer.from(audioData, "base64"));
+      await writeFile(path.join(audiosDir, fileName), result.audioBuffer);
     } catch (saveErr) {
       console.warn("Failed to write voiceclone audio copy to disk:", saveErr);
     }
 
     res.json({
-      audioDataUrl: `data:audio/wav;base64,${audioData}`,
+      audioDataUrl: `data:${result.mimeType};base64,${base64}`,
       fileName,
-      elapsedMs,
-      request: redactPayload(payload, req.file),
+      elapsedMs: result.elapsedMs,
+      request: result.redactedRequest,
       response: {
-        audioBytesApprox: Math.floor((audioData.length * 3) / 4),
-        choiceCount: getChoiceCount(parsed)
+        audioBytesApprox: result.audioBuffer.length,
+        format: result.format
       }
     });
   } catch (error) {
@@ -2614,13 +2488,13 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: message });
 });
 
-export function startServer(listenPort = port, host?: string) {
-  const server = host ? app.listen(listenPort, host) : app.listen(listenPort);
+export function startServer(listenPort = port, host = process.env.MIMO_HOST || "127.0.0.1") {
+  const server = app.listen(listenPort, host);
 
   server.once("listening", () => {
     const address = server.address();
     const resolvedPort = typeof address === "object" && address ? address.port : listenPort;
-    const resolvedHost = host || "localhost";
+    const resolvedHost = typeof address === "object" && address && "address" in address ? address.address : host;
     console.log(`MiMo voice clone proxy listening on http://${resolvedHost}:${resolvedPort}`);
   });
 
@@ -2633,20 +2507,16 @@ if (process.env.MIMO_NO_AUTO_LISTEN !== "1") {
   startServer(port);
 }
 
-function resolveVoiceMimeType(file: Express.Multer.File): "audio/mp3" | "audio/m4a" | "audio/wav" | null {
+function resolveVoiceMimeType(file: Express.Multer.File): "audio/mp3" | "audio/wav" | null {
   const extension = file.originalname.split(".").pop()?.toLowerCase();
   const detected = detectAudioContainer(file.buffer);
 
-  if (detected) {
+  if (detected === "audio/mp3" || detected === "audio/wav") {
     return detected;
   }
 
   if (extension === "mp3") {
     return "audio/mp3";
-  }
-
-  if (extension === "m4a" || extension === "mp4") {
-    return "audio/m4a";
   }
 
   if (extension === "wav") {
@@ -2657,10 +2527,6 @@ function resolveVoiceMimeType(file: Express.Multer.File): "audio/mp3" | "audio/m
     return "audio/mp3";
   }
 
-  if (file.mimetype === "audio/mp4" || file.mimetype === "audio/m4a" || file.mimetype === "video/mp4") {
-    return "audio/m4a";
-  }
-
   if (file.mimetype === "audio/wav" || file.mimetype === "audio/x-wav" || file.mimetype === "audio/wave") {
     return "audio/wav";
   }
@@ -2668,7 +2534,7 @@ function resolveVoiceMimeType(file: Express.Multer.File): "audio/mp3" | "audio/m
   return null;
 }
 
-function detectAudioContainer(buffer: Buffer): "audio/mp3" | "audio/m4a" | "audio/wav" | null {
+function detectAudioContainer(buffer: Buffer): "audio/mp3" | "audio/wav" | null {
   if (buffer.length < 12) {
     return null;
   }
@@ -2680,11 +2546,6 @@ function detectAudioContainer(buffer: Buffer): "audio/mp3" | "audio/m4a" | "audi
 
   if (first12.startsWith("ID3") || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0)) {
     return "audio/mp3";
-  }
-
-  // MP4/M4A files expose an ftyp box near the beginning. Renaming them to .mp3 does not change this.
-  if (first12.slice(4, 8) === "ftyp") {
-    return "audio/m4a";
   }
 
   return null;
@@ -3633,13 +3494,29 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function startAudiobookGenerationJob(workspaceId: string, apiKey: string, apiEndpoint: string): void {
+function readAudioSourceAsBuffer(source: string): Buffer {
+  if (source.startsWith("data:")) {
+    const [, base64] = source.split(",");
+    return Buffer.from(base64 || "", "base64");
+  }
+  if (source.startsWith("/api/audio-cache/")) {
+    const rawFileName = source.replace(/^\/api\/audio-cache\//, "");
+    const safeFileName = path.basename(decodeURIComponent(rawFileName));
+    const filePath = path.join(getAudiosDir(), safeFileName);
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath);
+    }
+  }
+  throw new Error("无法读取角色参考音频数据");
+}
+
+function startAudiobookGenerationJob(workspaceId: string, apiConfig: RequestApiConfig): void {
   if (activeAudiobookGenerationJobs.has(workspaceId)) {
     return;
   }
 
   activeAudiobookGenerationJobs.add(workspaceId);
-  void generateAudiobookProductsInBatches(workspaceId, apiKey, apiEndpoint)
+  void generateAudiobookProductsInBatches(workspaceId, apiConfig)
     .catch((error) => {
       console.error("[audiobook:generate] background generation failed", error);
     })
@@ -3670,7 +3547,7 @@ async function fetchTextWithTimeout(
   }
 }
 
-async function generateAudiobookProductsInBatches(workspaceId: string, apiKey: string, apiEndpoint: string): Promise<void> {
+async function generateAudiobookProductsInBatches(workspaceId: string, apiConfig: RequestApiConfig): Promise<void> {
   const batchSize = 20;
 
   while (true) {
@@ -3696,7 +3573,7 @@ async function generateAudiobookProductsInBatches(workspaceId: string, apiKey: s
       batch.map(async (product) => {
         const startMs = Date.now();
         try {
-          const audioDataUrl = await synthesizeAudiobookProduct(workspaceId, product, apiKey, apiEndpoint);
+          const audioDataUrl = await synthesizeAudiobookProduct(workspaceId, product, apiConfig);
           await updateAudiobookProduct(workspaceId, product.id, (target) => {
             target.audioDataUrl = audioDataUrl;
             target.status = "ready";
@@ -3718,41 +3595,42 @@ async function generateAudiobookProductsInBatches(workspaceId: string, apiKey: s
 async function synthesizeAudiobookProduct(
   workspaceId: string,
   product: AudiobookProduct,
-  apiKey: string,
-  apiEndpoint: string
+  apiConfig: RequestApiConfig
 ): Promise<string> {
   const character = await getAudiobookCharacterSnapshot(workspaceId, product.characterId);
   if (!character?.voiceDataUrl) {
     throw new Error(`${product.characterName || "当前角色"}缺少可复用音色，请先在音色库生成或上传参考音频。`);
   }
 
-  const payload: MimoPayload = {
-    model: "mimo-v2.5-tts-voiceclone",
-    messages: [
-      { role: "user", content: product.instruction },
-      { role: "assistant", content: product.text }
-    ],
-    audio: {
-      format: "wav",
-      voice: character.voiceDataUrl
-    }
-  };
+  const adapter = getProviderAdapter(apiConfig.apiProvider);
+  let audioBuffer: Buffer;
 
-  const { response: upstreamResponse, text: responseText } = await fetchTextWithTimeout(apiEndpoint, {
-    method: "POST",
-    headers: { "api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  }, audiobookProductTimeoutMs);
-  if (!upstreamResponse.ok) {
-    throw new Error(`voiceclone失败：HTTP ${upstreamResponse.status}`);
+  if (character.voiceDataUrl.startsWith("data:") || character.voiceDataUrl.startsWith("/api/audio-cache/")) {
+    const voiceBuffer = readAudioSourceAsBuffer(character.voiceDataUrl);
+    const result = await adapter.synthesizeVoiceClone(
+      {
+        text: product.text,
+        instruction: product.instruction,
+        referenceAudioBuffer: voiceBuffer,
+        format: "wav"
+      },
+      apiConfig
+    );
+    audioBuffer = result.audioBuffer;
+  } else {
+    const result = await adapter.synthesizeVoiceClone(
+      {
+        text: product.text,
+        instruction: product.instruction,
+        voiceId: character.voiceDataUrl,
+        format: "wav"
+      },
+      apiConfig
+    );
+    audioBuffer = result.audioBuffer;
   }
 
-  const audioData = extractAudioData(parseJson(responseText));
-  if (!audioData) {
-    throw new Error("voiceclone响应中没有音频数据");
-  }
-
-  return `data:audio/wav;base64,${audioData}`;
+  return `data:audio/wav;base64,${audioBuffer.toString("base64")}`;
 }
 
 async function getAudiobookCharacterSnapshot(workspaceId: string, characterId: string | null): Promise<AudiobookCharacter | null> {

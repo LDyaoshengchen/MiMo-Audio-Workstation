@@ -14,5 +14,29 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("@xyflow") || id.includes("reactflow")) {
+              return "vendor-flow";
+            }
+            if (id.includes("jszip")) {
+              return "vendor-jszip";
+            }
+            if (id.includes("lucide-react")) {
+              return "vendor-icons";
+            }
+            if (id.includes("react") || id.includes("react-dom") || id.includes("scheduler")) {
+              return "vendor-react";
+            }
+            return "vendor-common";
+          }
+        }
+      }
+    }
   }
 });

@@ -3,7 +3,7 @@
   "version": "0.8.17",
   "description": "MiMo Audio Workstation",
   "author": "MiMo Team",
-  "repository": "https://github.com/mimo/audio-workstation",
+  "repository": "https://github.com/LDyaoshengchen/MiMo-Audio-Workstation",
   "private": true,
   "main": "electron/main.cjs",
   "type": "module",
@@ -14,6 +14,8 @@
     "build": "tsc -b && vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=build/server/index.cjs",
     "preview": "vite preview --host 0.0.0.0",
     "electron": "npm run build && electron electron/main.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dist:win": "node scripts/package-win.js",
     "dist:installer": "node scripts/package-installer.js",
     "dist:all": "node scripts/package-win.js && electron-builder --win nsis"
@@ -72,7 +74,8 @@
     "electron": "^41.10.3",
     "electron-builder": "^26.8.1",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "electron@41.10.3": true,
