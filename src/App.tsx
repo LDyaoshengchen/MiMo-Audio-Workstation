@@ -1068,11 +1068,16 @@ function StudioApp() {
 
         const placedNodes = new Set<string>();
 
-        // Recursive Subtree Layout function
-        function layoutPipelineSubtree(nodeId: string, originX: number, originY: number): { width: number; height: number } {
+        // Recursive Subtree Layout function with 5-branch & height limit column wrapping
+        function layoutPipelineSubtree(
+          nodeId: string,
+          originX: number,
+          originY: number,
+          isTopLevelRoot: boolean = false
+        ): { width: number; height: number; endX: number } {
           placedNodes.add(nodeId);
           const node = nodeMap.get(nodeId);
-          if (!node) return { width: 0, height: 0 };
+          if (!node) return { width: 0, height: 0, endX: originX };
 
           const nodeW = getNodeWidth(node);
           const nodeH = getNodeHeight(node);
@@ -1111,35 +1116,82 @@ function StudioApp() {
             nextLogicStartX = artStartX + artGridW + 60;
           }
 
-          const selfTotalW = (arts.length > 0) ? (nodeW + 60 + artGridW) : nodeW;
+          const selfTotalW = arts.length > 0 ? nodeW + 60 + artGridW : nodeW;
           const selfTotalH = Math.max(nodeH, artGridH);
 
           // Get downstream logic children
           const rawLogicChildren = (nodeLogicChildren.get(nodeId) || []).filter((cId) => !placedNodes.has(cId));
 
           if (rawLogicChildren.length === 0) {
-            return { width: selfTotalW, height: selfTotalH };
+            return { width: selfTotalW, height: selfTotalH, endX: originX + selfTotalW };
           }
 
           // Sort downstream logic children by original Y position
           rawLogicChildren.sort((a, b) => (nodeMap.get(a)?.position.y || 0) - (nodeMap.get(b)?.position.y || 0));
 
-          let currentChildY = originY;
-          let maxChildSubtreeW = 0;
+          if (isTopLevelRoot && rawLogicChildren.length > 1) {
+            // 每 5 个分支或高度超过限制自动换至右侧新一列，Y轴回到顶部 80px
+            let branchColX = nextLogicStartX;
+            let branchColY = 80;
+            let currentBranchColMaxW = 0;
+            let currentBranchColHeight = 0;
+            let currentBranchCount = 0;
+            let maxOverallX = nextLogicStartX;
 
-          rawLogicChildren.forEach((childId) => {
-            const childBox = layoutPipelineSubtree(childId, nextLogicStartX, currentChildY);
-            if (childBox.width > maxChildSubtreeW) {
-              maxChildSubtreeW = childBox.width;
-            }
-            currentChildY += childBox.height + 50; // 50px branch gap between siblings
-          });
+            rawLogicChildren.forEach((childId) => {
+              // 如果超过 5 个分支或者纵向高度超过限制，自动换至右侧新一列
+              if (
+                currentBranchCount >= 5 ||
+                (currentBranchCount > 0 && currentBranchColHeight >= 2200)
+              ) {
+                branchColX += currentBranchColMaxW + 280; // X 轴自动右移留出 280px 通道
+                branchColY = 80; // Y 轴自动回到顶部 80px 开始垂直对齐
+                currentBranchColMaxW = 0;
+                currentBranchColHeight = 0;
+                currentBranchCount = 0;
+              }
 
-          const totalChildrenH = currentChildY - 50 - originY;
-          const totalSubtreeH = Math.max(selfTotalH, totalChildrenH);
-          const totalSubtreeW = selfTotalW + 60 + maxChildSubtreeW;
+              const childBox = layoutPipelineSubtree(childId, branchColX, branchColY, false);
+              if (childBox.width > currentBranchColMaxW) {
+                currentBranchColMaxW = childBox.width;
+              }
+              if (childBox.endX > maxOverallX) {
+                maxOverallX = childBox.endX;
+              }
 
-          return { width: totalSubtreeW, height: totalSubtreeH };
+              branchColY += childBox.height + 50;
+              currentBranchColHeight += childBox.height + 50;
+              currentBranchCount += 1;
+            });
+
+            return {
+              width: maxOverallX - originX,
+              height: Math.max(selfTotalH, currentBranchColHeight),
+              endX: maxOverallX
+            };
+          } else {
+            // 管道多级节点：新的下游节点在上个下游节点的所有产物下边
+            let currentChildY = originY;
+            let maxChildSubtreeW = 0;
+            let maxOverallX = nextLogicStartX;
+
+            rawLogicChildren.forEach((childId) => {
+              const childBox = layoutPipelineSubtree(childId, nextLogicStartX, currentChildY, false);
+              if (childBox.width > maxChildSubtreeW) {
+                maxChildSubtreeW = childBox.width;
+              }
+              if (childBox.endX > maxOverallX) {
+                maxOverallX = childBox.endX;
+              }
+              currentChildY += childBox.height + 50;
+            });
+
+            const totalChildrenH = currentChildY - 50 - originY;
+            const totalSubtreeH = Math.max(selfTotalH, totalChildrenH);
+            const totalSubtreeW = selfTotalW + 60 + maxChildSubtreeW;
+
+            return { width: totalSubtreeW, height: totalSubtreeH, endX: maxOverallX };
+          }
         }
 
         // Layout all roots in this block
@@ -1148,7 +1200,7 @@ function StudioApp() {
 
         rootIds.forEach((rootId) => {
           if (!placedNodes.has(rootId)) {
-            const rootBox = layoutPipelineSubtree(rootId, globalColStartX, blockCurrentY);
+            const rootBox = layoutPipelineSubtree(rootId, globalColStartX, blockCurrentY, true);
             if (rootBox.width > blockMaxW) blockMaxW = rootBox.width;
             blockCurrentY += rootBox.height + 60;
           }
