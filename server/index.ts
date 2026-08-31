@@ -813,6 +813,36 @@ app.post("/api/workspaces/import", async (req, res, next) => {
   }
 });
 
+function buildCleanAudioCacheFileName(
+  title: string | undefined,
+  fallbackPrefix: string,
+  id: string | number | undefined,
+  originalFileName?: string,
+  workspaceName?: string
+): string {
+  const sanitize = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_").trim();
+  const ext = (originalFileName && originalFileName.match(/\.[a-z0-9]{1,8}$/i)?.[0]) || ".wav";
+
+  let baseTitle = "";
+  if (title && title.trim()) {
+    baseTitle = sanitize(title.trim()).replace(/\.[a-z0-9]{1,8}$/i, "");
+  }
+
+  if (!baseTitle && originalFileName) {
+    const safeOrig = sanitize(originalFileName).replace(/\.[a-z0-9]{1,8}$/i, "");
+    if (safeOrig && !safeOrig.startsWith("mimo-") && !safeOrig.startsWith("data:")) {
+      baseTitle = safeOrig;
+    }
+  }
+
+  if (!baseTitle) {
+    baseTitle = fallbackPrefix;
+  }
+
+  const shortId = id ? `_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-6)}` : `_${Date.now().toString().slice(-6)}`;
+  return `${baseTitle}${shortId}${ext}`;
+}
+
 app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
   try {
     const store = await readWorkspaceStore();
@@ -832,10 +862,13 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
             if (item && item.audioDataUrl && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
               const base64 = item.audioDataUrl.split(",")[1];
               if (base64) {
-                const fname = item.fileName || `mimo-optimized-${item.id || Date.now()}.wav`;
+                const itemTitle = item.title || (node.data?.title ? `${node.data.title}_${item.id || "1"}` : "批量产物");
+                const fname = item.fileName || buildCleanAudioCacheFileName(itemTitle, "批量产物", item.id, item.fileName, workspace.name);
+                item.fileName = fname;
                 try {
                   await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
                   optimizedCount++;
+                  item.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
                 } catch {}
               }
             }
@@ -847,10 +880,12 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
               if (art && art.audioDataUrl && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
                 const base64 = art.audioDataUrl.split(",")[1];
                 if (base64) {
-                  const fname = art.fileName || `mimo-integrated-${art.id || Date.now()}.wav`;
+                  const fname = art.fileName || buildCleanAudioCacheFileName(art.title || row.title || "集成工坊产物", "集成产物", art.id, art.fileName, workspace.name);
+                  art.fileName = fname;
                   try {
                     await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
                     optimizedCount++;
+                    art.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
                   } catch {}
                 }
               }
@@ -860,10 +895,13 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
         if (node && node.type === "artifact" && node.data?.artifact?.audioDataUrl?.startsWith("data:")) {
           const base64 = node.data.artifact.audioDataUrl.split(",")[1];
           if (base64) {
-            const fname = node.data.artifact.fileName || `mimo-artifact-${Date.now()}.wav`;
+            const nodeTitle = node.data?.title || node.data?.artifact?.title || "产物";
+            const fname = node.data.artifact.fileName || buildCleanAudioCacheFileName(nodeTitle, "产物", node.id, node.data.artifact.fileName, workspace.name);
+            node.data.artifact.fileName = fname;
             try {
               await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
               optimizedCount++;
+              node.data.artifact.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
             } catch {}
           }
         }
@@ -3247,7 +3285,9 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
         if (item && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
           const base64 = item.audioDataUrl.split(",")[1];
           if (base64) {
-            const fname = item.fileName || `mimo-batch-${item.id || Date.now()}.wav`;
+            const itemTitle = item.title || (node.data?.title ? `${node.data.title}_${item.id || "1"}` : "批量产物");
+            const fname = item.fileName || buildCleanAudioCacheFileName(itemTitle, "批量产物", item.id, item.fileName, workspace.name);
+            item.fileName = fname;
             const filePath = path.join(audiosDir, fname);
             if (!fs.existsSync(filePath)) {
               try {
@@ -3266,7 +3306,8 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
           if (art && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
             const base64 = art.audioDataUrl.split(",")[1];
             if (base64) {
-              const fname = art.fileName || `mimo-integrated-${art.id || Date.now()}.wav`;
+              const fname = art.fileName || buildCleanAudioCacheFileName(art.title || row.title || "集成工坊产物", "集成产物", art.id, art.fileName, workspace.name);
+              art.fileName = fname;
               const filePath = path.join(audiosDir, fname);
               if (!fs.existsSync(filePath)) {
                 try {
@@ -3283,7 +3324,9 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
     if (node.type === "artifact" && node.data?.artifact && typeof node.data.artifact.audioDataUrl === "string" && node.data.artifact.audioDataUrl.startsWith("data:")) {
       const base64 = node.data.artifact.audioDataUrl.split(",")[1];
       if (base64) {
-        const fname = node.data.artifact.fileName || `mimo-artifact-${node.id || Date.now()}.wav`;
+        const nodeTitle = node.data?.title || node.data?.artifact?.title || "产物";
+        const fname = node.data.artifact.fileName || buildCleanAudioCacheFileName(nodeTitle, "产物", node.id, node.data.artifact.fileName, workspace.name);
+        node.data.artifact.fileName = fname;
         const filePath = path.join(audiosDir, fname);
         if (!fs.existsSync(filePath)) {
           try {
@@ -3297,7 +3340,9 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
     if (node.data?.audio && typeof node.data.audio.dataUrl === "string" && node.data.audio.dataUrl.startsWith("data:")) {
       const base64 = node.data.audio.dataUrl.split(",")[1];
       if (base64) {
-        const fname = node.data.audio.name || `mimo-ref-${node.id || Date.now()}.wav`;
+        const nodeTitle = node.data?.title || node.data?.audio?.name || "参考音频";
+        const fname = node.data.audio.name || buildCleanAudioCacheFileName(nodeTitle, "参考音频", node.id, node.data.audio?.name, workspace.name);
+        node.data.audio.name = fname;
         const filePath = path.join(audiosDir, fname);
         if (!fs.existsSync(filePath)) {
           try {
@@ -3315,7 +3360,8 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
       if (stash && typeof stash.audioDataUrl === "string" && stash.audioDataUrl.startsWith("data:")) {
         const base64 = stash.audioDataUrl.split(",")[1];
         if (base64) {
-          const fname = stash.fileName || `mimo-stash-${stash.id || Date.now()}.wav`;
+          const fname = stash.fileName || buildCleanAudioCacheFileName(stash.sourceNodeName || stash.title || stash.name, "暂存音频", stash.id, stash.fileName, workspace.name);
+          stash.fileName = fname;
           const filePath = path.join(audiosDir, fname);
           if (!fs.existsSync(filePath)) {
             try {
