@@ -60,16 +60,24 @@ const distTargetDir = path.join(resourcesDir, "dist");
 
 fs.mkdirSync(appDir, { recursive: true });
 
-// 复制 package.json 与 electron/ main.cjs
+// 复制 package.json 与 electron/ 目录
 fs.copyFileSync(path.join(rootDir, "package.json"), path.join(appDir, "package.json"));
 fs.mkdirSync(path.join(appDir, "electron"), { recursive: true });
-fs.copyFileSync(path.join(rootDir, "electron", "main.cjs"), path.join(appDir, "electron", "main.cjs"));
+fs.cpSync(path.join(rootDir, "electron"), path.join(appDir, "electron"), { recursive: true });
 
 // 复制 build/server -> resources/server
 fs.cpSync(path.join(rootDir, "build", "server"), serverTargetDir, { recursive: true });
 
 // 复制 dist -> resources/dist
 fs.cpSync(path.join(rootDir, "dist"), distTargetDir, { recursive: true });
+
+// 复制 .env 环境变量配置文件（如果存在）
+const envSource = path.join(rootDir, ".env");
+if (fs.existsSync(envSource)) {
+  fs.copyFileSync(envSource, path.join(appOutDir, ".env"));
+  fs.copyFileSync(envSource, path.join(resourcesDir, ".env"));
+  fs.copyFileSync(envSource, path.join(appDir, ".env"));
+}
 
 console.log("✨ 本地绿色客户端打包完成！");
 console.log(`📍 目录绝对路径: ${appOutDir}`);

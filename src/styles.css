@@ -10,9 +10,8 @@
   --border-color: rgba(197, 164, 93, 0.28);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", "Noto Sans SC", sans-serif;
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 * {
@@ -173,6 +172,71 @@ h1 {
   gap: 10px;
 }
 
+/* Clone toolbar game preset selector */
+.clone-toolbar {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.clone-preset-select {
+  width: 100%;
+  background: rgba(197, 164, 93, 0.08);
+  border: 1px solid rgba(197, 164, 93, 0.3);
+  color: #efe7cf;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clone-preset-select:hover {
+  background: rgba(197, 164, 93, 0.16);
+  border-color: rgba(197, 164, 93, 0.6);
+}
+
+.clone-preset-select option,
+.clone-preset-select optgroup,
+.design-preset-select option,
+.design-preset-select optgroup {
+  background: #181713;
+  color: #efe7cf;
+}
+
+[data-theme="light"] .clone-preset-select {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+[data-theme="light"] .clone-preset-select option,
+[data-theme="light"] .clone-preset-select optgroup,
+[data-theme="light"] .design-preset-select option,
+[data-theme="light"] .design-preset-select optgroup {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.batch-game-fill-btn {
+  background: rgba(234, 179, 8, 0.12) !important;
+  border-color: rgba(234, 179, 8, 0.4) !important;
+  color: #facc15 !important;
+}
+
+.batch-game-fill-btn:hover {
+  background: rgba(234, 179, 8, 0.22) !important;
+  border-color: rgba(234, 179, 8, 0.8) !important;
+}
+
+[data-theme="light"] .batch-game-fill-btn {
+  background: #fefce8 !important;
+  border-color: #fde047 !important;
+  color: #854d0e !important;
+}
+
 .status-pill.good {
   color: #bdf1c7;
   border-color: rgba(119, 202, 137, 0.58);
@@ -202,6 +266,13 @@ h1 {
   z-index: 4;
 }
 
+[data-theme="light"] .api-warning {
+  color: #9a3412 !important;
+  background: #fff7ed !important;
+  border-color: #fdba74 !important;
+  font-weight: 600 !important;
+}
+
 .api-warning span {
   flex: 1;
 }
@@ -219,6 +290,10 @@ h1 {
   cursor: pointer;
   border-radius: 4px;
   opacity: 0.7;
+}
+
+[data-theme="light"] .api-warning-close {
+  color: #9a3412 !important;
 }
 
 .api-warning-close:hover {
@@ -836,6 +911,36 @@ a.stash-round-action:hover {
   background: var(--bg-main);
 }
 
+.workspace-startup-splash-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-main);
+}
+
+.workspace-startup-splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px;
+  text-align: center;
+  user-select: none;
+}
+
+.workspace-startup-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
+}
+
+.workspace-startup-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .canvas-titlebar {
   min-height: 56px;
   height: auto;
@@ -903,9 +1008,8 @@ a.stash-round-action:hover {
 
 .react-flow {
   background: var(--bg-main);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .react-flow__controls,
@@ -926,6 +1030,13 @@ a.stash-round-action:hover {
 
 .react-flow__node {
   transform-style: flat;
+  contain: layout style;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.react-flow__edge-path {
+  shape-rendering: geometricPrecision;
 }
 
 .studio-node {
@@ -1143,6 +1254,665 @@ a.stash-round-action:hover {
   background: #38bdf8 !important;
   border: 2px solid #090908 !important;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.8) !important;
+}
+
+/* 9c. 游戏语气词生成 (Game Vocal Generator - Game Violet Theme) */
+.node-game-vocal {
+  width: 660px;
+  border-color: #8b5cf6 !important;
+  background:
+    linear-gradient(180deg, rgba(46, 26, 78, 0.98), rgba(20, 14, 38, 0.99)),
+    #130d22 !important;
+  box-shadow: 0 10px 42px rgba(139, 92, 246, 0.38), 0 0 18px rgba(139, 92, 246, 0.25) !important;
+}
+
+.node-game-vocal .node-header svg {
+  color: #a78bfa !important;
+}
+
+.node-game-vocal .node-field span,
+.node-game-vocal .input-handle-label {
+  color: #c4b5fd !important;
+  font-weight: 800 !important;
+}
+
+.node-game-vocal .node-handle {
+  background: #8b5cf6 !important;
+  border: 2px solid #090908 !important;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.8) !important;
+}
+
+/* 游戏语气词面板组件 */
+.game-vocal-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+/* 语气词模式切换 Tab */
+.game-vocal-mode-tabs {
+  display: flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.game-vocal-mode-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #c4b5fd;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-mode-tab:hover {
+  background: rgba(139, 92, 246, 0.15);
+  color: #ede9fe;
+}
+
+.game-vocal-mode-tab.is-active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.85), rgba(124, 58, 237, 0.95));
+  border-color: #a78bfa;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.35);
+}
+
+/* 免参考·角色特征设计面板 */
+.game-vocal-design-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.game-vocal-char-type-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.game-vocal-char-type-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ddd6fe;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-char-type-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #fff;
+}
+
+.game-vocal-char-type-btn.is-active {
+  background: #7c3aed;
+  border-color: #c4b5fd;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.4);
+}
+
+.game-vocal-tag-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.game-vocal-tag-group-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.game-vocal-tag-group-label {
+  width: 84px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #a78bfa;
+  padding-top: 4px;
+}
+
+.game-vocal-tag-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+}
+
+.game-vocal-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.game-vocal-tag-chip:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #fff;
+}
+
+.game-vocal-tag-chip.is-active {
+  background: rgba(139, 92, 246, 0.35);
+  border-color: #a78bfa;
+  color: #f5f3ff;
+  font-weight: 600;
+}
+
+.game-vocal-design-summary-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.25);
+}
+
+.game-vocal-design-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.game-vocal-design-summary-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #c4b5fd;
+}
+
+.game-vocal-design-textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.game-vocal-design-textarea:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.3);
+}
+
+.game-vocal-ref-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  font-size: 12px;
+}
+
+.game-vocal-ref-card.is-empty {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(139, 92, 246, 0.35);
+  color: #a78bfa;
+}
+
+.game-vocal-ref-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.game-vocal-ref-title {
+  font-weight: 700;
+  color: #ede9fe;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.game-vocal-ref-meta {
+  color: #a78bfa;
+  font-size: 11px;
+}
+
+.game-vocal-ref-tip {
+  color: #fbbf24;
+  font-size: 10.5px;
+  opacity: 0.9;
+  margin-top: 1px;
+}
+
+.game-vocal-category-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.game-vocal-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ddd6fe;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-cat-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #fff;
+}
+
+.game-vocal-cat-btn.is-active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(124, 58, 237, 0.95));
+  border-color: #a78bfa;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(139, 92, 246, 0.4);
+}
+
+.game-vocal-sub-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+}
+
+.game-vocal-sub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #c4b5fd;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-sub-btn:hover {
+  background: rgba(139, 92, 246, 0.15);
+  color: #ede9fe;
+}
+
+.game-vocal-sub-btn.is-active {
+  background: rgba(139, 92, 246, 0.35);
+  border-color: rgba(167, 139, 250, 0.6);
+  color: #fff;
+  font-weight: 700;
+}
+
+.game-vocal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.game-vocal-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ede9fe;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-quick-btn:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: #8b5cf6;
+}
+
+.game-vocal-items-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.game-vocal-item-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-item-chip:hover {
+  background: rgba(139, 92, 246, 0.18);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #fff;
+}
+
+.game-vocal-item-chip.is-selected {
+  background: rgba(139, 92, 246, 0.38);
+  border-color: #a78bfa;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.45);
+}
+
+.game-vocal-selected-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.game-vocal-selected-title {
+  font-weight: 700;
+  color: #ede9fe;
+  font-size: 12px;
+}
+
+.game-vocal-custom-input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #fff;
+  width: 110px;
+}
+
+.game-vocal-custom-add-btn {
+  padding: 2px 6px !important;
+}
+
+.game-vocal-clear-btn {
+  color: #f87171 !important;
+}
+
+.game-vocal-selected-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.game-vocal-selected-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: rgba(139, 92, 246, 0.25);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #f5f3ff;
+}
+
+.game-vocal-pill-remove-btn,
+.game-vocal-selected-pill button {
+  all: unset;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 14px !important;
+  min-height: 14px !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+  padding: 0 !important;
+  margin: 0 0 0 3px !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  color: #c4b5fd !important;
+  opacity: 0.75;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.15s ease !important;
+}
+
+.game-vocal-pill-remove-btn:hover,
+.game-vocal-selected-pill button:hover {
+  opacity: 1 !important;
+  background: rgba(239, 68, 68, 0.25) !important;
+  color: #ef4444 !important;
+  transform: scale(1.15) !important;
+}
+
+.game-vocal-empty-hint {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+}
+
+.game-vocal-instruction-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.game-vocal-instruction-title {
+  color: #a78bfa;
+}
+
+.game-vocal-instruction-sub {
+  color: #a78bfa;
+  opacity: 0.7;
+}
+
+.game-vocal-instruction-textarea {
+  width: 100%;
+  min-height: 52px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #f5f3ff;
+  font-size: 12px;
+  resize: vertical;
+}
+
+/* 拟声精准控制 & 极速防拖音面板 */
+.game-vocal-precision-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  border-radius: 7px;
+}
+
+.game-vocal-precision-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.game-vocal-precision-title {
+  font-weight: 700;
+  color: #c4b5fd;
+}
+
+.game-vocal-precision-badge {
+  font-size: 9.5px;
+  color: #a78bfa;
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.game-vocal-precision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-vocal-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-vocal-control-label {
+  font-size: 11px;
+  color: #c4b5fd;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.game-vocal-duration-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.game-vocal-duration-pill {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.game-vocal-duration-pill:hover {
+  background: rgba(139, 92, 246, 0.2);
+  color: #fff;
+  border-color: rgba(139, 92, 246, 0.4);
+}
+
+.game-vocal-duration-pill.is-active {
+  background: rgba(139, 92, 246, 0.4);
+  color: #fff;
+  border-color: #a78bfa;
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.35);
+}
+
+.game-vocal-switches-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.game-vocal-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #e2e8f0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.game-vocal-switch-label input[type="checkbox"] {
+  accent-color: #8b5cf6;
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+}
+
+.game-vocal-run-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  border: 1px solid #a78bfa;
+  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.45);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.game-vocal-run-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%);
+  box-shadow: 0 6px 24px rgba(147, 51, 234, 0.6);
+  transform: translateY(-1px);
+}
+
+.game-vocal-run-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .batch-toolbar-row {
@@ -2237,9 +3007,16 @@ a.stash-round-action:hover {
 }
 
 .node-error {
-  color: #ffb5a9;
+  color: #f87171;
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+[data-theme="light"] .node-error {
+  color: #dc2626 !important;
+  font-weight: 700 !important;
 }
 
 .artifact-meta {
@@ -2469,6 +3246,9 @@ a.stash-round-action:hover {
 
 .context-menu-item.tone-comment::before { background: #94a3b8; }
 .context-menu-item.tone-comment span { color: #94a3b8; }
+
+.context-menu-item.tone-gameVocal::before { background: #8b5cf6; box-shadow: 0 0 6px rgba(139, 92, 246, 0.6); }
+.context-menu-item.tone-gameVocal span { color: #c4b5fd; font-weight: 800; }
 
 .context-menu button span {
   font-weight: 700;
@@ -3882,6 +4662,9 @@ a.stash-round-action:hover {
 
 [data-theme="light"] .context-menu-item.tone-comment::before { background: #64748b !important; }
 [data-theme="light"] .context-menu-item.tone-comment span { color: #475569 !important; font-weight: 800 !important; }
+
+[data-theme="light"] .context-menu-item.tone-gameVocal::before { background: #7c3aed !important; }
+[data-theme="light"] .context-menu-item.tone-gameVocal span { color: #6d28d9 !important; font-weight: 800 !important; }
 
 [data-theme="light"] .context-menu small {
   color: #64748b;
@@ -7534,6 +8317,324 @@ a.batch-artifact-item-btn.download-btn {
   color: #ffffff !important;
 }
 
+/* 7. 游戏语气词生成 (Game Vocal Generator) -> Light Violet / Lavender Theme */
+[data-theme="light"] .node-game-vocal {
+  background: linear-gradient(180deg, #faf5ff 0%, #f3e8ff 100%) !important;
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 10px 36px rgba(139, 92, 246, 0.16), 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .node-game-vocal .node-header svg {
+  color: #7c3aed !important;
+}
+
+[data-theme="light"] .node-game-vocal .node-title-wrap {
+  background: #ede9fe !important;
+  border: 1px solid #c4b5fd !important;
+  color: #5b21b6 !important;
+}
+
+[data-theme="light"] .node-game-vocal .node-title-input {
+  color: #5b21b6 !important;
+  font-weight: 800 !important;
+}
+
+[data-theme="light"] .node-game-vocal .node-field span,
+[data-theme="light"] .node-game-vocal .input-handle-label {
+  color: #6d28d9 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+
+[data-theme="light"] .node-game-vocal .node-handle {
+  background: #8b5cf6 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.5) !important;
+}
+
+/* 参考音频卡片 (浅色) */
+[data-theme="light"] .game-vocal-ref-card {
+  background: #ffffff !important;
+  border: 1px solid #ddd6fe !important;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.06) !important;
+}
+
+[data-theme="light"] .game-vocal-ref-card.is-empty {
+  background: #fbfaff !important;
+  border: 1px dashed #c4b5fd !important;
+  color: #6d28d9 !important;
+}
+
+[data-theme="light"] .game-vocal-ref-title {
+  color: #4c1d95 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .game-vocal-ref-meta {
+  color: #7c3aed !important;
+}
+
+/* 大类切换栏 (浅色) */
+[data-theme="light"] .game-vocal-cat-btn {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .game-vocal-cat-btn:hover {
+  background: #ede9fe !important;
+  border-color: #c4b5fd !important;
+  color: #5b21b6 !important;
+}
+
+[data-theme="light"] .game-vocal-cat-btn.is-active {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.3) !important;
+}
+
+/* 子类别条 (浅色) */
+[data-theme="light"] .game-vocal-sub-bar {
+  background: #ede9fe !important;
+  border: 1px solid #ddd6fe !important;
+}
+
+[data-theme="light"] .game-vocal-sub-btn {
+  color: #5b21b6 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+[data-theme="light"] .game-vocal-sub-btn:hover {
+  background: rgba(124, 58, 237, 0.12) !important;
+  color: #4c1d95 !important;
+}
+
+[data-theme="light"] .game-vocal-sub-btn.is-active {
+  background: #ffffff !important;
+  border: 1px solid #c4b5fd !important;
+  color: #5b21b6 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 1px 4px rgba(124, 58, 237, 0.16) !important;
+}
+
+/* 快捷工具按钮 (浅色) */
+[data-theme="light"] .game-vocal-quick-btn {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .game-vocal-quick-btn:hover {
+  background: #ede9fe !important;
+  border-color: #8b5cf6 !important;
+  color: #5b21b6 !important;
+}
+
+[data-theme="light"] .game-vocal-clear-btn {
+  background: #fef2f2 !important;
+  border: 1px solid #fecaca !important;
+  color: #dc2626 !important;
+}
+
+[data-theme="light"] .game-vocal-clear-btn:hover {
+  background: #fee2e2 !important;
+  border-color: #f87171 !important;
+  color: #b91c1c !important;
+}
+
+/* 语气词候选词卡 (浅色) */
+[data-theme="light"] .game-vocal-item-chip {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+}
+
+[data-theme="light"] .game-vocal-item-chip:hover {
+  background: #ede9fe !important;
+  border-color: #c4b5fd !important;
+  color: #5b21b6 !important;
+}
+
+[data-theme="light"] .game-vocal-item-chip.is-selected {
+  background: #ede9fe !important;
+  border-color: #8b5cf6 !important;
+  color: #5b21b6 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.25) !important;
+}
+
+/* 已选语气词队列容器 (浅色) */
+[data-theme="light"] .game-vocal-selected-bar {
+  background: #ffffff !important;
+  border: 1px solid #ddd6fe !important;
+  box-shadow: 0 1px 4px rgba(124, 58, 237, 0.05) !important;
+}
+
+[data-theme="light"] .game-vocal-selected-title {
+  color: #4c1d95 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .game-vocal-custom-input {
+  background: #f8fafc !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .game-vocal-custom-input:focus {
+  background: #ffffff !important;
+  border-color: #8b5cf6 !important;
+  outline: none !important;
+}
+
+[data-theme="light"] .game-vocal-custom-add-btn {
+  background: #ede9fe !important;
+  border: 1px solid #c4b5fd !important;
+  color: #6d28d9 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .game-vocal-empty-hint {
+  color: #94a3b8 !important;
+}
+
+/* 已选队列徽标 (浅色) */
+[data-theme="light"] .game-vocal-selected-pill {
+  background: #ede9fe !important;
+  border: 1px solid #c4b5fd !important;
+  color: #5b21b6 !important;
+  font-weight: 600 !important;
+}
+
+/* 彻底重置并精确控制队列 X 按钮的大小与样式，严防全局 button 规则污染 */
+[data-theme="light"] .game-vocal-pill-remove-btn,
+[data-theme="light"] .game-vocal-selected-pill button {
+  all: unset !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 14px !important;
+  min-height: 14px !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+  padding: 0 !important;
+  margin: 0 0 0 4px !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  color: #6d28d9 !important;
+  opacity: 0.65 !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.15s ease !important;
+}
+
+[data-theme="light"] .game-vocal-pill-remove-btn:hover,
+[data-theme="light"] .game-vocal-selected-pill button:hover {
+  opacity: 1 !important;
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #ef4444 !important;
+  transform: scale(1.15) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 发声指导文本域 (浅色) */
+[data-theme="light"] .game-vocal-instruction-header {
+  color: #6d28d9 !important;
+}
+
+[data-theme="light"] .game-vocal-instruction-title {
+  color: #6d28d9 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .game-vocal-instruction-sub {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .game-vocal-instruction-textarea {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .game-vocal-instruction-textarea:focus {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2) !important;
+  outline: none !important;
+}
+
+/* 拟声精准面板 (浅色) */
+[data-theme="light"] .game-vocal-precision-panel {
+  background: #ffffff !important;
+  border: 1px solid #ddd6fe !important;
+  box-shadow: 0 1px 3px rgba(139, 92, 246, 0.06) !important;
+}
+
+[data-theme="light"] .game-vocal-precision-title {
+  color: #6d28d9 !important;
+}
+
+[data-theme="light"] .game-vocal-precision-badge {
+  color: #7c3aed !important;
+  background: #f3e8ff !important;
+  border-color: #d8b4fe !important;
+}
+
+[data-theme="light"] .game-vocal-control-label {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .game-vocal-duration-pill {
+  color: #475569 !important;
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .game-vocal-duration-pill:hover {
+  background: #f3e8ff !important;
+  border-color: #c4b5fd !important;
+  color: #6d28d9 !important;
+}
+
+[data-theme="light"] .game-vocal-duration-pill.is-active {
+  background: #7c3aed !important;
+  border-color: #6d28d9 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .game-vocal-switch-label {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .game-vocal-ref-tip {
+  color: #b45309 !important;
+}
+
+/* 一键生成按钮 (浅色) */
+[data-theme="light"] .game-vocal-run-btn {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35) !important;
+}
+
+[data-theme="light"] .game-vocal-run-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45) !important;
+}
+
 /* ── EXCEL PASTE MODAL (通用暗色基准) ── */
 .excel-modal-btn {
   height: 38px;
@@ -7974,6 +9075,92 @@ a.batch-artifact-item-btn.download-btn {
   background: #0284c7 !important;
   color: #ffffff !important;
 }
+
+/* 游戏语气词免参考设计面板 - 浅色模式适配 */
+[data-theme="light"] .game-vocal-mode-tabs {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .game-vocal-mode-tab {
+  color: #475569;
+}
+
+[data-theme="light"] .game-vocal-mode-tab:hover {
+  background: rgba(124, 58, 237, 0.08);
+  color: #1e293b;
+}
+
+[data-theme="light"] .game-vocal-mode-tab.is-active {
+  background: #7c3aed;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);
+}
+
+[data-theme="light"] .game-vocal-design-panel {
+  background: #f8fafc;
+  border-color: #ddd6fe;
+}
+
+[data-theme="light"] .game-vocal-char-type-btn {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .game-vocal-char-type-btn:hover {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+}
+
+[data-theme="light"] .game-vocal-char-type-btn.is-active {
+  background: #7c3aed;
+  border-color: #6d28d9;
+  color: #ffffff;
+}
+
+[data-theme="light"] .game-vocal-tag-group-label {
+  color: #6d28d9;
+}
+
+[data-theme="light"] .game-vocal-tag-chip {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .game-vocal-tag-chip:hover {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+}
+
+[data-theme="light"] .game-vocal-tag-chip.is-active {
+  background: #ede9fe;
+  border-color: #7c3aed;
+  color: #5b21b6;
+}
+
+[data-theme="light"] .game-vocal-design-summary-box {
+  border-top-color: #cbd5e1;
+}
+
+[data-theme="light"] .game-vocal-design-summary-title {
+  color: #5b21b6;
+}
+
+[data-theme="light"] .game-vocal-design-textarea {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] .game-vocal-design-textarea:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
 
 
 

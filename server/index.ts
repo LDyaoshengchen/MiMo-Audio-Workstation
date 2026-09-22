@@ -2,21 +2,42 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import fs from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import multer from "multer";
 import { exec } from "node:child_process";
 import JSZip from "jszip";
+import { fileURLToPath } from "node:url";
 import { buildCleanAudioCacheFileName, sanitizeFileName, validateAndSanitizeEndpoint } from "./utils/audioNaming.js";
 import { getProviderAdapter, getAllProviderCapabilities } from "./providers/index.js";
 
-dotenv.config();
-if (!process.env.MIMO_API_KEY) {
-  const envExamplePath = path.resolve(process.cwd(), ".env.example");
-  if (fs.existsSync(envExamplePath)) {
-    dotenv.config({ path: envExamplePath });
+const currentDir = typeof __dirname !== "undefined" ? __dirname : (typeof import.meta !== "undefined" && import.meta?.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
+
+function initDotenv() {
+  const candidates = [
+    path.resolve(process.cwd(), ".env"),
+    path.join(currentDir, ".env"),
+    path.resolve(currentDir, "..", ".env"),
+    path.resolve(currentDir, "../..", ".env"),
+    process.env.MIMO_DATA_DIR ? path.join(process.env.MIMO_DATA_DIR, ".env") : "",
+    (process as any).resourcesPath ? path.join((process as any).resourcesPath, ".env") : "",
+    path.dirname(process.execPath) ? path.join(path.dirname(process.execPath), ".env") : ""
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      dotenv.config({ path: c });
+    }
+  }
+  if (!process.env.MIMO_API_KEY) {
+    const envExamplePath = path.resolve(process.cwd(), ".env.example");
+    if (fs.existsSync(envExamplePath)) {
+      dotenv.config({ path: envExamplePath });
+    }
   }
 }
+
+initDotenv();
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -249,6 +270,12 @@ type WorkspaceIndexItem = {
   name: string;
   createdAt: string;
   updatedAt: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  stashCount?: number;
+  characterCount?: number;
+  segmentCount?: number;
+  phase?: string;
 };
 
 type WorkspaceIndex = {
@@ -344,16 +371,131 @@ app.get("/api/status", (_req, res) => {
   });
 });
 
+export async function getBootstrapPayload() {
+  const settings = await readApiSettings();
+  const effectiveKey = settings.apiKey || process.env.MIMO_API_KEY || "";
+  const maskedApiKey = effectiveKey ? `${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}` : "";
+
+  // 极速启动优化：从 index.json 获取摘要并仅按需读取当前 activeWorkspace 单个文件，避免每次启动反序列化十余兆大文件
+  const wsDir = getWorkspacesDir();
+  const indexPath = path.join(wsDir, "index.json");
+  let activeId: string | null = null;
+  let activeWorkspace: StoredWorkspace | null = null;
+  let workspaceSummaries: Array<Record<string, unknown>> = [];
+
+  try {
+    const raw = await readFile(indexPath, "utf-8");
+    const index = JSON.parse(raw) as WorkspaceIndex;
+    activeId = index.activeWorkspaceId || index.workspaces[0]?.id || null;
+    if (activeId) {
+      activeWorkspace = await readSingleWorkspace(activeId);
+    }
+    workspaceSummaries = (index.workspaces || []).map((w) => {
+      const base = {
+        id: w.id,
+        type: w.type,
+        name: w.name,
+        createdAt: w.createdAt,
+        updatedAt: w.updatedAt
+      };
+      if (activeWorkspace && activeWorkspace.id === w.id) {
+        if (activeWorkspace.type === "audiobook") {
+          return {
+            ...base,
+            characterCount: activeWorkspace.characters?.length || 0,
+            segmentCount: activeWorkspace.segments?.length || 0,
+            phase: activeWorkspace.phase
+          };
+        }
+        return {
+          ...base,
+          nodeCount: (activeWorkspace.nodes as unknown[])?.length || 0,
+          edgeCount: (activeWorkspace.edges as unknown[])?.length || 0,
+          stashCount: (activeWorkspace.stashItems as unknown[])?.length || 0
+        };
+      }
+      return {
+        ...base,
+        nodeCount: w.nodeCount ?? 0,
+        edgeCount: w.edgeCount ?? 0,
+        stashCount: w.stashCount ?? 0,
+        characterCount: w.characterCount ?? 0,
+        segmentCount: w.segmentCount ?? 0,
+        phase: w.phase
+      };
+    });
+  } catch {
+    const store = await readWorkspaceStore();
+    activeId = store.activeWorkspaceId || store.workspaces[0]?.id || null;
+    activeWorkspace = activeId ? store.workspaces.find((w) => w.id === activeId) || null : null;
+    workspaceSummaries = store.workspaces.map((workspace) => {
+      const base = {
+        id: workspace.id,
+        type: workspace.type,
+        name: workspace.name,
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt
+      };
+      if (workspace.type === "audiobook") {
+        return {
+          ...base,
+          characterCount: workspace.characters.length,
+          segmentCount: workspace.segments.length,
+          phase: workspace.phase
+        };
+      }
+      return {
+        ...base,
+        nodeCount: workspace.nodes.length,
+        edgeCount: workspace.edges.length,
+        stashCount: workspace.stashItems.length
+      };
+    });
+  }
+
+  return {
+    status: {
+      ok: true,
+      model: "mimo-v2.5-tts-voiceclone",
+      apiKeyConfigured: Boolean(process.env.MIMO_API_KEY),
+      hasEnvKey: Boolean(process.env.MIMO_API_KEY),
+      maxAudioBytes,
+      allowedMimeTypes: Array.from(allowedMimeTypes)
+    },
+    settings: {
+      hasApiKey: Boolean(effectiveKey),
+      apiKey: settings.apiKey || "",
+      maskedApiKey,
+      apiEndpoint: settings.apiEndpoint || process.env.MIMO_API_ENDPOINT || mimoEndpoint,
+      apiProvider: settings.apiProvider || "mimo",
+      configured: Boolean(effectiveKey)
+    },
+    workspaces: workspaceSummaries,
+    activeWorkspaceId: activeId,
+    activeWorkspace
+  };
+}
+
+app.get("/api/bootstrap", async (_req, res, next) => {
+  try {
+    const payload = await getBootstrapPayload();
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/settings", async (_req, res, next) => {
   try {
     const settings = await readApiSettings();
-    const effectiveKey = settings.apiKey ?? process.env.MIMO_API_KEY ?? "";
+    const effectiveKey = settings.apiKey || process.env.MIMO_API_KEY || "";
     const maskedApiKey = effectiveKey ? `${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}` : "";
     res.json({
       hasApiKey: Boolean(effectiveKey),
+      apiKey: settings.apiKey || "",
       maskedApiKey,
-      apiEndpoint: settings.apiEndpoint ?? mimoEndpoint,
-      apiProvider: settings.apiProvider ?? "mimo",
+      apiEndpoint: settings.apiEndpoint || process.env.MIMO_API_ENDPOINT || mimoEndpoint,
+      apiProvider: settings.apiProvider || "mimo",
       configured: Boolean(effectiveKey)
     });
   } catch (error) {
@@ -367,24 +509,28 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
     const apiEndpoint = typeof req.body.apiEndpoint === "string" ? req.body.apiEndpoint.trim() : "";
     const apiProvider = typeof req.body.apiProvider === "string" ? req.body.apiProvider.trim() : "mimo";
 
-    if (!apiKey) {
-      return res.status(400).json({ error: "API Key 不能为空。" });
-    }
-
-    const settings: ApiSettings = {
-      apiKey,
+    const currentSettings = await readApiSettings();
+    const newSettings: ApiSettings = {
+      ...currentSettings,
       apiEndpoint: apiEndpoint || mimoEndpoint,
       apiProvider: apiProvider || "mimo"
     };
 
-    await writeApiSettings(settings);
-    const maskedApiKey = `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
+    if (apiKey) {
+      newSettings.apiKey = apiKey;
+    } else {
+      delete newSettings.apiKey;
+    }
+
+    await writeApiSettings(newSettings);
+    const effectiveKey = newSettings.apiKey || process.env.MIMO_API_KEY || "";
+    const maskedApiKey = effectiveKey ? `${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}` : "";
     res.json({
-      hasApiKey: true,
+      hasApiKey: Boolean(effectiveKey),
       maskedApiKey,
-      apiEndpoint: settings.apiEndpoint,
-      apiProvider: settings.apiProvider,
-      configured: true
+      apiEndpoint: newSettings.apiEndpoint,
+      apiProvider: newSettings.apiProvider,
+      configured: Boolean(effectiveKey)
     });
   } catch (error) {
     next(error);
@@ -497,33 +643,139 @@ app.post("/api/voice-design/optimize", async (req: Request<unknown, unknown, Voi
 
 app.get("/api/workspaces", async (_req, res, next) => {
   try {
-    const store = await readWorkspaceStore();
-    res.json({
-      activeWorkspaceId: store.activeWorkspaceId,
-      workspaces: store.workspaces.map((workspace) => {
-        const base = {
-          id: workspace.id,
-          type: workspace.type,
-          name: workspace.name,
-          createdAt: workspace.createdAt,
-          updatedAt: workspace.updatedAt
-        };
-        if (workspace.type === "audiobook") {
+    const wsDir = getWorkspacesDir();
+    const indexPath = path.join(wsDir, "index.json");
+    try {
+      const raw = await readFile(indexPath, "utf-8");
+      const index = JSON.parse(raw) as WorkspaceIndex;
+      return res.json({
+        activeWorkspaceId: index.activeWorkspaceId,
+        workspaces: (index.workspaces || []).map((w) => ({
+          id: w.id,
+          type: w.type,
+          name: w.name,
+          createdAt: w.createdAt,
+          updatedAt: w.updatedAt,
+          nodeCount: w.nodeCount ?? 0,
+          edgeCount: w.edgeCount ?? 0,
+          stashCount: w.stashCount ?? 0,
+          characterCount: w.characterCount ?? 0,
+          segmentCount: w.segmentCount ?? 0,
+          phase: w.phase
+        }))
+      });
+    } catch {
+      const store = await readWorkspaceStore();
+      res.json({
+        activeWorkspaceId: store.activeWorkspaceId,
+        workspaces: store.workspaces.map((workspace) => {
+          const base = {
+            id: workspace.id,
+            type: workspace.type,
+            name: workspace.name,
+            createdAt: workspace.createdAt,
+            updatedAt: workspace.updatedAt
+          };
+          if (workspace.type === "audiobook") {
+            return {
+              ...base,
+              characterCount: workspace.characters.length,
+              segmentCount: workspace.segments.length,
+              phase: workspace.phase
+            };
+          }
           return {
             ...base,
-            characterCount: workspace.characters.length,
-            segmentCount: workspace.segments.length,
-            phase: workspace.phase
+            nodeCount: workspace.nodes.length,
+            edgeCount: workspace.edges.length,
+            stashCount: workspace.stashItems.length
           };
+        })
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+function stripWorkspaceToSkeleton(workspace: StoredWorkspace): StoredWorkspace {
+  if (!workspace) return workspace;
+  if (workspace.type === "board" && Array.isArray(workspace.nodes)) {
+    return {
+      ...workspace,
+      nodes: workspace.nodes.map((node: any) => {
+        if (!node || !node.data) return node;
+        const d = { ...node.data };
+        delete d.audioDataUrl;
+        delete d.refAudioUrl;
+        if (d.audio) {
+          d.audio = { ...d.audio, dataUrl: "" };
+        }
+        if (Array.isArray(d.audioAssets)) {
+          d.audioAssets = d.audioAssets.map((a: any) => ({ ...a, dataUrl: "" }));
+        }
+        if (Array.isArray(d.referenceAudios)) {
+          d.referenceAudios = d.referenceAudios.map((ra: any) => ({ ...ra, audioDataUrl: "" }));
+        }
+        if (d.artifact) {
+          d.artifact = { ...d.artifact, audioDataUrl: "" };
+        }
+        if (Array.isArray(d.batchArtifacts)) {
+          d.batchArtifacts = d.batchArtifacts.map((ba: any) => ({ ...ba, audioDataUrl: "" }));
+        }
+        if (Array.isArray(d.batchRows)) {
+          d.batchRows = d.batchRows.map((r: any) => ({
+            ...r,
+            refAudioUrl: "",
+            artifacts: Array.isArray(r.artifacts) ? r.artifacts.map((a: any) => ({ ...a, audioDataUrl: "" })) : []
+          }));
         }
         return {
-          ...base,
-          nodeCount: workspace.nodes.length,
-          edgeCount: workspace.edges.length,
-          stashCount: workspace.stashItems.length
+          ...node,
+          data: d
         };
+      }),
+      stashItems: (workspace.stashItems || []).map((s: any) => ({ ...s, audioDataUrl: "" }))
+    };
+  }
+  if (workspace.type === "audiobook" && Array.isArray(workspace.segments)) {
+    return {
+      ...workspace,
+      segments: workspace.segments.map((seg: any) => ({
+        ...seg,
+        audioDataUrl: "",
+        audioUrl: ""
+      }))
+    };
+  }
+  return workspace;
+}
+
+app.get("/api/workspaces-skeletons", async (_req, res, next) => {
+  try {
+    const wsDir = getWorkspacesDir();
+    const indexPath = path.join(wsDir, "index.json");
+    let ids: string[] = [];
+    try {
+      const raw = await readFile(indexPath, "utf-8");
+      const index = JSON.parse(raw) as WorkspaceIndex;
+      ids = (index.workspaces || []).map((w) => w.id);
+    } catch {
+      const store = await readWorkspaceStore();
+      ids = store.workspaces.map((w) => w.id);
+    }
+
+    const skeletons: Record<string, StoredWorkspace> = {};
+    await Promise.all(
+      ids.map(async (id) => {
+        const ws = await readSingleWorkspace(id);
+        if (ws) {
+          skeletons[id] = stripWorkspaceToSkeleton(ws);
+        }
       })
-    });
+    );
+
+    res.json(skeletons);
   } catch (error) {
     next(error);
   }
@@ -531,10 +783,13 @@ app.get("/api/workspaces", async (_req, res, next) => {
 
 app.get("/api/workspaces/:id", async (req, res, next) => {
   try {
-    const store = await readWorkspaceStore();
-    const workspace = store.workspaces.find((item) => item.id === req.params.id);
+    const workspace = await readSingleWorkspace(req.params.id);
     if (!workspace) {
       return res.status(404).json({ error: "Workspace not found." });
+    }
+
+    if (req.query.skeleton === "true" || req.query.skeleton === "1") {
+      return res.json(stripWorkspaceToSkeleton(workspace));
     }
 
     res.json(workspace);
@@ -613,84 +868,223 @@ type StoredTemplate = {
 
 const builtInTemplates: StoredTemplate[] = [
   {
-    id: "template-clone-dialogue",
-    name: "广播剧双角色克隆模板",
-    description: "预设参考音频、风格指令与多节点克隆流程，适合对话或双声优配音",
+    id: "template-audio-drama",
+    name: "🎭 有声广播剧 (双角色沉浸对白)",
+    description: "预置男女主角双参考音频、情绪风格导演指令与双路克隆工作流，适合对话演绎与广播剧制作",
     type: "board",
     isBuiltIn: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     nodes: [
       {
-        id: "ref-1",
+        id: "ref-drama-male",
         type: "referenceAudio",
-        position: { x: 100, y: 150 },
-        data: { title: "角色A参考音频", text: "请上传角色A声音样本" }
+        position: { x: 80, y: 80 },
+        data: { title: "男主角参考音频", text: "请上传男主角原声样本" }
       },
       {
-        id: "style-1",
+        id: "style-drama-male",
         type: "voiceStyle",
-        position: { x: 100, y: 380 },
-        data: { title: "角色A情绪风格", text: "自然、沉稳、充满磁性的讲述风格，语速平缓。" }
+        position: { x: 80, y: 320 },
+        data: { title: "男主角情绪风格", text: "沉稳磁性，语调压低，带有紧迫感与坚定决心。" }
       },
       {
-        id: "prompt-1",
+        id: "prompt-drama-male",
         type: "prompt",
-        position: { x: 100, y: 580 },
-        data: { title: "台词一", text: "我们终于走到了这一步，接下来的关卡，容不得半点失误。" }
+        position: { x: 80, y: 540 },
+        data: { title: "男主台词", text: "我们终于走到了这一步，接下来的每一步，都容不得半点失误。" }
       },
       {
-        id: "clone-1",
+        id: "clone-drama-male",
         type: "voiceClone",
-        position: { x: 500, y: 280 },
+        position: { x: 500, y: 180 },
         data: {
-          title: "角色A语音合成",
-          instruction: "自然、沉稳、充满磁性的讲述风格，语速平缓。",
-          text: "我们终于走到了这一步，接下来的关卡，容不得半点失误。"
+          title: "男主对白合成",
+          instruction: "沉稳磁性，语调压低，带有紧迫感与坚定决心。",
+          text: "我们终于走到了这一步，接下来的每一步，都容不得半点失误。"
+        }
+      },
+      {
+        id: "ref-drama-female",
+        type: "referenceAudio",
+        position: { x: 920, y: 80 },
+        data: { title: "女主角参考音频", text: "请上传女主角原声样本" }
+      },
+      {
+        id: "style-drama-female",
+        type: "voiceStyle",
+        position: { x: 920, y: 320 },
+        data: { title: "女主角情绪风格", text: "清冷坚毅，略带喘息与隐忍的情绪，语速稍快。" }
+      },
+      {
+        id: "prompt-drama-female",
+        type: "prompt",
+        position: { x: 920, y: 540 },
+        data: { title: "女主台词", text: "我知道。但无论前面是深渊还是险境，我都不会停下。" }
+      },
+      {
+        id: "clone-drama-female",
+        type: "voiceClone",
+        position: { x: 1340, y: 180 },
+        data: {
+          title: "女主对白合成",
+          instruction: "清冷坚毅，略带喘息与隐忍的情绪，语速稍快。",
+          text: "我知道。但无论前面是深渊还是险境，我都不会停下。"
         }
       }
     ],
     edges: [
-      { id: "e1", source: "ref-1", target: "clone-1", targetHandle: "voice", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
-      { id: "e2", source: "style-1", target: "clone-1", targetHandle: "instruction", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
-      { id: "e3", source: "prompt-1", target: "clone-1", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } }
+      { id: "ed-1", source: "ref-drama-male", target: "clone-drama-male", targetHandle: "voice", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ed-2", source: "style-drama-male", target: "clone-drama-male", targetHandle: "instruction", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ed-3", source: "prompt-drama-male", target: "clone-drama-male", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ed-4", source: "ref-drama-female", target: "clone-drama-female", targetHandle: "voice", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ed-5", source: "style-drama-female", target: "clone-drama-female", targetHandle: "instruction", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ed-6", source: "prompt-drama-female", target: "clone-drama-female", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } }
     ],
     stashItems: []
   },
   {
-    id: "template-voice-design-multi",
-    name: "文字设计情绪测试模板",
-    description: "使用文字描述定义独特色彩音色，并同时连线对比多段不同情绪文案",
+    id: "template-game-voice",
+    name: "⚔️ 游戏交战语音 (批量角色语音管线)",
+    description: "预置 8 位战斗英雄的批量音色设计与交战台词，支持一键批量合成与单条试听",
     type: "board",
     isBuiltIn: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     nodes: [
       {
-        id: "design-1",
-        type: "voiceDesign",
-        position: { x: 100, y: 200 },
+        id: "batch-design-game",
+        type: "batchVoiceDesign",
+        position: { x: 80, y: 80 },
         data: {
-          title: "纪录片解说音色",
-          instruction: "30岁成熟女性，声音温润清亮，具有优雅自然的纪录片旁白质感，说话沉静有力。",
-          text: "时间在风沙中悄然流逝，而那些被记忆沉淀的故事，依然在这里回响。"
+          title: "游戏英雄音色设计管线",
+          exportPrefixName: "游戏英雄交战语音",
+          batchRows: [
+            {
+              id: "row_1",
+              title: "深海狂鲨",
+              instruction: "Fierce, ravenous, and explosive. Use a deep, guttural predator growl with heavy breath.",
+              naturalControl: "Character: A blood-frenzied shark gladiator. Style: Brutal, roaring warrior with heavy aquatic reverberation.",
+              text: "将他们碾碎成渣！"
+            },
+            {
+              id: "row_2",
+              title: "烈焰龙蜥",
+              instruction: "Scorching, arrogant, and vicious. Use a smoky, menacing lizard-like hiss with fiery projection.",
+              naturalControl: "Character: An ancient volcanic warlord. Style: Aggressive dragonkin warlord dripping with molten power.",
+              text: "化为灰烬吧！"
+            },
+            {
+              id: "row_3",
+              title: "机械魔像",
+              instruction: "Heavy, monotone, and inexorable. Use an echoing, synthetic resonant voice with hydraulic servos.",
+              naturalControl: "Character: A centuries-old automated siege machine. Style: Emotionless automaton chanting protocols.",
+              text: "协议启动，全域肃清！"
+            }
+          ]
+        }
+      }
+    ],
+    edges: [],
+    stashItems: []
+  },
+  {
+    id: "template-podcast-interview",
+    name: "🎙️ 深度播客访谈 (主持人与嘉宾对谈)",
+    description: "专业播客主播音色设计 + 嘉宾克隆双轨管线，预置开场白、核心探讨与总结",
+    type: "board",
+    isBuiltIn: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    nodes: [
+      {
+        id: "design-host",
+        type: "voiceDesign",
+        position: { x: 80, y: 120 },
+        data: {
+          title: "播客主播 (音色创造)",
+          instruction: "30岁专业科技播客男主播，声音清亮亲和，语速适中，节奏松弛自然，具有引人入胜的对话感。",
+          naturalControl: "Tone: Warm, conversational, curious and articulate.",
+          text: "欢迎收听本期科技播客。今天我们非常荣幸邀请到了资深专家，一起探讨AI音频大模型的演进方向。"
         }
       },
       {
-        id: "prompt-d1",
-        type: "prompt",
-        position: { x: 100, y: 520 },
-        data: { title: "开篇沉静句", text: "夜幕低垂，灯火次第亮起，小镇迎来了它最安详的时刻。" }
+        id: "ref-guest",
+        type: "referenceAudio",
+        position: { x: 540, y: 80 },
+        data: { title: "受访嘉宾参考音频", text: "请上传嘉宾原声片段" }
       },
       {
-        id: "prompt-d2",
+        id: "style-guest",
+        type: "voiceStyle",
+        position: { x: 540, y: 320 },
+        data: { title: "嘉宾专业语调", text: "学者型谈吐，条理分明，态度严谨而富有洞见，语调从容自信。" }
+      },
+      {
+        id: "prompt-guest",
         type: "prompt",
-        position: { x: 100, y: 720 },
-        data: { title: "高潮转折句", text: "但警报声突然撕裂了宁静！没有人料到这场危机竟会来得如此迅猛！" }
+        position: { x: 540, y: 540 },
+        data: { title: "嘉宾回答文案", text: "主持人好，大家好。其实过去一年整个音频生成领域的突破，超出了很多业内人士的预期。" }
+      },
+      {
+        id: "clone-guest",
+        type: "voiceClone",
+        position: { x: 960, y: 180 },
+        data: {
+          title: "嘉宾访谈合成",
+          instruction: "学者型谈吐，条理分明，态度严谨而富有洞见，语调从容自信。",
+          text: "主持人好，大家好。其实过去一年整个音频生成领域的突破，超出了很多业内人士的预期。"
+        }
       }
     ],
     edges: [
-      { id: "ed1", source: "prompt-d1", target: "design-1", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
-      { id: "ed2", source: "prompt-d2", target: "design-1", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } }
+      { id: "ep-1", source: "ref-guest", target: "clone-guest", targetHandle: "voice", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ep-2", source: "style-guest", target: "clone-guest", targetHandle: "instruction", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } },
+      { id: "ep-3", source: "prompt-guest", target: "clone-guest", targetHandle: "text", type: "deletable", animated: true, style: { stroke: "#c5a45d", strokeWidth: 2 } }
     ],
+    stashItems: []
+  },
+  {
+    id: "template-integrated-studio",
+    name: "⚡ 全能综合工作台 (一站式音频工作流)",
+    description: "集成参考音频上传/录制、批量句段编辑、一键生成与多音频整合排版的超级工作台",
+    type: "board",
+    isBuiltIn: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    nodes: [
+      {
+        id: "studio-main",
+        type: "integratedStudio",
+        position: { x: 80, y: 80 },
+        data: {
+          title: "全能交战语音工作台",
+          exportPrefixName: "全能工作台交战语音",
+          batchRows: [
+            {
+              id: "row_1",
+              title: "深海狂鲨 (先锋突击)",
+              instruction: "Fierce, ravenous, and explosive. Use a deep, guttural predator growl with heavy breath.",
+              text: "将他们碾碎成渣！",
+              artifacts: []
+            },
+            {
+              id: "row_2",
+              title: "烈焰龙蜥 (狂暴领主)",
+              instruction: "Scorching, arrogant, and vicious. Use a smoky, menacing lizard-like hiss with fiery projection.",
+              text: "化为灰烬吧！",
+              artifacts: []
+            }
+          ]
+        }
+      },
+      {
+        id: "merge-output",
+        type: "audioMerge",
+        position: { x: 800, y: 120 },
+        data: {
+          title: "全篇音频整合导出",
+          text: "将多段角色交战语音合并为单条完整演示音频（含可调静音间隔）"
+        }
+      }
+    ],
+    edges: [],
     stashItems: []
   }
 ];
@@ -1336,63 +1730,66 @@ app.post("/api/workspaces/smart", upload.single("voice"), async (req: Request, r
       });
     }
 
-    const payload: MimoChatPayload = {
-      model: "mimo-v2.5-pro",
-      messages: [
-        {
-          role: "system",
-          content:
-            hasReferenceAudio
-              ? "你是专业的中文有声内容导演和工作流策划助手。你只根据用户给出的整体场景描述和逐段台词，为每段生成短标题和适合语音克隆 TTS 的语音风格文本。语音风格文本主要描述整体氛围、情绪、角色状态和表达质感，不要写具体台词的停顿、重音或逐句朗读指令。必须输出严格 JSON，不要使用 Markdown，不要输出解释。"
-              : "你是专业的中文有声内容导演、TTS 音色设计师和工作流策划助手。用户没有提供参考音频，你需要设计一个贯穿全片的统一音色，并为每段生成短标题和语音风格文本。每段应尽可能保持同一音色，只在语速、情绪和表达氛围上根据段落变化。必须输出严格 JSON，不要使用 Markdown，不要输出解释。"
+    let plan: SmartWorkspacePlan | null = null;
+
+    try {
+      const payload: MimoChatPayload = {
+        model: "mimo-v2.5-pro",
+        messages: [
+          {
+            role: "system",
+            content:
+              hasReferenceAudio
+                ? "你是专业的中文有声内容导演和工作流策划助手。你只根据用户给出的整体场景描述和逐段台词，为每段生成短标题和适合语音克隆 TTS 的语音风格文本。语音风格文本主要描述整体氛围、情绪、角色状态和表达质感，不要写具体台词的停顿、重音或逐句朗读指令。必须输出严格 JSON，不要使用 Markdown，不要输出解释。"
+                : "你是专业的中文有声内容导演、TTS 音色设计师和工作流策划助手。用户没有提供参考音频，你需要设计一个贯穿全片的统一音色，并为每段生成短标题和语音风格文本。每段应尽可能保持同一音色，只在语速、情绪和表达氛围上根据段落变化。必须输出严格 JSON，不要使用 Markdown，不要输出解释。"
+          },
+          {
+            role: "user",
+            content: hasReferenceAudio ? buildSmartWorkspacePrompt(sceneDescription, scriptSegments) : buildSmartVoiceDesignWorkspacePrompt(sceneDescription, scriptSegments)
+          }
+        ],
+        temperature: 0.35,
+        top_p: 0.9
+      };
+
+      const upstreamResponse = await fetch(apiEndpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "api-key": apiKey,
+          "Content-Type": "application/json"
         },
-        {
-          role: "user",
-          content: hasReferenceAudio ? buildSmartWorkspacePrompt(sceneDescription, scriptSegments) : buildSmartVoiceDesignWorkspacePrompt(sceneDescription, scriptSegments)
+        body: JSON.stringify(payload)
+      });
+
+      if (upstreamResponse.ok) {
+        const responseText = await upstreamResponse.text();
+        const parsed = parseJson(responseText);
+        const content = extractMessageContent(parsed);
+        if (content) {
+          plan = parseSmartWorkspacePlan(content);
         }
-      ],
-      temperature: 0.35,
-      top_p: 0.9
-    };
-
-    const upstreamResponse = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const responseText = await upstreamResponse.text();
-    const elapsedMs = Date.now() - startedAt;
-    const parsed = parseJson(responseText);
-
-    if (!upstreamResponse.ok) {
-      return res.status(upstreamResponse.status).json({
-        error: "MiMo 智能生成工作区请求失败。",
-        status: upstreamResponse.status,
-        elapsedMs,
-        details: parsed ?? responseText
-      });
+      }
+    } catch (llmErr) {
+      console.warn("[smart-workspace] LLM call failed, falling back to heuristic planner:", llmErr);
     }
 
-    const content = extractMessageContent(parsed);
-    if (!content) {
-      return res.status(502).json({
-        error: "MiMo 响应内容缺少 message.content 字段。",
-        elapsedMs,
-        details: parsed
-      });
-    }
-
-    const plan = parseSmartWorkspacePlan(content);
-    if (!plan) {
-      return res.status(502).json({
-        error: "MiMo 响应内容无法解析为有效的智能工作区 JSON 格式。",
-        elapsedMs,
-        details: content
-      });
+    // 智能规则兜底降级方案：确保在任何情况下智能画板均能100%成功生成工作流
+    if (!plan || !Array.isArray(plan.segments) || plan.segments.length === 0) {
+      plan = {
+        voiceDescription: sceneDescription ? `符合【${sceneDescription}】场景的专业发声者，音质清晰，质感丰富。` : "自然清晰的中文旁白叙述音色",
+        segments: scriptSegments.map((text, i) => {
+          const cleanText = text.trim();
+          const shortTitle = cleanText.slice(0, 10).replace(/[，。！？,.!?“”"'\n\r]/g, "") || `段落 ${i + 1}`;
+          return {
+            index: i + 1,
+            title: `第 ${i + 1} 幕 · ${shortTitle}`,
+            directorText: sceneDescription
+              ? `场景氛围：${sceneDescription}。语气自然生动，情绪层层递进，保持场景沉浸感。`
+              : `自然生动的讲述感，清晰流畅，语速适中，情绪自然递进。`
+          };
+        })
+      };
     }
 
     const segments = normalizeSmartWorkspaceSegments(plan, scriptSegments.length);
@@ -1983,13 +2380,8 @@ app.post("/api/audiobook/:id/characters/:charId/voice", async (req, res, next) =
     let optimizedVoiceDescription: string;
     try {
       optimizedVoiceDescription = await optimizeAudiobookCharacterVoiceDescription(character, apiKey, apiEndpoint);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "音色描述优化失败";
-      const updatedCharacter = await updateAudiobookCharacter(req.params.id, req.params.charId, (target) => {
-        target.voiceStatus = "error";
-        target.voiceError = errorMessage;
-      });
-      return res.status(502).json({ error: updatedCharacter.voiceError });
+    } catch {
+      optimizedVoiceDescription = buildFallbackVoiceDescription(character);
     }
 
     if (optimizedVoiceDescription && optimizedVoiceDescription !== character.voiceDescription) {
@@ -2003,7 +2395,7 @@ app.post("/api/audiobook/:id/characters/:charId/voice", async (req, res, next) =
     const payload: MimoVoiceDesignPayload = {
       model: "mimo-v2.5-tts-voicedesign",
       messages: [
-        { role: "user", content: optimizedVoiceDescription || character.voiceDescription },
+        { role: "user", content: optimizedVoiceDescription || character.voiceDescription || buildFallbackVoiceDescription(character) },
         { role: "assistant", content: testText }
       ],
       audio: { format: "wav" }
@@ -2011,7 +2403,11 @@ app.post("/api/audiobook/:id/characters/:charId/voice", async (req, res, next) =
 
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
-      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify(payload)
     });
 
@@ -2356,8 +2752,11 @@ app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesi
     );
 
     const base64 = result.audioBuffer.toString("base64");
+    const reqBody = req.body as { title?: string; nodeTitle?: string } | undefined;
+    const titleFromClient = String(reqBody?.title || reqBody?.nodeTitle || "").trim();
+    const baseName = titleFromClient || (text.slice(0, 15) || "voicedesign");
     const fileName = buildCleanAudioCacheFileName(
-      voiceDescription.slice(0, 20) || "voicedesign",
+      baseName,
       "音色设计",
       Date.now().toString().slice(-6),
       `output.${result.format}`
@@ -2436,8 +2835,10 @@ app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res
     );
 
     const base64 = result.audioBuffer.toString("base64");
+    const titleFromClient = String(req.body?.title || req.body?.nodeTitle || "").trim();
+    const baseName = titleFromClient || (req.file ? req.file.originalname.replace(/\.[^.]+$/, "") : (text.slice(0, 15) || "voiceclone"));
     const fileName = buildCleanAudioCacheFileName(
-      instruction.slice(0, 20) || (req.file ? req.file.originalname.replace(/\.[^.]+$/, "") : "voiceclone"),
+      baseName,
       "语音克隆",
       Date.now().toString().slice(-6),
       `output.${result.format}`
@@ -2467,9 +2868,24 @@ app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res
 });
 
 if (staticDir) {
-  app.use(express.static(staticDir));
-  app.get(/^(?!\/api).*/, (_req: Request, res: Response) => {
-    res.sendFile(path.join(staticDir, "index.html"));
+  app.use(express.static(staticDir, { index: false }));
+  app.get(/^(?!\/api).*/, async (_req: Request, res: Response) => {
+    const htmlPath = path.join(staticDir, "index.html");
+    try {
+      let html = await readFile(htmlPath, "utf-8");
+      const bootstrap = await getBootstrapPayload();
+      const safeJson = JSON.stringify(bootstrap).replace(/</g, "\\u003c");
+      const scriptTag = `<script id="__MIMO_BOOTSTRAP__">window.__MIMO_INITIAL_BOOTSTRAP__ = ${safeJson};</script>`;
+      if (html.includes("</head>")) {
+        html = html.replace("</head>", `${scriptTag}</head>`);
+      } else {
+        html = `${scriptTag}${html}`;
+      }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch {
+      res.sendFile(htmlPath);
+    }
   });
 }
 
@@ -2488,6 +2904,27 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: message });
 });
 
+async function offloadAllWorkspacesInBackground() {
+  try {
+    const wsDir = getWorkspacesDir();
+    if (!fs.existsSync(wsDir)) return;
+    const files = await readdir(wsDir);
+    for (const file of files) {
+      if (!file.endsWith(".json") || file === "index.json") continue;
+      const filePath = path.join(wsDir, file);
+      try {
+        const content = await readFile(filePath, "utf-8");
+        if (content.includes("data:audio/")) {
+          const parsed = normalizeStoredWorkspace(JSON.parse(content));
+          await offloadWorkspaceAudiosToDisk(parsed);
+          await writeJsonFile(filePath, parsed);
+          console.log(`[server] 成功完成旧画板音频离线瘦身: ${file}`);
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
 export function startServer(listenPort = port, host = process.env.MIMO_HOST || "127.0.0.1") {
   const server = app.listen(listenPort, host);
 
@@ -2496,6 +2933,7 @@ export function startServer(listenPort = port, host = process.env.MIMO_HOST || "
     const resolvedPort = typeof address === "object" && address ? address.port : listenPort;
     const resolvedHost = typeof address === "object" && address && "address" in address ? address.address : host;
     console.log(`MiMo voice clone proxy listening on http://${resolvedHost}:${resolvedPort}`);
+    void offloadAllWorkspacesInBackground();
   });
 
   return server;
@@ -2571,11 +3009,29 @@ function extractMessageContent(value: unknown): string | null {
   return typeof content === "string" && content.length > 0 ? content : null;
 }
 
+function buildFallbackVoiceDescription(character: AudiobookCharacter): string {
+  if (character.roleType === "narrator" || character.name.includes("旁白")) {
+    return "自然、清晰的中文旁白音色，声音稳定耐听，适合长篇小说叙述。";
+  }
+  const parts: string[] = [];
+  if (character.gender) parts.push(character.gender);
+  if (character.age) parts.push(character.age);
+  if (character.personality) parts.push(`性格${character.personality}`);
+  if (character.voiceTraits) parts.push(character.voiceTraits);
+  if (character.voiceDescription) parts.push(character.voiceDescription);
+
+  if (parts.length > 0) {
+    return `${parts.join("，")}，声音自然生动，富有角色表现力。`;
+  }
+  return "声音自然清晰、富有角色个性与表现力。";
+}
+
 async function optimizeAudiobookCharacterVoiceDescription(
   character: AudiobookCharacter,
   apiKey: string,
   apiEndpoint: string
 ): Promise<string> {
+  const fallback = buildFallbackVoiceDescription(character);
   const payload: MimoChatPayload = {
     model: "mimo-v2.5-pro",
     messages: [
@@ -2609,26 +3065,33 @@ async function optimizeAudiobookCharacterVoiceDescription(
     thinking: { type: "disabled" }
   };
 
-  const upstreamResponse = await fetch(apiEndpoint, {
-    method: "POST",
-    headers: { "api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  const responseText = await upstreamResponse.text();
-  if (!upstreamResponse.ok) {
-    throw Object.assign(new Error(`音色描述优化失败：HTTP ${upstreamResponse.status}`), {
-      status: upstreamResponse.status,
-      details: responseText
+  try {
+    const upstreamResponse = await fetch(apiEndpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
-  }
 
-  const content = extractMessageContent(parseJson(responseText));
-  if (!content) {
-    throw new Error("音色描述优化失败：模型返回内容为空");
-  }
+    if (!upstreamResponse.ok) {
+      console.warn(`[audiobook] Voice description LLM optimization failed with HTTP ${upstreamResponse.status}, using fallback.`);
+      return fallback;
+    }
 
-  return content.replace(/```(?:text|markdown)?\s*/gi, "").replace(/```\s*/g, "").trim();
+    const responseText = await upstreamResponse.text();
+    const content = extractMessageContent(parseJson(responseText));
+    if (!content) {
+      return fallback;
+    }
+
+    return content.replace(/```(?:text|markdown)?\s*/gi, "").replace(/```\s*/g, "").trim() || fallback;
+  } catch (err) {
+    console.warn("[audiobook] Voice description LLM optimization error, using fallback:", err);
+    return fallback;
+  }
 }
 
 async function generateAudiobookCharacterVoiceSampleText(
@@ -2803,69 +3266,81 @@ function extractUpstreamErrorMessage(parsed: unknown, fallback: string): string 
   return fallback;
 }
 
+function fallbackSegmentAudiobookText(novelText: string): string[] {
+  const rawParagraphs = novelText.split(/\r?\n+/).map((p) => p.trim()).filter(Boolean);
+  const segments: string[] = [];
+  for (const para of rawParagraphs) {
+    const quoteRegex = /(“[^”]*”|"[^"]*"|「[^」]*」)/g;
+    let lastIdx = 0;
+    let match: RegExpExecArray | null;
+    while ((match = quoteRegex.exec(para)) !== null) {
+      const preText = para.slice(lastIdx, match.index).trim();
+      if (preText) segments.push(preText);
+      const dialogue = match[0].trim();
+      if (dialogue) segments.push(dialogue);
+      lastIdx = match.index + match[0].length;
+    }
+    const postText = para.slice(lastIdx).trim();
+    if (postText) segments.push(postText);
+  }
+  return segments.length > 0 ? segments : [novelText.trim()];
+}
+
 async function segmentAudiobookText(novelText: string, apiKey: string, apiEndpoint: string): Promise<string[]> {
-  const payload: MimoChatPayload = {
-    model: "mimo-v2.5-pro",
-    messages: [
-      {
-        role: "system",
-        content: [
-          "你是专业的有声书文稿切分助手。",
-          "你的任务是把小说原文切分为适合后续配音生成的片段。",
-          "",
-          "严格规则：",
-          "1. 必须遵循原文出现顺序，不能重排、改写、总结或补写。",
-          "2. 每个片段只能有一个说话人。",
-          "3. 不要将旁白和角色对话混为一段；旁白、每个角色的对话都要拆开。",
-          "4. 如果一段文字里同时包含旁白和对话，必须拆成多个片段。",
-          "5. 引号内的内容通常是角色台词；引号外的动作、神态、语气、心理、叙述说明通常是旁白，必须单独成段。",
-          "6. 如果一句话中出现：台词 + 她/他/某人说道/喃喃道/问道/笑道 + 台词，必须拆成：台词、旁白、台词 三段。",
-          "7. 同一角色连续说话可以合并为一段；不同角色连续对话必须拆开。",
-          "8. 片段 text 必须尽量保留原文字符，只允许去掉片段首尾多余空白。",
-          "9. 输出必须覆盖全部原文内容，不要遗漏。",
-          "",
-          "切分示例：",
-          "原文：“你的内力……”她喃喃道，声音里第一次带上了难以置信的意味，“你练的是什么功法？”",
-          "应输出三个连续片段：",
-          "1) speaker=角色, text=“你的内力……”",
-          "2) speaker=旁白, text=她喃喃道，声音里第一次带上了难以置信的意味，",
-          "3) speaker=角色, text=“你练的是什么功法？”",
-          "",
-          "只输出严格 JSON，不要 Markdown，不要解释。",
-          "JSON 结构：{\"segments\":[{\"speaker\":\"旁白或角色名\",\"text\":\"原文片段\"}]}"        ].join("\n")
+  try {
+    const payload: MimoChatPayload = {
+      model: "mimo-v2.5-pro",
+      messages: [
+        {
+          role: "system",
+          content: [
+            "你是专业的有声书文稿切分助手。",
+            "你的任务是把小说原文切分为适合后续配音生成的片段。",
+            "严格规则：",
+            "1. 必须遵循原文出现顺序，不能重排、改写、总结或补写。",
+            "2. 每个片段只能有一个说话人。",
+            "3. 不要将旁白和角色对话混为一段；旁白、每个角色的对话都要拆开。",
+            "4. 如果一段文字里同时包含旁白和对话，必须拆成多个片段。",
+            "5. 引号内的内容通常是角色台词；引号外的动作、神态、语气、心理、叙述说明通常是旁白，必须单独成段。",
+            "只输出严格 JSON，不要 Markdown，不要解释。",
+            "JSON 结构：{\"segments\":[{\"speaker\":\"旁白或角色名\",\"text\":\"原文片段\"}]}"
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: `请切分下面的小说原文：\n\n${novelText}`
+        }
+      ],
+      temperature: 0.1,
+      top_p: 0.8,
+      thinking: { type: "disabled" }
+    };
+
+    const upstreamResponse = await fetch(apiEndpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "Content-Type": "application/json"
       },
-      {
-        role: "user",
-        content: `请切分下面的小说原文：\n\n${novelText}`
+      body: JSON.stringify(payload)
+    });
+
+    if (upstreamResponse.ok) {
+      const responseText = await upstreamResponse.text();
+      const content = extractMessageContent(parseJson(responseText));
+      if (content) {
+        const segments = parseAudiobookSegmentation(content);
+        if (segments.length > 0) {
+          return segments;
+        }
       }
-    ],
-    temperature: 0.1,
-    top_p: 0.8,
-    thinking: { type: "disabled" }
-  };
-
-  const upstreamResponse = await fetch(apiEndpoint, {
-    method: "POST",
-    headers: { "api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  const responseText = await upstreamResponse.text();
-  if (!upstreamResponse.ok) {
-    throw Object.assign(new Error(`文段切分失败：HTTP ${upstreamResponse.status}`), { status: upstreamResponse.status, details: responseText });
+    }
+  } catch (err) {
+    console.warn("[audiobook] LLM segment failed, using smart regex fallback:", err);
   }
 
-  const content = extractMessageContent(parseJson(responseText));
-  if (!content) {
-    throw new Error("文段切分失败：模型返回内容为空");
-  }
-
-  const segments = parseAudiobookSegmentation(content);
-  if (segments.length === 0) {
-    throw new Error("文段切分失败：模型没有返回有效片段");
-  }
-
-  return segments;
+  return fallbackSegmentAudiobookText(novelText);
 }
 
 function parseAudiobookSegmentation(content: string): string[] {
@@ -3213,6 +3688,58 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
         node.data.audio.dataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
       }
     }
+    // 4.1 audioAssets in referenceAudio
+    if (Array.isArray(node.data?.audioAssets)) {
+      for (const asset of node.data.audioAssets) {
+        if (asset && typeof asset.dataUrl === "string" && asset.dataUrl.startsWith("data:")) {
+          const base64 = asset.dataUrl.split(",")[1];
+          if (base64) {
+            const fname = asset.fileName || buildCleanAudioCacheFileName(node.data?.title || "参考音频", "参考音频", node.id, asset.fileName, workspace.name);
+            asset.fileName = fname;
+            const filePath = path.join(audiosDir, fname);
+            if (!fs.existsSync(filePath)) {
+              try {
+                await writeFile(filePath, Buffer.from(base64, "base64"));
+              } catch {}
+            }
+            asset.dataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+          }
+        }
+      }
+    }
+    // 4.2 node audioDataUrl
+    if (typeof node.data?.audioDataUrl === "string" && node.data.audioDataUrl.startsWith("data:")) {
+      const base64 = node.data.audioDataUrl.split(",")[1];
+      if (base64) {
+        const fname = buildCleanAudioCacheFileName(node.data?.title || "音频", "节点音频", node.id, undefined, workspace.name);
+        const filePath = path.join(audiosDir, fname);
+        if (!fs.existsSync(filePath)) {
+          try {
+            await writeFile(filePath, Buffer.from(base64, "base64"));
+          } catch {}
+        }
+        node.data.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+      }
+    }
+    // 4.3 batchRows refAudioUrl
+    if (Array.isArray(node.data?.batchRows)) {
+      for (const row of node.data.batchRows) {
+        if (row && typeof row.refAudioUrl === "string" && row.refAudioUrl.startsWith("data:")) {
+          const base64 = row.refAudioUrl.split(",")[1];
+          if (base64) {
+            const fname = row.refAudioName || buildCleanAudioCacheFileName(row.title || "参考音频", "参考音频", row.id, row.refAudioName, workspace.name);
+            row.refAudioName = fname;
+            const filePath = path.join(audiosDir, fname);
+            if (!fs.existsSync(filePath)) {
+              try {
+                await writeFile(filePath, Buffer.from(base64, "base64"));
+              } catch {}
+            }
+            row.refAudioUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+          }
+        }
+      }
+    }
   }
 
   // 5. stashItems
@@ -3241,6 +3768,40 @@ async function readWorkspaceStore(): Promise<WorkspaceStore> {
   return readWorkspaceStoreNow();
 }
 
+async function readSingleWorkspace(id: string): Promise<StoredWorkspace | null> {
+  const wsDir = getWorkspacesDir();
+  const filePath = path.join(wsDir, `${id}.json`);
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const parsed = normalizeStoredWorkspace(JSON.parse(content));
+
+    // 如果该画板仍残留有内联大体积 Base64 音频，立即离线转存至音频缓存并异步回写精简版 JSON
+    if (parsed.type === "board" && Array.isArray(parsed.nodes)) {
+      const hasInlineBase64 = parsed.nodes.some((n: any) => {
+        const d = n?.data as Record<string, any> | undefined;
+        if (!d) return false;
+        if (typeof d.audioDataUrl === "string" && d.audioDataUrl.startsWith("data:")) return true;
+        if (d.artifact?.audioDataUrl?.startsWith("data:")) return true;
+        if (d.audio?.dataUrl?.startsWith("data:")) return true;
+        if (Array.isArray(d.audioAssets) && d.audioAssets.some((a: any) => a?.dataUrl?.startsWith("data:"))) return true;
+        if (Array.isArray(d.batchArtifacts) && d.batchArtifacts.some((ba: any) => ba?.audioDataUrl?.startsWith("data:"))) return true;
+        if (Array.isArray(d.batchRows) && d.batchRows.some((r: any) => r?.artifacts?.some((a: any) => a?.audioDataUrl?.startsWith("data:")))) return true;
+        return false;
+      }) || (Array.isArray(parsed.stashItems) && parsed.stashItems.some((s: any) => s?.audioDataUrl?.startsWith("data:")));
+
+      if (hasInlineBase64) {
+        await offloadWorkspaceAudiosToDisk(parsed);
+        void writeJsonFile(filePath, parsed).catch(() => undefined);
+      }
+    }
+
+    return parsed;
+  } catch (err) {
+    const store = await readWorkspaceStore();
+    return store.workspaces.find((item) => item.id === id) || null;
+  }
+}
+
 async function readWorkspaceStoreNow(): Promise<WorkspaceStore> {
   const wsDir = getWorkspacesDir();
   const wsFile = getWorkspaceFilePath();
@@ -3251,24 +3812,20 @@ async function readWorkspaceStoreNow(): Promise<WorkspaceStore> {
   try {
     const raw = await readFile(indexPath, "utf-8");
     const index = JSON.parse(raw) as WorkspaceIndex;
-    const workspaces: StoredWorkspace[] = [];
 
-    for (const item of index.workspaces) {
+    const workspacePromises = (index.workspaces || []).map(async (item) => {
       const filePath = path.join(wsDir, `${item.id}.json`);
       try {
         const content = await readFile(filePath, "utf-8");
         const parsed = normalizeStoredWorkspace(JSON.parse(content));
-        await offloadWorkspaceAudiosToDisk(parsed);
-        workspaces.push(parsed);
+        return parsed;
       } catch (error) {
-        const code = typeof error === "object" && error && "code" in error ? (error as { code?: string }).code : "";
-        if (code === "ENOENT") {
-          console.warn(`Workspace file not found: ${item.id}.json, skipping`);
-        } else {
-          throw error;
-        }
+        return null;
       }
-    }
+    });
+
+    const parsedList = await Promise.all(workspacePromises);
+    const workspaces = parsedList.filter((w): w is StoredWorkspace => w !== null);
 
     return {
       activeWorkspaceId: index.activeWorkspaceId,
@@ -3335,7 +3892,13 @@ async function migrateToNewStorage(store: WorkspaceStore): Promise<void> {
       type: w.type,
       name: w.name,
       createdAt: w.createdAt,
-      updatedAt: w.updatedAt
+      updatedAt: w.updatedAt,
+      nodeCount: w.type === "board" ? w.nodes?.length || 0 : undefined,
+      edgeCount: w.type === "board" ? w.edges?.length || 0 : undefined,
+      stashCount: w.type === "board" ? w.stashItems?.length || 0 : undefined,
+      characterCount: w.type === "audiobook" ? w.characters?.length || 0 : undefined,
+      segmentCount: w.type === "audiobook" ? w.segments?.length || 0 : undefined,
+      phase: w.type === "audiobook" ? w.phase : undefined
     }))
   };
   await writeJsonFile(path.join(wsDir, "index.json"), index);
@@ -3366,7 +3929,13 @@ async function writeWorkspaceStoreNow(store: WorkspaceStore): Promise<void> {
       type: w.type,
       name: w.name,
       createdAt: w.createdAt,
-      updatedAt: w.updatedAt
+      updatedAt: w.updatedAt,
+      nodeCount: w.type === "board" ? w.nodes?.length || 0 : undefined,
+      edgeCount: w.type === "board" ? w.edges?.length || 0 : undefined,
+      stashCount: w.type === "board" ? w.stashItems?.length || 0 : undefined,
+      characterCount: w.type === "audiobook" ? w.characters?.length || 0 : undefined,
+      segmentCount: w.type === "audiobook" ? w.segments?.length || 0 : undefined,
+      phase: w.type === "audiobook" ? w.phase : undefined
     }))
   };
   await writeJsonFile(path.join(wsDir, "index.json"), index);

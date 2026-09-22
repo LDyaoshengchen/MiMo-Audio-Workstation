@@ -1,6 +1,15 @@
-const { app, BrowserWindow, dialog, Menu } = require("electron");
+const { app, BrowserWindow, dialog, Menu, ipcMain, nativeTheme } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+
+// 开启 Chromium 渲染硬件加速与极致秒开运行优化
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch("enable-fast-unload");
 
 let apiServer = null;
 
@@ -109,8 +118,41 @@ function setupChineseMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+function loadEnvFiles(appRoot) {
+  const envCandidates = [
+    path.join(process.resourcesPath, ".env"),
+    path.join(path.dirname(process.execPath), ".env"),
+    path.join(appRoot, ".env"),
+    path.join(app.getPath("userData"), ".env"),
+    path.resolve(process.cwd(), ".env")
+  ];
+  for (const p of envCandidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf-8");
+        content.split("\n").forEach((line) => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) return;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx > 0) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            const val = trimmed.slice(eqIdx + 1).trim();
+            if (key && val && !process.env[key]) {
+              process.env[key] = val;
+            }
+          }
+        });
+      } catch (err) {
+        console.warn(`[electron] failed to read env file ${p}:`, err);
+      }
+    }
+  }
+}
+
 async function startApiServer() {
   const appRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
+  loadEnvFiles(appRoot);
+
   const serverEntry = app.isPackaged
     ? path.join(process.resourcesPath, "server", "index.cjs")
     : path.join(appRoot, "build", "server", "index.cjs");
@@ -121,13 +163,24 @@ async function startApiServer() {
   process.env.MIMO_STATIC_DIR = staticDir;
 
   const serverModule = require(serverEntry);
-  apiServer = serverModule.startServer(0, "127.0.0.1");
 
-  await new Promise((resolve, reject) => {
-    apiServer.once("listening", resolve);
-    apiServer.once("error", reject);
-  });
+  const PREFERRED_PORT = 38210;
+  let serverInstance = null;
+  try {
+    serverInstance = serverModule.startServer(PREFERRED_PORT, "127.0.0.1");
+    await new Promise((resolve, reject) => {
+      serverInstance.once("listening", resolve);
+      serverInstance.once("error", reject);
+    });
+  } catch {
+    serverInstance = serverModule.startServer(0, "127.0.0.1");
+    await new Promise((resolve, reject) => {
+      serverInstance.once("listening", resolve);
+      serverInstance.once("error", reject);
+    });
+  }
 
+  apiServer = serverInstance;
   const address = apiServer.address();
   if (!address || typeof address !== "object") {
     throw new Error("Unable to determine local API server port.");
@@ -152,36 +205,146 @@ function resolveAppIcon() {
   return path.join(appRoot, "public", "icon.png");
 }
 
-async function createWindow() {
-  const localUrl = await startApiServer();
+function getPersistedThemeInfo() {
+  const userDataDir = app.getPath("userData");
+  const themeFile = path.join(userDataDir, "theme.json");
+  let saved = null;
+  try {
+    if (fs.existsSync(themeFile)) {
+      saved = JSON.parse(fs.readFileSync(themeFile, "utf8"));
+    }
+  } catch {}
+
+  const isSystemDark = nativeTheme.shouldUseDarkColors;
+  let isLight = false;
+  let bgColor = "#080807";
+
+  if (saved && typeof saved === "object") {
+    if (saved.mode === "light") {
+      isLight = true;
+      bgColor = saved.bgColor || saved.lightBgColor || "#ffffff";
+    } else if (saved.mode === "dark") {
+      isLight = false;
+      bgColor = saved.bgColor || saved.darkBgColor || "#080807";
+    } else {
+      // system mode
+      isLight = !isSystemDark;
+      bgColor = isLight ? (saved.lightBgColor || saved.bgColor || "#ffffff") : (saved.darkBgColor || saved.bgColor || "#080807");
+    }
+  } else {
+    // 尚未保存主题时，默认匹配操作系统当前颜色偏好（白色或黑色）
+    isLight = !isSystemDark;
+    bgColor = isLight ? "#ffffff" : "#080807";
+  }
+
+  return {
+    mode: saved?.mode || "system",
+    isLight,
+    bgColor
+  };
+}
+
+async function createWindow(serverUrlPromise) {
   const iconPath = resolveAppIcon();
+  const preloadPath = path.join(__dirname, "preload.cjs");
+  const themeInfo = getPersistedThemeInfo();
+
+  try {
+    nativeTheme.themeSource = themeInfo.isLight ? "light" : "dark";
+  } catch {}
 
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1024,
     minHeight: 720,
-    title: "MiMo 音色复刻调试台",
+    title: "铸光音频工作站",
     icon: iconPath,
+    show: false, // 先创建，Chromium 渲染骨架就绪时（ready-to-show）立即现身
+    backgroundColor: themeInfo.bgColor, // 严格按照当前颜色模式预先设定白色或黑色背景，消除开屏闪烁
     webPreferences: {
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: false,
+      spellcheck: false // 禁用富文本拼写检查，提升大画板长文本渲染性能
     }
   });
+
+  let hasShown = false;
+  const showWindowSafely = () => {
+    if (!hasShown && !window.isDestroyed()) {
+      hasShown = true;
+      window.show();
+    }
+  };
+
+  // 1. ready-to-show 触发时（Chromium 渲染骨架就绪，通常仅需 100~200ms）即刻展示窗口，实现秒级响应！
+  window.once("ready-to-show", () => {
+    showWindowSafely();
+  });
+
+  // 2. 优先监听前端 React 首帧完成绘制的通知，携带最新确切的背景色
+  ipcMain.once("app-first-paint", (_event, clientTheme) => {
+    if (clientTheme && typeof clientTheme === "object") {
+      if (clientTheme.bgColor && !window.isDestroyed()) {
+        try {
+          window.setBackgroundColor(clientTheme.bgColor);
+        } catch {}
+      }
+      if (clientTheme.isLight !== undefined) {
+        try {
+          nativeTheme.themeSource = clientTheme.isLight ? "light" : "dark";
+        } catch {}
+      }
+      try {
+        const themeFile = path.join(app.getPath("userData"), "theme.json");
+        fs.writeFileSync(themeFile, JSON.stringify(clientTheme, null, 2), "utf8");
+      } catch {}
+    }
+    showWindowSafely();
+  });
+
+  // 监听后续用户动态切换主题模式
+  ipcMain.on("app-theme-update", (_event, newTheme) => {
+    try {
+      if (!newTheme || typeof newTheme !== "object") return;
+      const themeFile = path.join(app.getPath("userData"), "theme.json");
+      fs.writeFileSync(themeFile, JSON.stringify(newTheme, null, 2), "utf8");
+      if (newTheme.isLight !== undefined) {
+        try {
+          nativeTheme.themeSource = newTheme.isLight ? "light" : "dark";
+        } catch {}
+      }
+      if (newTheme.bgColor && window && !window.isDestroyed()) {
+        try {
+          window.setBackgroundColor(newTheme.bgColor);
+        } catch {}
+      }
+    } catch (err) {
+      console.warn("[electron] failed to save theme:", err);
+    }
+  });
+
+  // 3. 超时安全兜底：若 600ms 内未触发，强制显示窗口避免隐形
+  setTimeout(showWindowSafely, 600);
 
   window.on("page-title-updated", (event, title) => {
     event.preventDefault();
     window.setTitle(title);
   });
 
+  // 等待并行启动的服务端并即刻加载
+  const localUrl = await serverUrlPromise;
   await window.loadURL(localUrl);
 }
 
 app.whenReady().then(async () => {
   try {
     setupChineseMenu();
-    await createWindow();
+    // 并行启动服务端与渲染窗口
+    const serverUrlPromise = startApiServer();
+    await createWindow(serverUrlPromise);
   } catch (error) {
     dialog.showErrorBox(
       "MiMo Audio Workstation failed to start",
@@ -192,7 +355,10 @@ app.whenReady().then(async () => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow().catch((error) => {
+      const serverUrlPromise = apiServer
+        ? Promise.resolve(`http://127.0.0.1:${apiServer.address().port}`)
+        : startApiServer();
+      createWindow(serverUrlPromise).catch((error) => {
         dialog.showErrorBox("MiMo Audio Workstation failed to start", String(error));
       });
     }

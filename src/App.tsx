@@ -46,6 +46,7 @@ import {
   FileJson,
   FileSpreadsheet,
   FolderOpen,
+  Gamepad2,
   Grid,
   GripVertical,
   Key,
@@ -78,10 +79,10 @@ import {
   Zap,
   X
 } from "lucide-react";
-import { ChangeEvent, MouseEvent, ReactNode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Fragment, MouseEvent, ReactNode, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getBezierPath, useReactFlow } from "@xyflow/react";
-import JSZip from "jszip";
+import { createZipInstance } from "./utils/zipUtils";
 import {
   getArtifactDownloadFileName,
   getFileExtension,
@@ -90,6 +91,27 @@ import {
   audioSourceToBlob,
   buildApiHeaders
 } from "./utils/audioNaming";
+import { computeSmartDagLayout, getDownstreamNodeIds, type LayoutNodeInput, type LayoutEdgeInput } from "./utils/layout";
+import { stripHeavyDataForCache } from "./utils/cache";
+import {
+  GAME_VOCAL_CATEGORIES,
+  getCategoryById,
+  getRandomItemsFromSubcategory,
+  type GameVocalCategory,
+  type GameVocalSubcategory,
+  type SelectedVocalItem
+} from "./utils/gameVocalLibrary";
+import {
+  buildOptimizedGameVocalPrompt,
+  smartTrimGameVocalAudioBuffer,
+  type GameVocalDurationMode
+} from "./utils/gameVocalOptimizer";
+import {
+  GAME_CHARACTER_TYPES,
+  buildVoiceDescriptionFromTags,
+  getRandomCharacterTags,
+  type GameCharacterType
+} from "./utils/gameVocalCharacterTags";
 
 type StatusResponse = {
   ok: boolean;
@@ -111,6 +133,7 @@ const NODE_COLOR_MAP: Record<string, string> = {
   batchVoiceDesign: "#38bdf8",
   batchArtifact: "#fef08a",
   integratedStudio: "#f8fafc",
+  gameVocal: "#8b5cf6",
   comment: "#94a3b8"
 };
 
@@ -232,7 +255,7 @@ type AudiobookWorkspacePayload = {
   chapters: AudiobookChapter[];
 };
 
-type WorkspacePayload = BoardWorkspacePayload | AudiobookWorkspacePayload;
+export type WorkspacePayload = BoardWorkspacePayload | AudiobookWorkspacePayload;
 
 type WorkspacesResponse = {
   activeWorkspaceId: string | null;
@@ -270,8 +293,8 @@ export interface BatchArtifactItem {
   createdAt: string;
 }
 
-type StudioNodeType = "referenceAudio" | "audioMerge" | "voiceStyle" | "prompt" | "voiceClone" | "voiceDesign" | "artifact" | "batchVoiceClone" | "batchVoiceDesign" | "batchArtifact" | "integratedStudio" | "comment";
-type StudioNode = Node<NodeData, StudioNodeType>;
+export type StudioNodeType = "referenceAudio" | "audioMerge" | "voiceStyle" | "prompt" | "voiceClone" | "voiceDesign" | "artifact" | "batchVoiceClone" | "batchVoiceDesign" | "batchArtifact" | "integratedStudio" | "gameVocal" | "comment";
+export type StudioNode = Node<NodeData, StudioNodeType>;
 type StudioEdge = Edge<{ onDeleteEdge?: (edgeId: string) => void }>;
 
 type AudioAsset = {
@@ -314,6 +337,18 @@ type NodeData = {
   batchRowId?: string;
   batchRows?: BatchVoiceCloneRow[];
   batchArtifacts?: BatchArtifactItem[];
+  selectedVocals?: SelectedVocalItem[];
+  selectedCategoryId?: string;
+  selectedSubcategoryId?: string;
+  vocalRefMode?: "clone" | "design";
+  vocalCharacterType?: GameCharacterType;
+  vocalSelectedTags?: string[];
+  vocalVoiceDescription?: string;
+  antiDrone?: boolean;
+  vocalDurationMode?: GameVocalDurationMode;
+  phoneticAnchor?: boolean;
+  autoTrimTail?: boolean;
+  vocalProgressText?: string;
   refAudioUrl?: string;
   refAudioName?: string;
   refAudioDuration?: number;
@@ -323,13 +358,14 @@ type NodeData = {
   workspaceName?: string;
   onPatch?: (nodeId: string, patch: Partial<NodeData>) => void;
   onDelete?: (nodeId: string) => void;
-  onRunClone?: (nodeId: string) => void;
+  onRunClone?: (nodeId: string, count?: number) => void;
   onRunBatchVoiceClone?: (nodeId: string) => void;
   onRunSingleRowBatchVoiceClone?: (nodeId: string, rowId: string) => void;
   onRunBatchVoiceDesign?: (nodeId: string) => void;
   onRunSingleRowBatchVoiceDesign?: (nodeId: string, rowId: string) => void;
   onRunIntegratedBatch?: (nodeId: string) => void;
   onRunIntegratedSingleRow?: (nodeId: string, rowId: string) => void;
+  onRunGameVocalClone?: (nodeId: string) => void;
   onDeleteIntegratedArtifactItem?: (nodeId: string, rowId: string, itemId: string) => void;
   onDeleteBatchArtifactItem?: (nodeId: string, itemId: string) => void;
   onRunVoiceDesign?: (nodeId: string, count?: number) => void;
@@ -355,27 +391,149 @@ type StyleOptimizeResponse = {
 };
 
 function formatHierarchyName(parentTitle?: string, nodeTitle?: string, seqIndex?: number): string {
-  const p = (parentTitle || "").trim();
-  const n = (nodeTitle || "").trim();
+  let p = (parentTitle || "").trim().replace(/[:：\s]+/g, "_");
+  let n = (nodeTitle || "").trim().replace(/[:：\s]+/g, "_");
+
+  if (p === "节点名称" || p === "批量节点" || p === "音频克隆" || p === "音色创造" || p === "全能综合工作台") p = "";
+  if (n === "节点名称" || n === "产物节点") n = "";
+
   const seq = seqIndex !== undefined ? String(seqIndex).padStart(2, "0") : "";
 
-  let resultName = p;
+  let base = "";
 
-  if (n) {
-    if (!resultName) {
-      resultName = n;
-    } else if (resultName === n || resultName.endsWith(`_${n}`) || resultName.endsWith(` ${n}`)) {
-      // Node title is already included in parent title
+  if (p && n) {
+    if (p === n) {
+      base = p; // parent and node titles are identical, don't duplicate
     } else {
-      resultName = `${resultName}_${n}`;
+      base = `${p}_${n}`;
     }
+  } else if (!p && n) {
+    base = n;
+  } else if (p && !n) {
+    base = `${p}_产物`;
+  } else {
+    base = "产物";
   }
 
   if (seq) {
-    resultName = `${resultName}_${seq}`;
+    return `${base}_${seq}`;
   }
+  return base;
+}
 
-  return resultName.replace(/[:：\s]+/g, "_");
+import {
+  GAME_CHARACTER_PRESETS,
+  getFormattedNaturalControl,
+  type GameCharacterPreset
+} from "./utils/gamePresets";
+
+export function getNodeDefaultData(type: StudioNodeType): NodeData {
+  const p1 = GAME_CHARACTER_PRESETS[0]; // 深海狂鲨
+  switch (type) {
+    case "integratedStudio":
+      return {
+        title: "全能综合工作台",
+        exportPrefixName: "游戏交战语音导出",
+        batchRows: [
+          {
+            id: createId("row"),
+            title: `${p1.nameZh} (${p1.categoryZh})`,
+            instruction: p1.directionEn,
+            text: p1.dialogueZh,
+            artifacts: []
+          }
+        ]
+      };
+    case "batchVoiceClone":
+      return {
+        title: "批量音频克隆",
+        exportPrefixName: "游戏批量克隆导出",
+        batchRows: [
+          {
+            id: createId("row"),
+            title: `${p1.nameZh} (${p1.categoryZh})`,
+            instruction: p1.directionEn,
+            text: p1.dialogueZh
+          }
+        ]
+      };
+    case "voiceClone":
+      return {
+        title: `音频克隆 (${p1.nameZh})`,
+        instruction: p1.directionEn,
+        text: p1.dialogueZh
+      };
+    case "voiceDesign":
+      return {
+        title: `音色创造 (${p1.nameZh})`,
+        instruction: p1.voiceDescriptionEn,
+        naturalControl: getFormattedNaturalControl(p1),
+        text: p1.dialogueZh
+      };
+    case "batchVoiceDesign":
+      return {
+        title: "批量音色创造",
+        exportPrefixName: "游戏音色设计导出",
+        batchRows: [
+          {
+            id: createId("row"),
+            title: p1.nameZh,
+            instruction: p1.voiceDescriptionEn,
+            naturalControl: getFormattedNaturalControl(p1),
+            text: p1.dialogueZh
+          }
+        ]
+      };
+    case "prompt":
+      return {
+        title: `提示词 (${p1.nameZh})`,
+        text: p1.dialogueZh
+      };
+    case "voiceStyle":
+      return {
+        title: `语音风格 (${p1.nameZh})`,
+        text: p1.directionEn
+      };
+    case "referenceAudio":
+      return { title: "参考音频", text: "声音样本" };
+    case "audioMerge":
+      return { title: "参考音频整合" };
+    case "gameVocal": {
+      const defaultCat = GAME_VOCAL_CATEGORIES[0];
+      const defaultSub = defaultCat.subcategories[0];
+      const defaultItems: SelectedVocalItem[] = defaultSub.items.slice(0, 3).map((txt) => ({
+        id: createId("vocal"),
+        categoryId: defaultCat.id,
+        categoryTitle: defaultCat.title,
+        subcategoryId: defaultSub.id,
+        subcategoryLabel: defaultSub.label,
+        text: txt
+      }));
+      return {
+        title: "游戏语气词生成",
+        vocalRefMode: "clone",
+        vocalCharacterType: "human",
+        vocalSelectedTags: GAME_CHARACTER_TYPES[0].defaultSelectedTags,
+        vocalVoiceDescription: "",
+        selectedCategoryId: defaultCat.id,
+        selectedSubcategoryId: defaultSub.id,
+        instruction: defaultCat.defaultInstruction,
+        selectedVocals: defaultItems,
+        antiDrone: true,
+        vocalDurationMode: "standard",
+        phoneticAnchor: true,
+        autoTrimTail: true
+      };
+    }
+    case "artifact":
+      return { title: "音频产物" };
+    case "batchArtifact":
+      return { title: "批量音频克隆产物", batchArtifacts: [] };
+    case "comment":
+      return { title: "注释", text: "" };
+    default:
+      return { title: type };
+  }
 }
 
 const nodeCatalog: Record<
@@ -389,92 +547,67 @@ const nodeCatalog: Record<
   integratedStudio: {
     label: "全能综合工作台",
     description: "参考音频、批量克隆与多轨产物三合一综合工作台",
-    defaultData: () => ({
-      title: "全能综合工作台",
-      exportPrefixName: "综合工作台导出",
-      batchRows: [
-        { id: "row_1", title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们使用全能综合工作台验证第一条音频。", artifacts: [] },
-        { id: "row_2", title: "句段 2", instruction: "轻松自然的语调", text: "这是全能综合工作台的第二条生成句段，自动分行对应产物。", artifacts: [] }
-      ]
-    })
+    defaultData: () => getNodeDefaultData("integratedStudio")
+  },
+  gameVocal: {
+    label: "游戏语气词",
+    description: "基于官方语气词库一键批量合成各类拟声、战斗与状态发声",
+    defaultData: () => getNodeDefaultData("gameVocal")
   },
   referenceAudio: {
     label: "参考音频",
     description: "上传声音样本，输出给克隆节点",
-    defaultData: () => ({ title: "参考音频", text: "声音样本" })
+    defaultData: () => getNodeDefaultData("referenceAudio")
   },
   audioMerge: {
     label: "参考音频整合",
     description: "按顺序拼接连入的多个参考音频，输出 WAV 文件",
-    defaultData: () => ({ title: "参考音频整合" })
+    defaultData: () => getNodeDefaultData("audioMerge")
   },
   voiceClone: {
     label: "音频克隆",
     description: "读取输入并生成克隆音频",
-    defaultData: () => ({
-      title: "音频克隆",
-      instruction: "自然、清晰、略带播客讲述感，语速中等，语气友好但不过分夸张。",
-      text: "今天我们完成了铸光音频工作站的第一条生成链路，现在用这段声音检查相似度、节奏和情绪表现。"
-    })
+    defaultData: () => getNodeDefaultData("voiceClone")
   },
   batchVoiceClone: {
     label: "批量音频克隆",
     description: "只用一个参考音频，批量编辑与生成多段声音",
-    defaultData: () => ({
-      title: "批量音频克隆",
-      exportPrefixName: "批量克隆导出",
-      batchRows: [
-        { id: "row_1", title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们验证批量音频克隆的第一条生成句段。" },
-        { id: "row_2", title: "句段 2", instruction: "轻松自然的语调", text: "这是批量生成的第二条句段，声音连贯稳定。" }
-      ]
-    })
+    defaultData: () => getNodeDefaultData("batchVoiceClone")
   },
   voiceDesign: {
     label: "音色创造",
     description: "用文字设计与自然语言控制音色并直接合成音频",
-    defaultData: () => ({
-      title: "音色创造",
-      instruction: "如\"一位年迈的老先生，说带北方口音的普通话，语速缓慢而沉稳，嗓音略带沙哑和沧桑感，仿佛一位饱经风霜的老爷爷在讲故事，充满岁月的智慧。\"",
-      naturalControl: "角色：百年门阀岑家的现任大当家。自出生便被过继给祖庙的守门老人抚养，被塑造性成一尊完美无瑕、绝情断欲的家族图腾。常年深居简出，对人有着极强的阶级疏离感。\n场景：在祠堂的阴影里，看着那个不顾一切冲破保安防线来找她、企图带她私奔的男人。她要用最冷硬的阶级壁垒，绞杀对方，也绞杀自己刚刚萌芽、却足以燎原的感情。\n指导：冰冷、慵懒却极具威压的低音御姐。发声通道非常松弛，没有任何剑拔弩张，却有着让人骨里生寒的压迫感。",
-      text: "这是一段使用文字设计与自然语言控制生成的示范文本。"
-    })
+    defaultData: () => getNodeDefaultData("voiceDesign")
   },
   batchVoiceDesign: {
     label: "批量音色创造",
     description: "无参考音频，批量用文字描述设计多种音色并合成多段音频",
-    defaultData: () => ({
-      title: "批量音色创造",
-      exportPrefixName: "批量音色导出",
-      batchRows: [
-        { id: "row_1", title: "句段 1", instruction: "30岁成熟女性，声音温润清亮，具有优雅自然的旁白质感", naturalControl: "角色：旁白/讲述人\n指导：沉静自然", text: "今天我们验证批量音色创造的第一条生成句段。" },
-        { id: "row_2", title: "句段 2", instruction: "40岁中年男性，嗓音低沉有磁性，语气稳重沉稳", naturalControl: "角色：老掌柜\n指导：温和沧桑", text: "这是批量生成的第二条音色创造句段。" }
-      ]
-    })
+    defaultData: () => getNodeDefaultData("batchVoiceDesign")
   },
   batchArtifact: {
     label: "批量产物",
     description: "聚合并批量打包下载多条生成音频",
-    defaultData: () => ({ title: "批量音频克隆产物", batchArtifacts: [] })
+    defaultData: () => getNodeDefaultData("batchArtifact")
   },
   voiceStyle: {
     label: "语音风格",
     description: "导演文本，控制声音情绪和表达",
-    defaultData: () => ({ title: "语音风格", text: "自然、清晰、略带播客讲述感，语速中等，语气友好但不过分夸张。" })
+    defaultData: () => getNodeDefaultData("voiceStyle")
   },
   prompt: {
     label: "提示词",
     description: "要生成成音频的文本内容",
-    defaultData: () => ({ title: "提示词", text: "今天我们完成了铸光音频工作站的第一条生成链路，现在用这段声音检查相似度、节奏和情绪表现。" })
+    defaultData: () => getNodeDefaultData("prompt")
   },
   comment: {
     label: "文本注释",
     description: "画布上的备注说明",
-    defaultData: () => ({ title: "注释", text: "" })
+    defaultData: () => getNodeDefaultData("comment")
   },
   artifact: {
     label: "产物",
     description: "保存生成结果和下载入口",
-    defaultData: () => ({ title: "音频产物" })
+    defaultData: () => getNodeDefaultData("artifact")
   }
 };
 
@@ -828,10 +961,52 @@ function StudioApp() {
 
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspacePayload | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<StudioEdge>([]);
+
+
+
+  const initialBootstrap = useMemo(() => {
+    if (typeof window !== "undefined" && (window as any).__MIMO_INITIAL_BOOTSTRAP__) {
+      return (window as any).__MIMO_INITIAL_BOOTSTRAP__;
+    }
+    return null;
+  }, []);
+
+  const initialCachedWorkspaces = useMemo<WorkspaceSummary[]>(() => {
+    if (initialBootstrap?.workspaces && Array.isArray(initialBootstrap.workspaces) && initialBootstrap.workspaces.length > 0) {
+      return initialBootstrap.workspaces;
+    }
+    try {
+      const raw = localStorage.getItem("mimo_cached_workspaces");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }, [initialBootstrap]);
+
+  const initialCachedActiveWorkspace = useMemo<WorkspacePayload | null>(() => {
+    if (initialBootstrap?.activeWorkspace) {
+      return initialBootstrap.activeWorkspace as WorkspacePayload;
+    }
+    try {
+      const raw = localStorage.getItem("mimo_cached_active_workspace");
+      return raw ? (JSON.parse(raw) as WorkspacePayload) : null;
+    } catch {
+      return null;
+    }
+  }, [initialBootstrap]);
+
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(initialCachedWorkspaces);
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspacePayload | null>(initialCachedActiveWorkspace);
+  const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>(
+    initialCachedActiveWorkspace?.type === "board" && Array.isArray(initialCachedActiveWorkspace.nodes)
+      ? initialCachedActiveWorkspace.nodes
+      : []
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState<StudioEdge>(
+    initialCachedActiveWorkspace?.type === "board" && Array.isArray(initialCachedActiveWorkspace.edges)
+      ? initialCachedActiveWorkspace.edges
+      : []
+  );
   const selectedNodesCount = useMemo(() => nodes.filter((n) => n.selected).length, [nodes]);
   const [menu, setMenu] = useState<{
     x: number;
@@ -857,16 +1032,91 @@ function StudioApp() {
     undoStackRef.current = [];
     redoStackRef.current = [];
     lastRecordedRef.current = "";
+    if (activeWorkspace?.id) {
+      try {
+        localStorage.setItem("mimo_last_active_id", activeWorkspace.id);
+      } catch {}
+    }
   }, [activeWorkspace?.id]);
 
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      try {
+        localStorage.setItem("mimo_cached_workspaces", JSON.stringify(workspaces));
+      } catch {}
+    }
+  }, [workspaces]);
+
+  useLayoutEffect(() => {
+    const effectiveMode = themeConfig.mode === "system" ? resolveSystemMode() : themeConfig.mode;
+    const isLight = effectiveMode === "light";
+    const activeColors = isLight ? themeConfig.lightTheme : themeConfig.darkTheme;
+    const clientTheme = {
+      mode: themeConfig.mode,
+      isLight,
+      bgColor: activeColors.bgColor,
+      lightBgColor: themeConfig.lightTheme.bgColor,
+      darkBgColor: themeConfig.darkTheme.bgColor
+    };
+
+    // 双重 requestAnimationFrame 确保 React DOM 节点全部提交至 GPU 显存帧缓冲后再通知 Electron 显现窗口，底色与主题完全一致
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (typeof window !== "undefined" && (window as any).electronApi?.notifyReady) {
+          (window as any).electronApi.notifyReady(clientTheme);
+        }
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+    };
+  }, []);
+
   const saveTimerRef = useRef<number | null>(null);
+  const switchingTargetIdRef = useRef<string | null>(initialCachedActiveWorkspace?.id || null);
+  const lastSavedOrLoadedKeyRef = useRef<string>("");
   const flowWrapRef = useRef<HTMLDivElement | null>(null);
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
   const rightDragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(API_KEY_STORAGE_KEY) || DEFAULT_API_KEY);
-  const [serverApiKeyConfigured, setServerApiKeyConfigured] = useState<boolean>(false);
-  const [apiEndpoint, setApiEndpoint] = useState<string>(() => localStorage.getItem(API_ENDPOINT_STORAGE_KEY) || DEFAULT_API_ENDPOINT);
-  const [apiProvider, setApiProvider] = useState<string>(() => localStorage.getItem(API_PROVIDER_STORAGE_KEY) || "mimo");
+  const [apiKey, setApiKey] = useState<string>(() => {
+    if (initialBootstrap?.settings?.apiKey) return initialBootstrap.settings.apiKey;
+    return localStorage.getItem(API_KEY_STORAGE_KEY) || DEFAULT_API_KEY;
+  });
+  const [serverApiKeyConfigured, setServerApiKeyConfigured] = useState<boolean>(() => {
+    if (initialBootstrap?.settings) {
+      return Boolean(initialBootstrap.settings.hasApiKey || initialBootstrap.settings.configured);
+    }
+    return localStorage.getItem("mimo_cached_server_configured") === "true";
+  });
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState<boolean>(() => {
+    return Boolean(initialBootstrap?.settings) || localStorage.getItem("mimo_cached_server_configured") !== null || !!localStorage.getItem(API_KEY_STORAGE_KEY);
+  });
+  const [apiEndpoint, setApiEndpoint] = useState<string>(() => {
+    if (initialBootstrap?.settings?.apiEndpoint) return initialBootstrap.settings.apiEndpoint;
+    return localStorage.getItem(API_ENDPOINT_STORAGE_KEY) || DEFAULT_API_ENDPOINT;
+  });
+  const [apiProvider, setApiProvider] = useState<string>(() => {
+    if (initialBootstrap?.settings?.apiProvider) return initialBootstrap.settings.apiProvider;
+    return localStorage.getItem(API_PROVIDER_STORAGE_KEY) || "mimo";
+  });
+
+  const apiKeyRef = useRef(apiKey);
+  apiKeyRef.current = apiKey;
+  const serverApiKeyConfiguredRef = useRef(serverApiKeyConfigured);
+  serverApiKeyConfiguredRef.current = serverApiKeyConfigured;
+  const apiEndpointRef = useRef(apiEndpoint);
+  apiEndpointRef.current = apiEndpoint;
+  const apiProviderRef = useRef(apiProvider);
+  apiProviderRef.current = apiProvider;
+
+  const isAnyApiKeyReady = useCallback(() => {
+    return Boolean(
+      (apiKeyRef.current && apiKeyRef.current.trim()) ||
+      serverApiKeyConfiguredRef.current ||
+      localStorage.getItem(API_KEY_STORAGE_KEY)
+    );
+  }, []);
+
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(apiKey);
   const [apiEndpointInput, setApiEndpointInput] = useState(apiEndpoint);
@@ -963,7 +1213,7 @@ function StudioApp() {
       }
       const t = node.type as StudioNodeType;
       if (t === "batchVoiceDesign") return 880;
-      if (t === "batchVoiceClone" || t === "integratedStudio") return 640;
+      if (t === "batchVoiceClone" || t === "integratedStudio" || t === "gameVocal") return 660;
       if (t === "batchArtifact") return 440;
       if (t === "voiceDesign" || t === "voiceClone") return 360;
       if (t === "referenceAudio" || t === "audioMerge") return 340;
@@ -976,6 +1226,7 @@ function StudioApp() {
         return node.measured.height;
       }
       const t = node.type as StudioNodeType;
+      if (t === "gameVocal") return 620;
       if (t === "batchVoiceDesign" || t === "batchVoiceClone") {
         const rowCount = node.data.batchRows?.length || 1;
         return Math.max(460, 180 + rowCount * 75);
@@ -985,8 +1236,9 @@ function StudioApp() {
         return Math.max(640, 240 + rowCount * 75);
       }
       if (t === "batchArtifact") {
-        const count = node.data.batchArtifacts?.length || 1;
-        return Math.max(280, 140 + count * 70);
+        const count = node.data.batchArtifacts?.length || 0;
+        if (count === 0) return 260;
+        return Math.max(340, 110 + count * 85);
       }
       if (t === "artifact") return 145;
       if (t === "voiceDesign") return 640;
@@ -996,327 +1248,27 @@ function StudioApp() {
       return 260;
     }
 
-    // 1. Group target nodes into Connected Components (Disjoint Blocks)
-    const adjMap = new Map<string, Set<string>>();
-    targetNodes.forEach((n) => adjMap.set(n.id, new Set()));
-
-    targetEdges.forEach((e) => {
-      if (adjMap.has(e.source)) adjMap.get(e.source)!.add(e.target);
-      if (adjMap.has(e.target)) adjMap.get(e.target)!.add(e.source);
-    });
-
-    const visited = new Set<string>();
-    const blocks: StudioNode[][] = [];
-
-    // Sort initial nodes by Y position to maintain user's natural top-to-bottom order
-    const sortedNodes = [...targetNodes].sort((a, b) => a.position.y - b.position.y);
-
-    sortedNodes.forEach((n) => {
-      if (visited.has(n.id)) return;
-      const component: StudioNode[] = [];
-      const queue = [n.id];
-      visited.add(n.id);
-
-      while (queue.length > 0) {
-        const currId = queue.shift()!;
-        const currNode = targetNodes.find((cn) => cn.id === currId);
-        if (currNode) component.push(currNode);
-
-        const neighbors = adjMap.get(currId) || new Set();
-        neighbors.forEach((nbrId) => {
-          if (!visited.has(nbrId)) {
-            visited.add(nbrId);
-            queue.push(nbrId);
-          }
-        });
-      }
-
-      if (component.length > 0) {
-        blocks.push(component);
-      }
-    });
-
-    // Sort blocks by their minimum original Y position (top-to-bottom reading order)
-    blocks.sort((a, b) => {
-      const minYA = Math.min(...a.map((n) => n.position.y));
-      const minYB = Math.min(...b.map((n) => n.position.y));
-      return minYA - minYB;
-    });
-
-    const nodePositions = new Map<string, { x: number; y: number }>();
-    const BLOCKS_PER_COLUMN = 5;
-
-    // Starting origin:
-    // If in selection mode, use the minimum top-left position of the selected nodes!
     const originBaseX = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.x)) : 80;
     const originBaseY = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.y)) : 80;
 
-    // Split blocks into columns of 5 blocks each (数列超过5个工作流自动往右排一列)
-    const blockColumns: StudioNode[][][] = [];
-    for (let i = 0; i < blocks.length; i += BLOCKS_PER_COLUMN) {
-      blockColumns.push(blocks.slice(i, i + BLOCKS_PER_COLUMN));
-    }
+    const layoutInputNodes: LayoutNodeInput[] = targetNodes.map((n) => ({
+      id: n.id,
+      type: n.type || "default",
+      width: getNodeWidth(n),
+      height: getNodeHeight(n),
+      originalX: n.position.x,
+      originalY: n.position.y,
+      seqIndex: n.data.seqIndex
+    }));
 
-    let globalColStartX = originBaseX;
+    const layoutInputEdges: LayoutEdgeInput[] = targetEdges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle
+    }));
 
-    blockColumns.forEach((columnBlocks) => {
-      let currentBlockStartY = originBaseY;
-      let maxColWidth = 400;
-
-      columnBlocks.forEach((blockNodes) => {
-        const nodeMap = new Map<string, StudioNode>();
-        blockNodes.forEach((n) => nodeMap.set(n.id, n));
-
-        // Build adjacency and parent-child mapping
-        const allChildrenMap = new Map<string, string[]>();
-        const allParentsMap = new Map<string, string[]>();
-        blockNodes.forEach((n) => {
-          allChildrenMap.set(n.id, []);
-          allParentsMap.set(n.id, []);
-        });
-
-        targetEdges.forEach((e) => {
-          if (allChildrenMap.has(e.source) && allChildrenMap.has(e.target)) {
-            if (!allChildrenMap.get(e.source)!.includes(e.target)) {
-              allChildrenMap.get(e.source)!.push(e.target);
-            }
-            if (!allParentsMap.get(e.target)!.includes(e.source)) {
-              allParentsMap.get(e.target)!.push(e.source);
-            }
-          }
-        });
-
-        // Separate direct artifact children from downstream logic children for every node
-        const nodeArtifactChildren = new Map<string, StudioNode[]>();
-        const nodeLogicChildren = new Map<string, string[]>();
-
-        blockNodes.forEach((n) => {
-          const rawChildren = allChildrenMap.get(n.id) || [];
-          const arts: StudioNode[] = [];
-          const logic: string[] = [];
-
-          rawChildren.forEach((cId) => {
-            const cNode = nodeMap.get(cId);
-            if (cNode && (cNode.type === "artifact" || cNode.type === "batchArtifact")) {
-              arts.push(cNode);
-            } else {
-              logic.push(cId);
-            }
-          });
-
-          // Sort artifacts by seqIndex if available
-          arts.sort((a, b) => {
-            const seqA = a.data.seqIndex ?? 999;
-            const seqB = b.data.seqIndex ?? 999;
-            if (seqA !== seqB) return seqA - seqB;
-            return a.position.y - b.position.y;
-          });
-
-          nodeArtifactChildren.set(n.id, arts);
-          nodeLogicChildren.set(n.id, logic);
-        });
-
-        // Also if an artifact connects to a downstream logic node (e.g. artifact -> audioMerge),
-        // attribute that logic node to the parent generator
-        blockNodes.forEach((n) => {
-          const arts = nodeArtifactChildren.get(n.id) || [];
-          const logic = nodeLogicChildren.get(n.id) || [];
-          arts.forEach((art) => {
-            const artChildren = allChildrenMap.get(art.id) || [];
-            artChildren.forEach((acId) => {
-              const acNode = nodeMap.get(acId);
-              if (acNode && acNode.type !== "artifact" && acNode.type !== "batchArtifact") {
-                if (!logic.includes(acId)) {
-                  logic.push(acId);
-                }
-              }
-            });
-          });
-        });
-
-        // Identify primary root nodes of this block (nodes with no upstream non-artifact parents in target set)
-        let rootIds = blockNodes
-          .filter((n) => {
-            if (n.type === "artifact" || n.type === "batchArtifact") return false;
-            const parents = allParentsMap.get(n.id) || [];
-            const nonArtParents = parents.filter((pId) => {
-              const p = nodeMap.get(pId);
-              return p && p.type !== "artifact" && p.type !== "batchArtifact";
-            });
-            return nonArtParents.length === 0;
-          })
-          .map((n) => n.id);
-
-        if (rootIds.length === 0) {
-          const nonArtNodes = blockNodes.filter((n) => n.type !== "artifact" && n.type !== "batchArtifact");
-          rootIds = nonArtNodes.length > 0
-            ? [nonArtNodes.reduce((min, n) => (n.position.x < min.position.x ? n : min), nonArtNodes[0]).id]
-            : [blockNodes[0].id];
-        }
-
-        rootIds.sort((a, b) => (nodeMap.get(a)?.position.y || 0) - (nodeMap.get(b)?.position.y || 0));
-
-        const placedNodes = new Set<string>();
-
-        // Recursive Subtree Layout function with 5-branch & height limit column wrapping
-        function layoutPipelineSubtree(
-          nodeId: string,
-          originX: number,
-          originY: number,
-          isTopLevelRoot: boolean = false
-        ): { width: number; height: number; endX: number } {
-          placedNodes.add(nodeId);
-          const node = nodeMap.get(nodeId);
-          if (!node) return { width: 0, height: 0, endX: originX };
-
-          const nodeW = getNodeWidth(node);
-          const nodeH = getNodeHeight(node);
-
-          nodePositions.set(nodeId, { x: originX, y: originY });
-
-          const arts = (nodeArtifactChildren.get(nodeId) || []).filter((a) => !placedNodes.has(a.id));
-          arts.forEach((a) => placedNodes.add(a.id));
-
-          let artGridW = 0;
-          let artGridH = 0;
-          let nextLogicStartX = originX + nodeW + 60;
-
-          if (arts.length > 0) {
-            const isSingle = arts.every((a) => a.type === "artifact");
-            const maxCols = 3;
-            const colGap = isSingle ? 60 : 40;
-            const rowGap = isSingle ? 60 : 40;
-            const itemW = isSingle ? 340 : 440;
-            const itemH = isSingle ? 145 : 280;
-
-            const artStartX = originX + nodeW + 60;
-
-            arts.forEach((artNode, idx) => {
-              const cIdx = idx % maxCols;
-              const rIdx = Math.floor(idx / maxCols);
-              const ax = artStartX + cIdx * (itemW + colGap);
-              const ay = originY + rIdx * (itemH + rowGap);
-              nodePositions.set(artNode.id, { x: ax, y: ay });
-            });
-
-            const numCols = Math.min(arts.length, maxCols);
-            const numRows = Math.ceil(arts.length / maxCols);
-            artGridW = numCols * itemW + (numCols - 1) * colGap;
-            artGridH = numRows * itemH + (numRows - 1) * rowGap;
-            nextLogicStartX = artStartX + artGridW + 60;
-          }
-
-          const selfTotalW = arts.length > 0 ? nodeW + 60 + artGridW : nodeW;
-          const selfTotalH = Math.max(nodeH, artGridH);
-
-          // Get downstream logic children
-          const rawLogicChildren = (nodeLogicChildren.get(nodeId) || []).filter((cId) => !placedNodes.has(cId));
-
-          if (rawLogicChildren.length === 0) {
-            return { width: selfTotalW, height: selfTotalH, endX: originX + selfTotalW };
-          }
-
-          // Sort downstream logic children by original Y position
-          rawLogicChildren.sort((a, b) => (nodeMap.get(a)?.position.y || 0) - (nodeMap.get(b)?.position.y || 0));
-
-          if (isTopLevelRoot && rawLogicChildren.length > 1) {
-            // 每 5 个分支或高度超过限制自动换至右侧新一列，Y轴回到顶部 originBaseY
-            let branchColX = nextLogicStartX;
-            let branchColY = originBaseY;
-            let currentBranchColMaxW = 0;
-            let currentBranchColHeight = 0;
-            let currentBranchCount = 0;
-            let maxOverallX = nextLogicStartX;
-
-            rawLogicChildren.forEach((childId) => {
-              // 如果超过 5 个分支或者纵向高度超过限制，自动换至右侧新一列
-              if (
-                currentBranchCount >= 5 ||
-                (currentBranchCount > 0 && currentBranchColHeight >= 2200)
-              ) {
-                branchColX += currentBranchColMaxW + 280; // X 轴自动右移留出 280px 通道
-                branchColY = originBaseY; // Y 轴自动回到顶部 originBaseY 开始垂直对齐
-                currentBranchColMaxW = 0;
-                currentBranchColHeight = 0;
-                currentBranchCount = 0;
-              }
-
-              const childBox = layoutPipelineSubtree(childId, branchColX, branchColY, false);
-              if (childBox.width > currentBranchColMaxW) {
-                currentBranchColMaxW = childBox.width;
-              }
-              if (childBox.endX > maxOverallX) {
-                maxOverallX = childBox.endX;
-              }
-
-              branchColY += childBox.height + 50;
-              currentBranchColHeight += childBox.height + 50;
-              currentBranchCount += 1;
-            });
-
-            return {
-              width: maxOverallX - originX,
-              height: Math.max(selfTotalH, currentBranchColHeight),
-              endX: maxOverallX
-            };
-          } else {
-            // 管道多级节点：新的下游节点在上个下游节点的所有产物下边
-            let currentChildY = originY;
-            let maxChildSubtreeW = 0;
-            let maxOverallX = nextLogicStartX;
-
-            rawLogicChildren.forEach((childId) => {
-              const childBox = layoutPipelineSubtree(childId, nextLogicStartX, currentChildY, false);
-              if (childBox.width > maxChildSubtreeW) {
-                maxChildSubtreeW = childBox.width;
-              }
-              if (childBox.endX > maxOverallX) {
-                maxOverallX = childBox.endX;
-              }
-              currentChildY += childBox.height + 50;
-            });
-
-            const totalChildrenH = currentChildY - 50 - originY;
-            const totalSubtreeH = Math.max(selfTotalH, totalChildrenH);
-            const totalSubtreeW = selfTotalW + 60 + maxChildSubtreeW;
-
-            return { width: totalSubtreeW, height: totalSubtreeH, endX: maxOverallX };
-          }
-        }
-
-        // Layout all roots in this block
-        let blockCurrentY = currentBlockStartY;
-        let blockMaxW = 0;
-
-        rootIds.forEach((rootId) => {
-          if (!placedNodes.has(rootId)) {
-            const rootBox = layoutPipelineSubtree(rootId, globalColStartX, blockCurrentY, true);
-            if (rootBox.width > blockMaxW) blockMaxW = rootBox.width;
-            blockCurrentY += rootBox.height + 60;
-          }
-        });
-
-        // Any leftover nodes (disconnected in block)
-        blockNodes.forEach((n) => {
-          if (!placedNodes.has(n.id)) {
-            placedNodes.add(n.id);
-            const nw = getNodeWidth(n);
-            const nh = getNodeHeight(n);
-            nodePositions.set(n.id, { x: globalColStartX, y: blockCurrentY });
-            if (nw > blockMaxW) blockMaxW = nw;
-            blockCurrentY += nh + 40;
-          }
-        });
-
-        const blockTotalHeight = blockCurrentY - currentBlockStartY;
-        if (blockMaxW > maxColWidth) maxColWidth = blockMaxW;
-
-        currentBlockStartY += Math.max(blockTotalHeight, 220) + 120;
-      });
-
-      // 第二列和第一列间隔空间大点 (280px)
-      globalColStartX += maxColWidth + 280;
-    });
+    const nodePositions = computeSmartDagLayout(layoutInputNodes, layoutInputEdges, originBaseX, originBaseY);
 
     const nextNodes = allNodes.map((node) => {
       if (nodePositions.has(node.id)) {
@@ -1331,7 +1283,7 @@ function StudioApp() {
     setNodes(nextNodes);
     window.setTimeout(() => {
       if (!isSelectionMode) {
-        flowRef.current?.fitView({ padding: 0.2, duration: 400 });
+        flowRef.current?.fitView({ padding: 0.2, duration: 400, minZoom: 0.005 });
       }
       void saveWorkspace();
     }, 60);
@@ -1384,6 +1336,15 @@ function StudioApp() {
 
     try {
       localStorage.setItem("mimo_theme_settings", JSON.stringify(themeConfig));
+      if (typeof window !== "undefined" && (window as any).electronApi?.saveTheme) {
+        (window as any).electronApi.saveTheme({
+          mode: themeConfig.mode,
+          isLight,
+          bgColor: activeColors.bgColor,
+          lightBgColor: themeConfig.lightTheme.bgColor,
+          darkBgColor: themeConfig.darkTheme.bgColor
+        });
+      }
     } catch { /* ignore */ }
   }, [themeConfig]);
 
@@ -1473,29 +1434,62 @@ function StudioApp() {
     setTopbarCollapsed(false);
   }
 
-  const autoSaveKey = useMemo(() => {
-    if (!activeWorkspace) return "";
-    if (activeWorkspace.type === "audiobook") {
+  const getNodeDigest = useCallback((n: StudioNode): string => {
+    const d = (n.data || {}) as Record<string, any>;
+    // 提取音频资产轻量特征，杜绝遍历与 dump 几兆几十兆的 Base64 文本
+    const audioDigest = d.audio
+      ? `${d.audio.fileName || ""}_${d.audio.size || 0}_${d.audio.dataUrl ? d.audio.dataUrl.length : 0}`
+      : "";
+    const audioAssetsDigest = Array.isArray(d.audioAssets)
+      ? d.audioAssets.map((a: any) => `${a.fileName || ""}_${a.size || 0}_${a.dataUrl ? a.dataUrl.length : 0}`).join(",")
+      : "";
+    const artifactDigest = d.artifact
+      ? `${d.artifact.id || ""}_${d.artifact.createdAt || ""}_${d.artifact.audioDataUrl ? d.artifact.audioDataUrl.length : 0}`
+      : "";
+    const batchArtifactsDigest = Array.isArray(d.batchArtifacts)
+      ? d.batchArtifacts.map((a: any) => `${a.id || ""}_${a.audioDataUrl ? a.audioDataUrl.length : 0}`).join(",")
+      : "";
+    const batchRowsDigest = Array.isArray(d.batchRows)
+      ? d.batchRows.map((r: any) => `${r.id || ""}_${r.title || ""}_${r.text || ""}_${r.instruction || ""}_${r.artifacts ? r.artifacts.length : 0}_${r.audio ? r.audio.size : 0}`).join(",")
+      : "";
+
+    return `${n.id}:${n.type}:${Math.round(n.position?.x ?? 0)},${Math.round(n.position?.y ?? 0)}:${d.title || ""}:${d.instruction || ""}:${d.text || ""}:${d.voiceDescription || ""}:${d.audioText || ""}:${d.naturalControl || ""}:${d.seed ?? ""}:${d.comment || ""}:${d.parentTitle || ""}:${audioDigest}:${audioAssetsDigest}:${artifactDigest}:${batchArtifactsDigest}:${batchRowsDigest}`;
+  }, []);
+
+  const computeWorkspaceKey = useCallback((ws: WorkspacePayload | null, currentNodes: StudioNode[], currentEdges: StudioEdge[]) => {
+    if (!ws) return "";
+    if (ws.type === "audiobook") {
       return JSON.stringify({
-        id: activeWorkspace.id,
-        name: activeWorkspace.name,
-        novelText: activeWorkspace.novelText,
-        characterHints: activeWorkspace.characterHints,
-        characters: activeWorkspace.characters,
-        segments: activeWorkspace.segments,
-        products: activeWorkspace.products,
-        phase: activeWorkspace.phase
+        id: ws.id,
+        name: ws.name,
+        novelText: ws.novelText,
+        characterHints: ws.characterHints,
+        characters: ws.characters,
+        segments: ws.segments,
+        products: ws.products,
+        phase: ws.phase
       });
     }
-    const nodeDataHash = nodes.map((n) => `${n.id}:${n.type}:${JSON.stringify(n.data)}`).join("|");
-    const edgeDataHash = edges.map((e) => `${e.id}:${e.source}:${e.target}:${e.sourceHandle || ""}:${e.targetHandle || ""}`).join("|");
-    return `${activeWorkspace.id}:${activeWorkspace.name}:${nodes.length}:${edges.length}:${nodeDataHash}:${edgeDataHash}:${activeWorkspace.stashItems?.length ?? 0}`;
-  }, [activeWorkspace, nodes, edges]);
+    const nodeDataHash = currentNodes.map(getNodeDigest).join("|");
+    const edgeDataHash = currentEdges.map((e) => `${e.id}:${e.source}:${e.target}:${e.sourceHandle || ""}:${e.targetHandle || ""}`).join("|");
+    return `${ws.id}:${ws.name}:${currentNodes.length}:${currentEdges.length}:${nodeDataHash}:${edgeDataHash}:${ws.stashItems?.length ?? 0}`;
+  }, [getNodeDigest]);
+
+  const autoSaveKey = useMemo(() => {
+    return computeWorkspaceKey(activeWorkspace, nodes, edges);
+  }, [activeWorkspace, nodes, edges, computeWorkspaceKey]);
 
   useEffect(() => {
-    void loadStatus();
-    void loadApiSettings();
-    void loadWorkspaceList();
+    if (initialCachedActiveWorkspace) {
+      const initNodes = initialCachedActiveWorkspace.type === "board" && Array.isArray(initialCachedActiveWorkspace.nodes)
+        ? initialCachedActiveWorkspace.nodes
+        : [];
+      const initEdges = initialCachedActiveWorkspace.type === "board" && Array.isArray(initialCachedActiveWorkspace.edges)
+        ? initialCachedActiveWorkspace.edges
+        : [];
+      lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(initialCachedActiveWorkspace, initNodes, initEdges);
+    }
+    void loadBootstrap();
     void loadStoragePathInfo();
 
     let collapseTimer: number | undefined;
@@ -1693,6 +1687,11 @@ function StudioApp() {
       return;
     }
 
+    // 若当前哈希与最近加载或保存的一致，说明没有任何实际修改，坚决不触发网络保存
+    if (autoSaveKey === lastSavedOrLoadedKeyRef.current) {
+      return;
+    }
+
     const hasCountChanged =
       prevCountsRef.current.nodeCount !== nodes.length ||
       prevCountsRef.current.edgeCount !== edges.length;
@@ -1794,9 +1793,13 @@ function StudioApp() {
   edgesRef.current = edges;
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
+  const vocalAbortMapRef = useRef<Record<string, boolean>>({});
 
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<NodeData>) => {
+      if (patch.isRunning === false) {
+        vocalAbortMapRef.current[nodeId] = true;
+      }
       const currentNodes = nodesRef.current;
       const targetNode = currentNodes.find((n) => n.id === nodeId);
 
@@ -1818,7 +1821,8 @@ function StudioApp() {
           targetNode.type === "voiceDesign" ||
           targetNode.type === "batchVoiceClone" ||
           targetNode.type === "batchVoiceDesign" ||
-          targetNode.type === "integratedStudio";
+          targetNode.type === "integratedStudio" ||
+          targetNode.type === "gameVocal";
 
         // Handle direct title edit on an artifact node (renaming an artifact node ONLY renames itself & its own stash item)
         if (targetNode.type === "artifact" && targetNode.data.artifact) {
@@ -1836,7 +1840,7 @@ function StudioApp() {
 
             return {
               ...workspace,
-              stashItems: currentStash.map((s) => (s.sourceNodeId === nodeId ? { ...s, sourceNodeName: newTitle } : s))
+              stashItems: currentStash.map((s) => (s.sourceNodeId === nodeId ? { ...s, sourceNodeName: newTitle, fileName: `${newTitle}.wav` } : s))
             };
           });
         }
@@ -1844,17 +1848,14 @@ function StudioApp() {
         // Only Generator nodes cascade down to downstream child nodes and stash items
         if (isGeneratorNode) {
           const currentEdges = edgesRef.current;
-          const downstreamChildNodeIds = new Set<string>();
-          const queue = [nodeId];
-          while (queue.length > 0) {
-            const curr = queue.shift()!;
-            currentEdges.forEach((e) => {
-              if (e.source === curr && !downstreamChildNodeIds.has(e.target)) {
-                downstreamChildNodeIds.add(e.target);
-                queue.push(e.target);
-              }
-            });
-          }
+          const downstreamChildNodeIds = getDownstreamNodeIds(nodeId, currentEdges);
+
+          const childNodesMap = new Map<string, StudioNode>();
+          currentNodes.forEach((n) => {
+            if (downstreamChildNodeIds.has(n.id)) {
+              childNodesMap.set(n.id, n);
+            }
+          });
 
           setNodes((items) => {
             return items.map((node) => {
@@ -1872,12 +1873,14 @@ function StudioApp() {
                   };
                 }
                 if (node.type === "artifact" && node.data.artifact) {
-                  const updatedArtifactTitle = formatHierarchyName(newTitle, node.data.title !== oldTitle ? node.data.title : undefined, 1);
+                  const seq = node.data.seqIndex ?? (node.data.title?.match(/_(\d+)$/)?.[1] ? parseInt(node.data.title.match(/_(\d+)$/)![1], 10) : 1);
+                  const updatedArtifactTitle = formatHierarchyName(newTitle, "", seq);
                   return {
                     ...node,
                     data: {
                       ...node.data,
                       title: updatedArtifactTitle,
+                      seqIndex: seq,
                       artifact: {
                         ...node.data.artifact,
                         sourceNodeName: updatedArtifactTitle,
@@ -1912,17 +1915,28 @@ function StudioApp() {
                 (stashItem.sourceNodeId !== undefined && downstreamChildNodeIds.has(stashItem.sourceNodeId));
 
               if (isFromThisNode) {
-                let updatedName = stashItem.sourceNodeName;
-                if (oldTitle && stashItem.sourceNodeName.startsWith(`${oldTitle}_`)) {
-                  updatedName = formatHierarchyName(newTitle, stashItem.sourceNodeName.slice(oldTitle.length + 1));
-                } else if (oldTitle && stashItem.sourceNodeName.startsWith(`${oldTitle} - `)) {
-                  updatedName = formatHierarchyName(newTitle, stashItem.sourceNodeName.slice(oldTitle.length + 3));
-                } else if (oldTitle && stashItem.sourceNodeName === oldTitle) {
-                  updatedName = formatHierarchyName(newTitle, "", 1);
+                const childNode = stashItem.sourceNodeId ? childNodesMap.get(stashItem.sourceNodeId) : undefined;
+                let updatedName = stashItem.sourceNodeName || "";
+                const seqMatch = updatedName.match(/_(\d+)$/);
+                const seq = seqMatch ? parseInt(seqMatch[1], 10) : 1;
+
+                if (childNode?.type === "batchArtifact") {
+                  const rowTitle = childNode.data.title || "";
+                  updatedName = formatHierarchyName(newTitle, rowTitle, seq);
+                } else if (childNode?.type === "artifact") {
+                  updatedName = formatHierarchyName(newTitle, "", seq);
+                } else {
+                  if (seqMatch) {
+                    updatedName = formatHierarchyName(newTitle, "", seq);
+                  } else {
+                    updatedName = newTitle;
+                  }
                 }
+
                 return {
                   ...stashItem,
-                  sourceNodeName: updatedName
+                  sourceNodeName: updatedName,
+                  fileName: `${updatedName}.wav`
                 };
               }
               return stashItem;
@@ -1948,10 +1962,19 @@ function StudioApp() {
         });
 
         if (rowTitleMap.size > 0) {
-          // Update connected downstream BatchArtifactNodes
+          const parentTitle = targetNode.data.title || "";
+          const currentEdges = edgesRef.current;
+          const downstreamChildNodeIds = getDownstreamNodeIds(nodeId, currentEdges);
+
+          // Update connected downstream BatchArtifactNodes ONLY (strict topology boundary)
           setNodes((items) => {
             return items.map((node) => {
-              if (node.type === "batchArtifact" && node.data.batchRowId && rowTitleMap.has(node.data.batchRowId)) {
+              if (
+                node.type === "batchArtifact" &&
+                downstreamChildNodeIds.has(node.id) &&
+                node.data.batchRowId &&
+                rowTitleMap.has(node.data.batchRowId)
+              ) {
                 const { newTitle: rNew } = rowTitleMap.get(node.data.batchRowId)!;
                 return {
                   ...node,
@@ -1965,31 +1988,27 @@ function StudioApp() {
             });
           });
 
-          // Update stashItems matching modified row titles
+          // Update stashItems matching modified row titles ONLY for this generator node's downstream artifacts
           setActiveWorkspace((workspace) => {
             if (!workspace || workspace.type !== "board") return workspace;
             const currentStash = workspace.stashItems ?? [];
             if (currentStash.length === 0) return workspace;
 
             const updatedStash = currentStash.map((stashItem) => {
-              if (stashItem.sourceRowId && rowTitleMap.has(stashItem.sourceRowId)) {
-                const { oldTitle: rOld, newTitle: rNew } = rowTitleMap.get(stashItem.sourceRowId)!;
-                let updatedName = stashItem.sourceNodeName;
-                if (rOld && updatedName.includes(`_${rOld}_`)) {
-                  updatedName = updatedName.replaceAll(`_${rOld}_`, `_${rNew}_`);
-                } else if (rOld && updatedName.endsWith(`_${rOld}`)) {
-                  updatedName = `${updatedName.slice(0, -rOld.length)}${rNew}`;
-                } else {
-                  const parts = updatedName.split("_");
-                  const idx = parts.indexOf(rOld);
-                  if (idx >= 0) {
-                    parts[idx] = rNew;
-                    updatedName = parts.join("_");
-                  }
-                }
+              const isFromThisNode =
+                stashItem.sourceNodeId === nodeId ||
+                (stashItem.sourceNodeId !== undefined && downstreamChildNodeIds.has(stashItem.sourceNodeId));
+
+              if (isFromThisNode && stashItem.sourceRowId && rowTitleMap.has(stashItem.sourceRowId)) {
+                const { newTitle: rNew } = rowTitleMap.get(stashItem.sourceRowId)!;
+                const seqMatch = (stashItem.sourceNodeName || "").match(/_(\d+)$/);
+                const seq = seqMatch ? parseInt(seqMatch[1], 10) : 1;
+                const updatedName = formatHierarchyName(parentTitle, rNew, seq);
+
                 return {
                   ...stashItem,
-                  sourceNodeName: updatedName
+                  sourceNodeName: updatedName,
+                  fileName: `${updatedName}.wav`
                 };
               }
               return stashItem;
@@ -2051,6 +2070,7 @@ function StudioApp() {
       onRunSingleRowBatchVoiceDesign: runSingleRowBatchVoiceDesign,
       onRunIntegratedBatch: runIntegratedBatch,
       onRunIntegratedSingleRow: runIntegratedSingleRow,
+      onRunGameVocalClone: runGameVocalClone,
       onDeleteIntegratedArtifactItem: deleteIntegratedArtifactItem,
       onDeleteBatchArtifactItem: deleteBatchArtifactItem,
       onRunVoiceDesign: runVoiceDesign,
@@ -2062,7 +2082,7 @@ function StudioApp() {
       onCreateReferenceFromAudio: createReferenceAudioFromData,
       isArtifactStashed
     }),
-    [apiKey, activeWorkspace?.name, activeWorkspace?.type === "board" ? activeWorkspace.stashItems?.length : 0, patchNode, deleteNode, isArtifactStashed, createReferenceAudioFromData]
+    [apiKey, serverApiKeyConfigured, activeWorkspace?.name, activeWorkspace?.type === "board" ? activeWorkspace.stashItems?.length : 0, patchNode, deleteNode, isArtifactStashed, createReferenceAudioFromData]
   );
 
   const nodeDataCache = useRef<Map<string, { rawNodeData: unknown; callbacks: unknown; resultNode: StudioNode }>>(new Map());
@@ -2108,12 +2128,16 @@ function StudioApp() {
   const hydratedEdges = useMemo(() => {
     const cache = edgeDataCache.current;
     const currentNodes = nodesRef.current;
+    const nodeMap = new Map<string, StudioNode>();
+    for (let i = 0; i < currentNodes.length; i++) {
+      nodeMap.set(currentNodes[i].id, currentNodes[i]);
+    }
     return edges.map((edge) => {
       const cached = cache.get(edge.id);
       if (cached && cached.rawEdge === edge && cached.onDelete === deleteEdge) {
         return cached.resultEdge;
       }
-      const sourceNode = currentNodes.find((n) => n.id === edge.source);
+      const sourceNode = nodeMap.get(edge.source);
       const strokeColor = edge.style?.stroke || (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#c5a45d";
       const newResultData = {
         ...edge.data,
@@ -2143,6 +2167,7 @@ function StudioApp() {
       batchVoiceDesign: BatchVoiceDesignNode,
       batchArtifact: BatchArtifactNode,
       integratedStudio: IntegratedStudioNode,
+      gameVocal: GameVocalNode,
       comment: CommentNode
     }),
     []
@@ -2154,6 +2179,75 @@ function StudioApp() {
     }),
     []
   );
+
+  async function loadBootstrap() {
+    try {
+      const response = await fetch("/api/bootstrap");
+      if (!response.ok) {
+        throw new Error(`Bootstrap failed: HTTP ${response.status}`);
+      }
+      const data = await response.json();
+
+      if (data.status) {
+        setStatus(data.status);
+      }
+
+      if (data.settings) {
+        const isServerConfigured = Boolean(data.settings.hasApiKey || data.settings.configured);
+        setServerApiKeyConfigured(isServerConfigured);
+        localStorage.setItem("mimo_cached_server_configured", isServerConfigured ? "true" : "false");
+
+        const localKey = localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+        const nextKey = localKey || data.settings.apiKey || "";
+        setApiKey(nextKey);
+        setApiKeyInput(nextKey || (isServerConfigured ? (data.settings.maskedApiKey || "已配置 (服务端)") : ""));
+        if (data.settings.apiEndpoint) setApiEndpoint(data.settings.apiEndpoint);
+        if (data.settings.apiProvider) setApiProvider(data.settings.apiProvider);
+      }
+
+      if (Array.isArray(data.workspaces)) {
+        setWorkspaces(data.workspaces);
+        try {
+          localStorage.setItem("mimo_cached_workspaces", JSON.stringify(data.workspaces));
+        } catch {}
+      }
+
+      if (data.activeWorkspace) {
+        // 防乱序检查：如果用户在 bootstrap 请求完成前已经手动点击或切换了画板，绝对不覆盖用户意图
+        if (!switchingTargetIdRef.current || switchingTargetIdRef.current === data.activeWorkspace.id) {
+          const ws = data.activeWorkspace as WorkspacePayload;
+          switchingTargetIdRef.current = ws.id;
+          setActiveWorkspace(ws);
+          if (ws.type === "board") {
+            const boardNodes = ws.nodes ?? [];
+            const boardEdges = ws.edges ?? [];
+            const normalizedNodes = boardNodes.map((n) => ensureArtifactSeqIndexes(n, boardNodes, boardEdges));
+            setNodes(normalizedNodes);
+            setEdges(boardEdges);
+            lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(ws, normalizedNodes, boardEdges);
+          } else {
+            setNodes([]);
+            setEdges([]);
+            lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(ws, [], []);
+          }
+          const strippedActive = stripHeavyDataForCache(ws);
+          try {
+            localStorage.setItem("mimo_cached_active_workspace", JSON.stringify(strippedActive || ws));
+            localStorage.setItem("mimo_last_active_id", ws.id);
+          } catch {}
+        }
+      }
+      setIsSettingsLoaded(true);
+    } catch (err) {
+      console.warn("[bootstrap] falling back to individual loaders", err);
+      void Promise.allSettled([
+        loadStatus(),
+        loadApiSettings(),
+        loadWorkspaceList(),
+        loadStoragePathInfo()
+      ]);
+    }
+  }
 
   async function loadStatus() {
     try {
@@ -2193,16 +2287,24 @@ function StudioApp() {
       setApiEndpointInput(nextEndpoint);
       setApiProviderInput(nextProvider);
 
-      if (!isServerConfigured && !localKey) {
-        setShowApiKeyModal(true);
-      } else {
+      if (isServerConfigured || localKey || nextKey) {
+        setNodes((items) =>
+          items.map((node) => {
+            if (node.data.error && node.data.error.includes("API Key 未配置")) {
+              return { ...node, data: { ...node.data, error: undefined } };
+            }
+            return node;
+          })
+        );
         setShowApiKeyModal(false);
+      } else {
+        setShowApiKeyModal(true);
       }
     } catch (error) {
       console.warn("[settings] failed to load API settings", error);
-      if (!localStorage.getItem(API_KEY_STORAGE_KEY)) {
-        setShowApiKeyModal(true);
-      }
+      setShowApiKeyModal(false);
+    } finally {
+      setIsSettingsLoaded(true);
     }
   }
 
@@ -2210,10 +2312,15 @@ function StudioApp() {
     const trimmedKey = apiKeyInput.trim();
     const trimmedEndpoint = apiEndpointInput.trim();
     const trimmedProvider = apiProviderInput.trim() || "mimo";
-    if (!trimmedKey) return;
+    if (!trimmedKey && !serverApiKeyConfigured) return;
+
     setApiKey(trimmedKey);
     setApiProvider(trimmedProvider);
-    localStorage.setItem(API_KEY_STORAGE_KEY, trimmedKey);
+    if (trimmedKey) {
+      localStorage.setItem(API_KEY_STORAGE_KEY, trimmedKey);
+    } else {
+      localStorage.removeItem(API_KEY_STORAGE_KEY);
+    }
     localStorage.setItem(API_PROVIDER_STORAGE_KEY, trimmedProvider);
     if (trimmedEndpoint) {
       setApiEndpoint(trimmedEndpoint);
@@ -2225,6 +2332,17 @@ function StudioApp() {
       localStorage.removeItem(API_ENDPOINT_STORAGE_KEY);
     }
     void persistApiSettings(trimmedKey, trimmedEndpoint || DEFAULT_API_ENDPOINT, trimmedProvider);
+
+    // 清除画板节点上残留的 API Key 未配置提示
+    setNodes((items) =>
+      items.map((node) => {
+        if (node.data.error && node.data.error.includes("API Key 未配置")) {
+          return { ...node, data: { ...node.data, error: undefined } };
+        }
+        return node;
+      })
+    );
+
     closeApiKeyModal();
     void loadStatus();
   }
@@ -2243,9 +2361,9 @@ function StudioApp() {
 
   function getApiHeaders(isJson = false, extraHeaders?: Record<string, string>): Record<string, string> {
     return buildApiHeaders({
-      apiKey,
-      apiEndpoint,
-      apiProvider,
+      apiKey: apiKeyRef.current || localStorage.getItem(API_KEY_STORAGE_KEY) || "",
+      apiEndpoint: apiEndpointRef.current || localStorage.getItem(API_ENDPOINT_STORAGE_KEY) || DEFAULT_API_ENDPOINT,
+      apiProvider: apiProviderRef.current || localStorage.getItem(API_PROVIDER_STORAGE_KEY) || "mimo",
       isJson,
       extraHeaders
     });
@@ -2283,8 +2401,22 @@ function StudioApp() {
         return;
       }
 
+      const currentActiveId = activeWorkspaceRef.current?.id;
+      // 关键防混淆：如果明确指定了 preferredId，或者当前正在查看的画板依然有效存在，坚决保持当前画板，绝不乱切！
       if (preferredId && workspaceItems.some((w) => w.id === preferredId)) {
-        await loadWorkspace(preferredId);
+        if (preferredId !== currentActiveId) {
+          await loadWorkspace(preferredId);
+        }
+        return;
+      }
+      if (currentActiveId && workspaceItems.some((w) => w.id === currentActiveId)) {
+        // 当前画板依然存在且有效，维持当前画板展示，绝对不重载
+        return;
+      }
+
+      const cachedLastId = localStorage.getItem("mimo_last_active_id");
+      if (cachedLastId && workspaceItems.some((w) => w.id === cachedLastId)) {
+        await loadWorkspace(cachedLastId);
       } else {
         const targetId = (payload.activeWorkspaceId && workspaceItems.some((w) => w.id === payload.activeWorkspaceId))
           ? payload.activeWorkspaceId
@@ -2304,27 +2436,69 @@ function StudioApp() {
 
   async function loadWorkspace(id: string) {
     if (!id) {
+      switchingTargetIdRef.current = null;
       setActiveWorkspace(null);
       setNodes([]);
       setEdges([]);
       return;
     }
 
-    if (activeWorkspaceRef.current && activeWorkspaceRef.current.id !== id) {
-      if (saveTimerRef.current) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
+    // 0. 如果点击的是当前已激活且正在展示的画板，直接保持不变，避免重复重载与闪烁
+    if (activeWorkspaceRef.current?.id === id && switchingTargetIdRef.current === id) {
+      return;
+    }
+
+    localStorage.setItem("mimo_last_active_id", id);
+    switchingTargetIdRef.current = id;
+
+    // 1. 如果有未完成的保存定时器，清除定时器，避免切换画板后异步串台保存
+    const hadPendingSave = saveTimerRef.current !== null || maxSaveTimerRef.current !== null;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (maxSaveTimerRef.current) {
+      window.clearTimeout(maxSaveTimerRef.current);
+      maxSaveTimerRef.current = null;
+    }
+
+    // 2. 如果前一个画板确实有尚未持久化的修改，利用当前闭包快照隔离保存前一个画板，绝对不读取全局 mutable ref 造成数据混淆
+    if (hadPendingSave && activeWorkspaceRef.current && activeWorkspaceRef.current.id !== id) {
+      const prevWs = activeWorkspaceRef.current;
+      let body: Record<string, unknown>;
+      if (prevWs.type === "audiobook") {
+        body = {
+          name: prevWs.name,
+          activeChapterId: prevWs.activeChapterId,
+          novelText: prevWs.novelText,
+          characterHints: prevWs.characterHints,
+          characters: prevWs.characters,
+          segments: prevWs.segments,
+          products: prevWs.products,
+          chapters: prevWs.chapters,
+          phase: prevWs.phase,
+          baseUpdatedAt: prevWs.updatedAt
+        };
+      } else {
+        const prevNodes = nodesRef.current.map(stripNodeCallbacks);
+        const prevEdges = edgesRef.current;
+        body = {
+          name: prevWs.name,
+          nodes: prevNodes,
+          edges: prevEdges,
+          stashItems: prevWs.stashItems ?? []
+        };
       }
-      if (maxSaveTimerRef.current) {
-        window.clearTimeout(maxSaveTimerRef.current);
-        maxSaveTimerRef.current = null;
-      }
-      void saveWorkspace().catch((err) => {
+      void fetch(`/api/workspaces/${prevWs.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      }).catch((err) => {
         console.warn("切换画板前保存失败:", err);
       });
     }
 
-    // Clear caches and undo/redo stacks when loading a new workspace to free RAM
+    // 3. 清理撤销/重做栈与中间缓存，彻底阻断不同画板的历史栈污染
     nodeDataCache.current.clear();
     edgeDataCache.current.clear();
     undoStackRef.current = [];
@@ -2334,36 +2508,54 @@ function StudioApp() {
     try {
       const response = await fetch(`/api/workspaces/${id}`);
       if (!response.ok) {
-        // 如果画板不存在（比如刚被删除），清空画布，不弹窗报错
         if (response.status === 404) {
-          setActiveWorkspace(null);
-          setNodes([]);
-          setEdges([]);
+          if (switchingTargetIdRef.current === id) {
+            setActiveWorkspace(null);
+            setNodes([]);
+            setEdges([]);
+          }
           return;
         }
         console.warn(`加载画板失败：HTTP ${response.status}`);
         return;
       }
       const workspace = (await response.json()) as WorkspacePayload;
-      setActiveWorkspace(workspace);
+
+      // 4. 严格校验：确保当前用户最终想要的画板 ID 依然是本画板（防网络并发乱序）
+      if (switchingTargetIdRef.current !== id) {
+        return;
+      }
+
       if (workspace.type === "board") {
         const boardNodes = workspace.nodes ?? [];
         const boardEdges = workspace.edges ?? [];
         const normalizedNodes = boardNodes.map((n) => ensureArtifactSeqIndexes(n, boardNodes, boardEdges));
-        setNodes(normalizedNodes);
-        setEdges(boardEdges);
+        startTransition(() => {
+          setActiveWorkspace(workspace);
+          setNodes(normalizedNodes);
+          setEdges(boardEdges);
+        });
+        lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, normalizedNodes, boardEdges);
         window.setTimeout(() => {
-          flowRef.current?.fitView({ padding: 0.25, duration: 400 });
-        }, 60);
+          if (switchingTargetIdRef.current === id) {
+            flowRef.current?.fitView({ padding: 0.25, duration: 0, minZoom: 0.005 });
+          }
+        }, 16);
       } else {
-        setNodes([]);
-        setEdges([]);
+        startTransition(() => {
+          setActiveWorkspace(workspace);
+          setNodes([]);
+          setEdges([]);
+        });
+        lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, [], []);
       }
     } catch (err) {
       console.warn("加载画板异常:", err);
-      setActiveWorkspace(null);
-      setNodes([]);
-      setEdges([]);
+      if (switchingTargetIdRef.current === id) {
+        setActiveWorkspace(null);
+        setNodes([]);
+        setEdges([]);
+      }
     }
   }
 
@@ -2390,9 +2582,16 @@ function StudioApp() {
       throw new Error(`创建画板失败：HTTP ${response.status}`);
     }
     const workspace = (await response.json()) as WorkspacePayload;
+    switchingTargetIdRef.current = workspace.id;
+    try {
+      const strippedNew = stripHeavyDataForCache(workspace);
+      localStorage.setItem("mimo_cached_active_workspace", JSON.stringify(strippedNew || workspace));
+      localStorage.setItem("mimo_last_active_id", workspace.id);
+    } catch {}
     setActiveWorkspace(workspace);
     setNodes(initialNodes);
     setEdges(initialEdges);
+    lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, initialNodes, initialEdges);
     setWorkspaces((items) => [
       {
         id: workspace.id,
@@ -2929,9 +3128,16 @@ function StudioApp() {
       return;
     }
 
+    // 关键安全防线：若当前正在切换画板（目标画板 ID 与当前画板不一致），绝对禁止执行旧画板的延迟保存
+    if (switchingTargetIdRef.current && switchingTargetIdRef.current !== currentWorkspace.id) {
+      return;
+    }
+
     setIsSaving(true);
     try {
       let body: Record<string, unknown>;
+      let cleanNodes: StudioNode[] = [];
+      let cleanEdges: StudioEdge[] = [];
       if (currentWorkspace.type === "audiobook") {
         body = {
           name: currentWorkspace.name,
@@ -2946,11 +3152,12 @@ function StudioApp() {
           baseUpdatedAt: currentWorkspace.updatedAt
         };
       } else {
-        const cleanNodes = nodesRef.current.map(stripNodeCallbacks);
+        cleanNodes = nodesRef.current.map(stripNodeCallbacks);
+        cleanEdges = edgesRef.current;
         body = {
           name: currentWorkspace.name,
           nodes: cleanNodes,
-          edges: edgesRef.current,
+          edges: cleanEdges,
           stashItems: currentWorkspace.stashItems ?? []
         };
       }
@@ -2964,6 +3171,12 @@ function StudioApp() {
       if (!response.ok) {
         throw new Error(saved.error || `保存失败：HTTP ${response.status}`);
       }
+
+      // 再次校验并发锁：若在保存网络请求期间，用户已切换到了其他画板，绝不污染全局活动画板与本地缓存
+      if (switchingTargetIdRef.current && switchingTargetIdRef.current !== currentWorkspace.id) {
+        return;
+      }
+
       setActiveWorkspace((current) => {
         if (!current || current.id !== saved.id) return current;
         return {
@@ -2971,20 +3184,38 @@ function StudioApp() {
           updatedAt: saved.updatedAt
         };
       });
+
+      lastSavedOrLoadedKeyRef.current = autoSaveKey;
+
       setWorkspaces((items) =>
         items.map((item) =>
           item.id === saved.id
             ? {
               ...item,
               name: currentWorkspace.name,
-              nodeCount: nodesRef.current.length,
-              edgeCount: edgesRef.current.length,
+              nodeCount: currentWorkspace.type === "board" ? cleanNodes.length : 0,
+              edgeCount: currentWorkspace.type === "board" ? cleanEdges.length : 0,
               stashCount: currentWorkspace.type === "board" ? currentWorkspace.stashItems?.length ?? 0 : 0,
               updatedAt: saved.updatedAt
             }
             : item
         )
       );
+      try {
+        if (currentWorkspace.type === "board") {
+          const cachedWs: WorkspacePayload = {
+            ...currentWorkspace,
+            nodes: cleanNodes,
+            edges: cleanEdges,
+            updatedAt: saved.updatedAt
+          };
+          const stripped = stripHeavyDataForCache(cachedWs);
+          localStorage.setItem("mimo_cached_active_workspace", JSON.stringify(stripped || cachedWs));
+        } else {
+          localStorage.setItem("mimo_cached_active_workspace", JSON.stringify(currentWorkspace));
+        }
+        localStorage.setItem("mimo_last_active_id", currentWorkspace.id);
+      } catch {}
     } finally {
       setIsSaving(false);
     }
@@ -3330,7 +3561,7 @@ function StudioApp() {
           if (!draggingNode) return change;
 
           const getNodeWidth = (n: StudioNode) =>
-            n.measured?.width ?? (n.type === "batchVoiceClone" ? 640 : n.type === "batchArtifact" ? 440 : n.type === "voiceDesign" ? 420 : n.type === "voiceClone" ? 370 : 330);
+            n.measured?.width ?? (n.type === "batchVoiceClone" || n.type === "integratedStudio" || n.type === "gameVocal" ? 660 : n.type === "batchArtifact" ? 440 : n.type === "voiceDesign" ? 420 : n.type === "voiceClone" ? 370 : 330);
           const getNodeHeight = (n: StudioNode) => n.measured?.height ?? 220;
 
           const nodeWidth = getNodeWidth(draggingNode);
@@ -3438,10 +3669,10 @@ function StudioApp() {
         const sourceTitle = sourceNode.data.title;
         if (
           sourceTitle &&
-          (targetNode.type === "voiceClone" || targetNode.type === "voiceDesign" || targetNode.type === "batchVoiceClone") &&
-          (targetNode.data.title === "音频克隆" || targetNode.data.title === "音色创造" || targetNode.data.title === "批量音频克隆")
+          (targetNode.type === "voiceClone" || targetNode.type === "voiceDesign" || targetNode.type === "batchVoiceClone" || targetNode.type === "gameVocal") &&
+          (targetNode.data.title === "音频克隆" || targetNode.data.title === "音色创造" || targetNode.data.title === "批量音频克隆" || targetNode.data.title === "游戏语气词生成")
         ) {
-          patchNode(targetNode.id, { title: sourceTitle });
+          patchNode(targetNode.id, { title: `${sourceTitle}_语气词` });
         }
       }
     },
@@ -3509,7 +3740,7 @@ function StudioApp() {
       id: newNodeId,
       type,
       position: { x: menu.flowX, y: menu.flowY },
-      data: nodeCatalog[type].defaultData()
+      data: getNodeDefaultData(type)
     };
 
     let newEdge: StudioEdge | null = null;
@@ -3519,7 +3750,7 @@ function StudioApp() {
       const handleType = menu.sourceHandleType || "source";
 
       let targetHandleId: string | undefined;
-      if (type === "voiceClone" || type === "batchVoiceClone") {
+      if (type === "voiceClone" || type === "batchVoiceClone" || type === "gameVocal") {
         if (handleId === "instruction" || handleId === "style") {
           targetHandleId = "instruction";
         } else if (handleId === "text") {
@@ -3734,7 +3965,7 @@ function StudioApp() {
   }
 
 
-  async function runVoiceClone(nodeId: string) {
+  async function runVoiceClone(nodeId: string, count: number = 1) {
     const initialNodes = [...nodesRef.current];
     const initialEdges = [...edgesRef.current];
     const cloneNode = initialNodes.find((node) => node.id === nodeId);
@@ -3742,13 +3973,13 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
 
     const resolved = resolveCloneInputs(cloneNode, initialNodes, initialEdges);
-    if (!resolved.audio) {
+    if (!resolved.audio?.dataUrl) {
       patchNode(nodeId, { error: "缺少参考音频，请连接参考音频节点或在节点中上传。" });
       return;
     }
@@ -3756,7 +3987,8 @@ function StudioApp() {
     const textItems = resolveCloneTextInputs(cloneNode, initialNodes, initialEdges);
     const cloneTexts = textItems.length > 0 ? textItems : [{ title: cloneNode.data.title, text: resolved.text }];
 
-    if (cloneTexts.every((item) => !item.text.trim())) {
+    const validTextItems = cloneTexts.filter((entry) => entry.text.trim());
+    if (validTextItems.length === 0) {
       patchNode(nodeId, { error: "缺少音频文本，请连接提示词节点到「文本」输入或在节点中填写。" });
       return;
     }
@@ -3764,13 +3996,17 @@ function StudioApp() {
     patchNode(nodeId, { isRunning: true, error: undefined });
 
     try {
-      for (const [index, item] of cloneTexts.filter((entry) => entry.text.trim()).entries()) {
+      const totalRuns = count > 1 ? count : validTextItems.length;
+
+      for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
+        const item = validTextItems[runIdx % validTextItems.length];
         const formData = new FormData();
         const voiceFile = await audioSourceToFile(resolved.audio.dataUrl, resolved.audio.fileName, resolved.audio.mimeType);
         formData.append("voice", voiceFile);
         formData.append("text", item.text.trim());
         formData.append("instruction", resolved.instruction.trim());
         formData.append("format", "wav");
+        formData.append("title", cloneNode.data.title?.trim() || "音频克隆");
 
         const response = await fetch("/api/tts/voiceclone", {
           method: "POST",
@@ -3780,11 +4016,11 @@ function StudioApp() {
         const payload = (await response.json()) as DebugResponse & { error?: string; details?: unknown };
 
         if (!response.ok) {
-          patchNode(nodeId, { isRunning: false, error: payload.error || `第 ${index + 1} 条音频克隆失败。` });
+          patchNode(nodeId, { isRunning: false, error: payload.error || `第 ${runIdx + 1} 条音频克隆失败。` });
           return;
         }
 
-        const artifactNode = createArtifactNode(cloneNode, payload, item.title, index, initialNodes, initialEdges);
+        const artifactNode = createArtifactNode(cloneNode, payload, item.title, runIdx, initialNodes, initialEdges);
         const artifactEdge: StudioEdge = {
           id: createId("edge"),
           source: cloneNode.id,
@@ -3793,7 +4029,7 @@ function StudioApp() {
           targetHandle: "artifact",
           type: "deletable",
           animated: true,
-          style: { stroke: "#c5a45d", strokeWidth: 2 }
+          style: { stroke: "#facc15", strokeWidth: 2 }
         };
 
         setNodes((items) => items.concat(artifactNode));
@@ -3857,7 +4093,7 @@ function StudioApp() {
     const node = currentNodes.find((n) => n.id === nodeId);
     if (!node || node.type !== "integratedStudio") return;
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -3952,7 +4188,7 @@ function StudioApp() {
     const node = currentNodes.find((n) => n.id === nodeId);
     if (!node || node.type !== "integratedStudio") return;
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4044,7 +4280,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4076,7 +4312,7 @@ function StudioApp() {
           const col = index % 3;
           const rowPos = Math.floor(index / 3);
           const stepX = 500;
-          const stepY = 590;
+          const stepY = 500;
           const startX = batchNode.position.x + 680;
 
           const newArtifactNode: StudioNode = {
@@ -4118,6 +4354,7 @@ function StudioApp() {
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
         formData.append("format", "wav");
+        formData.append("title", rowArtifactTitle);
 
         const response = await fetch("/api/tts/voiceclone", {
           method: "POST",
@@ -4137,11 +4374,13 @@ function StudioApp() {
             if (n.id === targetArtifactNodeId) {
               const existing = n.data.batchArtifacts || [];
               const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+              const itemSeq = maxSeq + 1;
+              const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
               const newItem: BatchArtifactItem = {
                 id: createId("bitem"),
-                seqIndex: maxSeq + 1,
-                rowTitle: row.title.trim() || `句段 ${index + 1}`,
-                fileName: payload.fileName,
+                seqIndex: itemSeq,
+                rowTitle: rowArtifactTitle,
+                fileName: `${itemTitle}.wav`,
                 audioDataUrl: payload.audioDataUrl,
                 elapsedMs: payload.elapsedMs,
                 createdAt: new Date().toISOString()
@@ -4180,7 +4419,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4213,7 +4452,7 @@ function StudioApp() {
         const col = itemIdx % 3;
         const rowPos = Math.floor(itemIdx / 3);
         const stepX = 500;
-        const stepY = 590;
+        const stepY = 500;
         const startX = batchNode.position.x + 680;
 
         const newArtifactNode: StudioNode = {
@@ -4239,7 +4478,7 @@ function StudioApp() {
           targetHandle: "artifact",
           type: "deletable",
           animated: true,
-          style: { stroke: "#c5a45d", strokeWidth: 2 }
+          style: { stroke: "#facc15", strokeWidth: 2 }
         };
 
         setNodes((items) => items.concat(newArtifactNode));
@@ -4255,6 +4494,7 @@ function StudioApp() {
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
       formData.append("format", "wav");
+      formData.append("title", rowArtifactTitle);
 
       const response = await fetch("/api/tts/voiceclone", {
         method: "POST",
@@ -4274,11 +4514,13 @@ function StudioApp() {
           if (n.id === targetArtifactNodeId) {
             const existing = n.data.batchArtifacts || [];
             const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+            const itemSeq = maxSeq + 1;
+            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
             const newItem: BatchArtifactItem = {
               id: createId("bitem"),
-              seqIndex: maxSeq + 1,
-              rowTitle: row.title.trim() || `句段 ${rowIndex >= 0 ? rowIndex + 1 : 1}`,
-              fileName: payload.fileName,
+              seqIndex: itemSeq,
+              rowTitle: rowArtifactTitle,
+              fileName: `${itemTitle}.wav`,
               audioDataUrl: payload.audioDataUrl,
               elapsedMs: payload.elapsedMs,
               createdAt: new Date().toISOString()
@@ -4315,7 +4557,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4341,7 +4583,7 @@ function StudioApp() {
           const col = index % 3;
           const rowPos = Math.floor(index / 3);
           const stepX = 500;
-          const stepY = 590;
+          const stepY = 500;
           const startX = batchNode.position.x + 940;
 
           const newArtifactNode: StudioNode = {
@@ -4385,6 +4627,7 @@ function StudioApp() {
           method: "POST",
           headers: getApiHeaders(true),
           body: JSON.stringify({
+            title: rowArtifactTitle,
             voiceDescription,
             naturalControl: (row.naturalControl || "").trim(),
             text: row.text.trim()
@@ -4403,11 +4646,13 @@ function StudioApp() {
             if (n.id === targetArtifactNodeId) {
               const existing = n.data.batchArtifacts || [];
               const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+              const itemSeq = maxSeq + 1;
+              const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
               const newItem: BatchArtifactItem = {
                 id: createId("bitem"),
-                seqIndex: maxSeq + 1,
-                rowTitle: row.title.trim() || `句段 ${index + 1}`,
-                fileName: payload.fileName,
+                seqIndex: itemSeq,
+                rowTitle: rowArtifactTitle,
+                fileName: `${itemTitle}.wav`,
                 audioDataUrl: payload.audioDataUrl,
                 elapsedMs: payload.elapsedMs,
                 createdAt: new Date().toISOString()
@@ -4445,7 +4690,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4472,7 +4717,7 @@ function StudioApp() {
         const col = itemIdx % 3;
         const rowPos = Math.floor(itemIdx / 3);
         const stepX = 500;
-        const stepY = 590;
+        const stepY = 500;
         const startX = batchNode.position.x + 940;
 
         const newArtifactNode: StudioNode = {
@@ -4516,6 +4761,7 @@ function StudioApp() {
         method: "POST",
         headers: getApiHeaders(true),
         body: JSON.stringify({
+          title: rowArtifactTitle,
           voiceDescription,
           naturalControl: (row.naturalControl || "").trim(),
           text: row.text.trim()
@@ -4534,11 +4780,13 @@ function StudioApp() {
           if (n.id === targetArtifactNodeId) {
             const existing = n.data.batchArtifacts || [];
             const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+            const itemSeq = maxSeq + 1;
+            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
             const newItem: BatchArtifactItem = {
               id: createId("bitem"),
-              seqIndex: maxSeq + 1,
-              rowTitle: row.title.trim() || `句段 ${rowIndex >= 0 ? rowIndex + 1 : 1}`,
-              fileName: payload.fileName,
+              seqIndex: itemSeq,
+              rowTitle: rowArtifactTitle,
+              fileName: `${itemTitle}.wav`,
               audioDataUrl: payload.audioDataUrl,
               elapsedMs: payload.elapsedMs,
               createdAt: new Date().toISOString()
@@ -4576,7 +4824,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4653,6 +4901,150 @@ function StudioApp() {
     }
   }
 
+  async function runGameVocalClone(nodeId: string) {
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    const vocalNode = currentNodes.find((n) => n.id === nodeId);
+    if (!vocalNode || vocalNode.type !== "gameVocal") return;
+
+    if (!isAnyApiKeyReady()) {
+      patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
+      return;
+    }
+
+    const isDesignMode = vocalNode.data.vocalRefMode === "design";
+    const resolved = resolveGameVocalInputs(vocalNode, currentNodes, currentEdges);
+    if (!isDesignMode && !resolved.audio) {
+      patchNode(nodeId, { error: "当前为【参考音频克隆】模式，需要从左侧连接一个参考音频、音频整合或产物卡片。如无需参考音频，可切换为【免参考·角色特征生成】模式。" });
+      return;
+    }
+
+    const vocals = vocalNode.data.selectedVocals || [];
+    if (vocals.length === 0) {
+      patchNode(nodeId, { error: "请至少选择或添加一个语气词条目。" });
+      return;
+    }
+
+    vocalAbortMapRef.current[nodeId] = false;
+    patchNode(nodeId, { isRunning: true, error: undefined, vocalProgressText: `准备生成 (0/${vocals.length})...` });
+
+    const initialNodes = nodesRef.current;
+    const initialEdges = edgesRef.current;
+
+    try {
+      for (const [index, vocal] of vocals.entries()) {
+        if (vocalAbortMapRef.current[nodeId]) {
+          break;
+        }
+
+        patchNode(nodeId, { vocalProgressText: `正在生成 (${index + 1}/${vocals.length}): ${vocal.text}...` });
+
+        const cleanSub = (vocal.subcategoryLabel || vocal.categoryTitle || "语气词")
+          .replace(/[\(\)\/\s]+/g, "_")
+          .replace(/_{2,}/g, "_")
+          .replace(/^_|_$/g, "");
+        const cleanText = vocal.text.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5!]/g, "");
+        const itemTitle = `${cleanSub}_${cleanText}`;
+
+        const effectiveInstruction = vocal.instruction || vocalNode.data.instruction || resolved.instruction || "";
+        const optimizedInstruction = buildOptimizedGameVocalPrompt({
+          baseInstruction: effectiveInstruction,
+          vocalText: vocal.text.trim(),
+          categoryTitle: vocal.categoryTitle,
+          subcategoryLabel: vocal.subcategoryLabel,
+          durationMode: vocalNode.data.vocalDurationMode || "standard",
+          antiDrone: vocalNode.data.antiDrone !== false,
+          phoneticAnchor: vocalNode.data.phoneticAnchor !== false
+        });
+
+        let response: Response;
+        let payload: DebugResponse & { error?: string };
+
+        if (isDesignMode) {
+          const charType = vocalNode.data.vocalCharacterType || "human";
+          const tags = vocalNode.data.vocalSelectedTags || [];
+          const generatedDesc = buildVoiceDescriptionFromTags(charType, tags);
+          const customDesc = (vocalNode.data.vocalVoiceDescription || "").trim();
+          const finalVoiceDesc = [
+            customDesc || generatedDesc,
+            resolved.instruction ? `【补充发声风格】：${resolved.instruction}` : ""
+          ].filter(Boolean).join("\n\n");
+
+          response = await fetch("/api/tts/voicedesign", {
+            method: "POST",
+            headers: getApiHeaders(true),
+            body: JSON.stringify({
+              title: itemTitle,
+              voiceDescription: finalVoiceDesc,
+              naturalControl: effectiveInstruction,
+              text: vocal.text.trim(),
+              instruction: optimizedInstruction.trim()
+            })
+          });
+          payload = (await response.json()) as DebugResponse & { error?: string };
+        } else {
+          const formData = new FormData();
+          const voiceFile = await audioSourceToFile(resolved.audio!.dataUrl, resolved.audio!.fileName, resolved.audio!.mimeType);
+          formData.append("voice", voiceFile);
+          formData.append("text", vocal.text.trim());
+          formData.append("instruction", optimizedInstruction.trim());
+          formData.append("format", "wav");
+          formData.append("title", itemTitle);
+
+          response = await fetch("/api/tts/voiceclone", {
+            method: "POST",
+            headers: getApiHeaders(false),
+            body: formData
+          });
+          payload = (await response.json()) as DebugResponse & { error?: string };
+        }
+
+        if (!response.ok) {
+          patchNode(nodeId, { isRunning: false, vocalProgressText: undefined, error: payload.error || `语气词「${vocal.text}」生成失败。` });
+          return;
+        }
+
+        // Apply audio tail trimming if enabled and audio is dragged
+        if (vocalNode.data.autoTrimTail !== false && payload.audioDataUrl) {
+          try {
+            const trimRes = await trimVocalAudioDataUrl(
+              payload.audioDataUrl,
+              vocalNode.data.vocalDurationMode || "standard"
+            );
+            payload.audioDataUrl = trimRes.dataUrl;
+          } catch (trimErr) {
+            console.warn("Vocal audio trim failed, fallback to raw output:", trimErr);
+          }
+        }
+
+        const artifactNode = createArtifactNode(vocalNode, payload, itemTitle, index, initialNodes, initialEdges);
+        const artifactEdge: StudioEdge = {
+          id: createId("edge"),
+          source: vocalNode.id,
+          sourceHandle: "output",
+          target: artifactNode.id,
+          targetHandle: "artifact",
+          type: "deletable",
+          animated: true,
+          style: { stroke: "#8b5cf6", strokeWidth: 2 }
+        };
+
+        setNodes((items) => items.concat(artifactNode));
+        setEdges((items) => items.concat(artifactEdge));
+      }
+
+      patchNode(nodeId, { isRunning: false, vocalProgressText: undefined, error: undefined });
+      window.setTimeout(() => void saveWorkspace(), 0);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "语气词批量生成请求失败。";
+      patchNode(nodeId, {
+        isRunning: false,
+        vocalProgressText: undefined,
+        error: msg.includes("Failed to fetch") ? "网络连接异常 (Failed to fetch)。请检查后端服务运行状态。" : msg
+      });
+    }
+  }
+
   async function optimizeVoiceStyle(nodeId: string) {
     const currentNodes = nodesRef.current;
     const styleNode = currentNodes.find((node) => node.id === nodeId);
@@ -4660,7 +5052,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4707,7 +5099,7 @@ function StudioApp() {
       return;
     }
 
-    if (!apiKey && !serverApiKeyConfigured) {
+    if (!isAnyApiKeyReady()) {
       patchNode(nodeId, { error: "API Key 未配置，请点击顶部 API Key 区域配置。" });
       return;
     }
@@ -4756,7 +5148,7 @@ function StudioApp() {
     }
     const items = activeWorkspace.stashItems;
 
-    const zip = new JSZip();
+    const zip = await createZipInstance();
     const usedNames = new Map<string, number>();
     for (const item of items) {
       const safeName = getUniqueFileName(getArtifactDownloadFileName(item.sourceNodeName || item.fileName, item.fileName, activeWorkspace.name), usedNames);
@@ -4812,7 +5204,7 @@ function StudioApp() {
         </div>
       </header>
 
-      {!apiKey && !serverApiKeyConfigured && showDefaultKeyWarning ? (
+      {isSettingsLoaded && !apiKey && !serverApiKeyConfigured && showDefaultKeyWarning ? (
         <section className="api-warning">
           <AlertTriangle size={18} />
           <span>尚未配置 API Key，无法生成音频。请点击右上角 API Key 区域配置您的服务密钥。</span>
@@ -5731,11 +6123,12 @@ function StudioApp() {
                 edges={hydratedEdges}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
-                onlyRenderVisibleElements={false}
+                onlyRenderVisibleElements={true}
                 elevateNodesOnSelect={false}
                 nodesDraggable={true}
                 elementsSelectable={true}
-                nodeDragThreshold={1}
+                nodeDragThreshold={2}
+                defaultEdgeOptions={{ type: "deletable", focusable: false }}
                 onInit={(instance) => {
                   flowRef.current = instance;
                 }}
@@ -5756,9 +6149,12 @@ function StudioApp() {
                 onEdgesDelete={() => {
                   saveTimerRef.current = window.setTimeout(() => { void saveWorkspace(); }, 100);
                 }}
-                minZoom={0.1}
-                maxZoom={10}
+                minZoom={0.005}
+                maxZoom={30}
+                zoomOnScroll={true}
+                zoomOnPinch={true}
                 fitView
+                fitViewOptions={{ minZoom: 0.005, maxZoom: 1.5, padding: 0.2 }}
                 proOptions={{ hideAttribution: true }}
               >
                 <Background color="#3f3a2d" gap={34} size={1.2} variant={BackgroundVariant.Dots} />
@@ -6609,7 +7005,7 @@ function AudiobookConsole({
       return;
     }
 
-    const zip = new JSZip();
+    const zip = await createZipInstance();
     const usedNames = new Map<string, number>();
     for (let index = 0; index < workspace.products.length; index++) {
       const product = workspace.products[index];
@@ -6966,8 +7362,6 @@ function AudiobookConsole({
 }
 
 const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }: NodeProps<StudioNode>) {
-  useAutoUpdateNodeInternals(id, [data.audioAssets?.length, data.audio]);
-
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -7338,33 +7732,62 @@ function getClosestPointOnBezier(
   return sample(bestT);
 }
 
+const pendingInternalUpdates = new Map<string, (id: string) => void>();
+let updateInternalsRafId: number | null = null;
+
+function scheduleBatchNodeInternalsUpdate(id: string, updateFn: (id: string) => void) {
+  pendingInternalUpdates.set(id, updateFn);
+  if (updateInternalsRafId === null) {
+    updateInternalsRafId = window.requestAnimationFrame(() => {
+      updateInternalsRafId = null;
+      const entries = Array.from(pendingInternalUpdates.entries());
+      pendingInternalUpdates.clear();
+      for (let i = 0; i < entries.length; i++) {
+        const [nodeId, fn] = entries[i];
+        fn(nodeId);
+      }
+    });
+  }
+}
+
 function useAutoUpdateNodeInternals(id: string, deps: unknown[] = []) {
   const updateNodeInternals = useUpdateNodeInternals();
+  const lastHeightRef = useRef<number | null>(null);
+  const isMountedRef = useRef(false);
 
-  useLayoutEffect(() => {
-    updateNodeInternals(id);
-    const timer1 = setTimeout(() => updateNodeInternals(id), 30);
-    const timer2 = setTimeout(() => updateNodeInternals(id), 120);
-
-    const el = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
-    if (!el) {
-      return () => {
-        clearTimeout(timer1);
-        clearTimeout(timer2);
-      };
+  useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
     }
+    if (deps.length > 0) {
+      scheduleBatchNodeInternalsUpdate(id, updateNodeInternals);
+    }
+  }, [id, updateNodeInternals, ...deps]);
 
-    const ro = new ResizeObserver(() => {
-      updateNodeInternals(id);
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const currentHeight = Math.round(entry.contentRect.height);
+        if (lastHeightRef.current === null) {
+          lastHeightRef.current = currentHeight;
+          return;
+        }
+        if (Math.abs(currentHeight - lastHeightRef.current) >= 2) {
+          lastHeightRef.current = currentHeight;
+          scheduleBatchNodeInternalsUpdate(id, updateNodeInternals);
+        }
+      }
     });
     ro.observe(el);
 
     return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
       ro.disconnect();
     };
-  }, [id, updateNodeInternals, ...deps]);
+  }, [id, updateNodeInternals]);
 }
 
 function getElementTopInNode(element: HTMLElement | null): number | null {
@@ -7381,8 +7804,6 @@ function getElementTopInNode(element: HTMLElement | null): number | null {
 }
 
 const AudioMergeNode = memo(function AudioMergeNode({ id, data }: NodeProps<StudioNode>) {
-  useAutoUpdateNodeInternals(id, [data.audio]);
-
   return (
     <StudioNodeFrame id={id} data={data} icon={<AudioLines size={17} />} tone="audio-merge">
       <Handle type="target" position={Position.Left} id="audio" className="node-handle" style={{ top: "50%" }} />
@@ -7405,8 +7826,6 @@ const AudioMergeNode = memo(function AudioMergeNode({ id, data }: NodeProps<Stud
 });
 
 const CommentNode = memo(function CommentNode({ id, data }: NodeProps<StudioNode>) {
-  useAutoUpdateNodeInternals(id);
-
   return (
     <div className="comment-node">
       <textarea
@@ -7421,8 +7840,6 @@ const CommentNode = memo(function CommentNode({ id, data }: NodeProps<StudioNode
 });
 
 const PromptNode = memo(function PromptNode({ id, data }: NodeProps<StudioNode>) {
-  useAutoUpdateNodeInternals(id);
-
   return (
     <StudioNodeFrame id={id} data={data} icon={<Sparkles size={17} />} tone="prompt">
       <Handle type="source" position={Position.Right} id="text" className="node-handle" style={{ top: "50%" }} />
@@ -7438,8 +7855,6 @@ const PromptNode = memo(function PromptNode({ id, data }: NodeProps<StudioNode>)
 });
 
 const VoiceStyleNode = memo(function VoiceStyleNode({ id, data }: NodeProps<StudioNode>) {
-  useAutoUpdateNodeInternals(id);
-
   return (
     <StudioNodeFrame id={id} data={data} icon={<Sparkles size={17} />} tone="style">
       <Handle type="source" position={Position.Right} id="style" className="node-handle" style={{ top: "50%" }} />
@@ -7458,8 +7873,8 @@ const VoiceStyleNode = memo(function VoiceStyleNode({ id, data }: NodeProps<Stud
 const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<StudioNode>) {
   const label1Ref = useRef<HTMLSpanElement | null>(null);
   const label2Ref = useRef<HTMLSpanElement | null>(null);
-  const [instTop, setInstTop] = useState(62);
-  const [textTop, setTextTop] = useState(175);
+  const [instTop, setInstTop] = useState(86);
+  const [textTop, setTextTop] = useState(218);
 
   useAutoUpdateNodeInternals(id, [instTop, textTop]);
 
@@ -7467,10 +7882,10 @@ const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<Stud
     function update() {
       const y1 = getElementTopInNode(label1Ref.current);
       const y2 = getElementTopInNode(label2Ref.current);
-      if (y1 !== null && y1 !== instTop) {
+      if (y1 !== null && Math.abs(y1 - instTop) >= 3) {
         setInstTop(y1);
       }
-      if (y2 !== null && y2 !== textTop) {
+      if (y2 !== null && Math.abs(y2 - textTop) >= 3) {
         setTextTop(y2);
       }
     }
@@ -7492,6 +7907,42 @@ const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<Stud
       <Handle type="target" position={Position.Left} id="text" className="node-handle" style={dynStyle(textTop)} />
       <span className="input-handle-label" style={dynStyle(textTop)}>文本</span>
       <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
+
+      <div className="clone-toolbar nodrag">
+        <select
+          className="clone-preset-select"
+          defaultValue=""
+          onChange={(e) => {
+            const val = e.target.value;
+            if (!val) return;
+            const isEn = val.endsWith("_en");
+            const charId = val.replace(/_(?:zh|en)$/, "");
+            const p = GAME_CHARACTER_PRESETS.find((c) => c.id === charId);
+            if (p) {
+              data.onPatch?.(id, {
+                instruction: p.directionEn,
+                text: isEn ? p.dialogueEn : p.dialogueZh,
+                error: undefined
+              });
+            }
+          }}
+        >
+          <option value="" disabled>🎮 角色预设…</option>
+          <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
+            {GAME_CHARACTER_PRESETS.map((p) => (
+              <Fragment key={p.id}>
+                <option value={`${p.id}_zh`}>
+                  {p.avatar} {p.nameZh} (中)
+                </option>
+                <option value={`${p.id}_en`}>
+                  {p.avatar} {p.nameZh} (英)
+                </option>
+              </Fragment>
+            ))}
+          </optgroup>
+        </select>
+      </div>
+
       <label className="node-field nodrag">
         <span ref={label1Ref}>语音风格（导演文本）</span>
         <textarea className="nodrag nopan nowheel" value={data.instruction ?? ""} onChange={(event) => data.onPatch?.(id, { instruction: event.target.value })} rows={4} />
@@ -7501,10 +7952,31 @@ const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<Stud
         <textarea className="nodrag nopan nowheel" value={data.text ?? ""} onChange={(event) => data.onPatch?.(id, { text: event.target.value })} rows={5} />
       </label>
       {data.error ? <p className="node-error">{data.error}</p> : null}
-      <button className="run-button nodrag" type="button" onClick={() => data.onRunClone?.(id)} disabled={data.isRunning}>
-        {data.isRunning ? <Loader2 className="spin" size={16} /> : <AudioLines size={16} />}
-        {data.isRunning ? "生成中" : "运行克隆"}
-      </button>
+      <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+        <button
+          className="run-button nodrag"
+          type="button"
+          onClick={() => data.onRunClone?.(id, 1)}
+          disabled={data.isRunning}
+          style={{ flex: 1, margin: 0 }}
+          title="生成 1 条音频克隆产物"
+        >
+          {data.isRunning ? <Loader2 className="spin" size={15} /> : <AudioLines size={15} />}
+          {data.isRunning ? "生成中..." : "运行克隆"}
+        </button>
+
+        <button
+          className="run-button batch-nine-btn nodrag"
+          type="button"
+          onClick={() => data.onRunClone?.(id, 9)}
+          disabled={data.isRunning}
+          style={{ flex: 1, margin: 0 }}
+          title="一次性批量克隆 9 个音频产物"
+        >
+          {data.isRunning ? <Loader2 className="spin" size={15} /> : <Grid size={15} />}
+          {data.isRunning ? "批量克隆中..." : "批量克隆 9个"}
+        </button>
+      </div>
     </StudioNodeFrame>
   );
 });
@@ -7542,8 +8014,8 @@ const VOICE_DESIGN_PRESETS = [
   }
 ];
 
-const VOICE_INSTRUCTION_TAGS = ["年轻女声", "沉稳男声", "沙哑老者", "低沉磁性", "清澈甜美", "纪录片旁白", "深夜电台"];
-const VOICE_CONTROL_TAGS = ["冰冷威压", "慵懒疏离", "温柔共情", "激情宣讲", "断句克制", "松弛送气", "平缓慢速"];
+const VOICE_INSTRUCTION_TAGS = ["尖锐粗粝", "深渊低语", "狂暴咆哮", "铁甲军令", "嗜血低吼", "机械轰鸣", "年轻女声", "沉稳男声", "沙哑老者"];
+const VOICE_CONTROL_TAGS = ["前线突击", "暴烈冲锋", "潜伏刺杀", "齐射指挥", "破障先锋", "战意沸腾", "冰冷威压", "慵懒疏离"];
 
 const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<StudioNode>) {
   const label2Ref = useRef<HTMLSpanElement | null>(null);
@@ -7554,7 +8026,7 @@ const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<St
   useLayoutEffect(() => {
     function update() {
       const y = getElementTopInNode(label2Ref.current);
-      if (y !== null && y !== textTop) {
+      if (y !== null && Math.abs(y - textTop) >= 3) {
         setTextTop(y);
       }
     }
@@ -7566,7 +8038,25 @@ const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<St
   }, [textTop]);
 
   const handleSelectPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const idx = parseInt(e.target.value, 10);
+    const val = e.target.value;
+    if (!val) return;
+
+    if (val.startsWith("game_")) {
+      const isEn = val.endsWith("_en");
+      const gameId = val.replace(/_(?:zh|en)$/, "").replace("game_", "");
+      const gamePreset = GAME_CHARACTER_PRESETS.find((p) => p.id === gameId);
+      if (gamePreset) {
+        data.onPatch?.(id, {
+          instruction: gamePreset.voiceDescriptionEn,
+          naturalControl: getFormattedNaturalControl(gamePreset),
+          text: isEn ? gamePreset.dialogueEn : gamePreset.dialogueZh,
+          error: undefined
+        });
+        return;
+      }
+    }
+
+    const idx = parseInt(val, 10);
     if (!isNaN(idx) && VOICE_DESIGN_PRESETS[idx]) {
       const p = VOICE_DESIGN_PRESETS[idx];
       data.onPatch?.(id, { instruction: p.instruction, naturalControl: p.naturalControl, error: undefined });
@@ -7593,10 +8083,24 @@ const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<St
 
       <div className="design-toolbar nodrag">
         <select className="design-preset-select" defaultValue="" onChange={handleSelectPreset}>
-          <option value="" disabled>✨ 快速加载音色预设模板…</option>
-          {VOICE_DESIGN_PRESETS.map((p, i) => (
-            <option key={i} value={i}>{p.name}</option>
-          ))}
+          <option value="" disabled>✨ 音色预设…</option>
+          <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
+            {GAME_CHARACTER_PRESETS.map((p) => (
+              <Fragment key={p.id}>
+                <option value={`game_${p.id}_zh`}>
+                  {p.avatar} {p.nameZh} (中)
+                </option>
+                <option value={`game_${p.id}_en`}>
+                  {p.avatar} {p.nameZh} (英)
+                </option>
+              </Fragment>
+            ))}
+          </optgroup>
+          <optgroup label="🎙️ 通用播客/有声预设">
+            {VOICE_DESIGN_PRESETS.map((p, i) => (
+              <option key={i} value={i}>{p.name}</option>
+            ))}
+          </optgroup>
         </select>
         <button
           className="design-action-btn"
@@ -7695,8 +8199,6 @@ const ArtifactNode = memo(function ArtifactNode({ id, data }: NodeProps<StudioNo
   const artifact = data.artifact;
   const isStashed = artifact ? data.isArtifactStashed?.(artifact) : false;
   const artifactForStash = artifact ? { ...artifact, sourceNodeName: data.title } : null;
-
-  useAutoUpdateNodeInternals(id, [artifact]);
 
   return (
     <StudioNodeFrame id={id} data={data} icon={<Archive size={17} />} tone="artifact">
@@ -8068,8 +8570,8 @@ function ExcelPasteModal({
 
 const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: NodeProps<StudioNode>) {
   const rows = data.batchRows || [
-    { id: "row_1", title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们验证批量音频克隆的第一条生成句段。" },
-    { id: "row_2", title: "句段 2", instruction: "轻松自然的语调", text: "这是批量生成的第二条句段，声音连贯稳定。" }
+    { id: `${id}_row_1`, title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们验证批量音频克隆的第一条生成句段。" },
+    { id: `${id}_row_2`, title: "句段 2", instruction: "轻松自然的语调", text: "这是批量生成的第二条句段，声音连贯稳定。" }
   ];
 
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
@@ -8285,7 +8787,75 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         >
           <ClipboardPaste size={14} /> 📋 从 Excel / 表格一键粘贴...
         </button>
-        <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+        <div className="clone-toolbar" style={{ marginTop: 0, padding: 0 }}>
+          <select
+            className="clone-preset-select"
+            style={{ fontSize: 12, height: 28, padding: "2px 6px", width: 135, maxWidth: 140 }}
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) return;
+              if (val === "all_zh") {
+                const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
+                  id: `row_${Date.now()}_${i}`,
+                  title: `${p.nameZh} (${p.categoryZh})`,
+                  instruction: p.directionEn,
+                  text: p.dialogueZh
+                }));
+                patchRows(nextRows);
+                setPasteToast("已填入全套 8 位游戏角色 (中文对白)！");
+                setTimeout(() => setPasteToast(null), 3000);
+                return;
+              }
+              if (val === "all_en") {
+                const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
+                  id: `row_${Date.now()}_${i}`,
+                  title: `${p.nameZh} (${p.categoryZh})`,
+                  instruction: p.directionEn,
+                  text: p.dialogueEn
+                }));
+                patchRows(nextRows);
+                setPasteToast("已填入全套 8 位游戏角色 (English 对白)！");
+                setTimeout(() => setPasteToast(null), 3000);
+                return;
+              }
+              const isEn = val.endsWith("_en");
+              const charId = val.replace(/_(?:zh|en)$/, "").replace("game_", "");
+              const p = GAME_CHARACTER_PRESETS.find((c) => c.id === charId);
+              if (p) {
+                const newRow: BatchVoiceCloneRow = {
+                  id: `row_${Date.now()}`,
+                  title: `${p.nameZh} (${p.categoryZh})`,
+                  instruction: p.directionEn,
+                  text: isEn ? p.dialogueEn : p.dialogueZh
+                };
+                if (rows.length <= 1 && (!rows[0]?.text && !rows[0]?.instruction)) {
+                  patchRows([newRow]);
+                } else {
+                  patchRows([...rows, newRow]);
+                }
+                setPasteToast(`已填入【${p.nameZh}】(${isEn ? "EN" : "中文"})！`);
+                setTimeout(() => setPasteToast(null), 3000);
+              }
+            }}
+            title="选择游戏角色预设（官方支持多语种）"
+          >
+            <option value="">🎮 角色预设...</option>
+            <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
+              {GAME_CHARACTER_PRESETS.map((p) => (
+                <Fragment key={p.id}>
+                  <option value={`game_${p.id}_zh`}>{p.avatar} {p.nameZh} (中)</option>
+                  <option value={`game_${p.id}_en`}>{p.avatar} {p.nameZh} (英)</option>
+                </Fragment>
+              ))}
+            </optgroup>
+            <optgroup label="⚡ 一键整套载入">
+              <option value="all_zh">🌟 一键载入全套 8 位角色 (中文对白)</option>
+              <option value="all_en">🌟 一键载入全套 8 位角色 (English 对白)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
           {data.isRunning ? (
             <button
               type="button"
@@ -8461,8 +9031,8 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
 
 const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: NodeProps<StudioNode>) {
   const rows = data.batchRows || [
-    { id: "row_1", title: "句段 1", instruction: "30岁成熟女性，声音温润清亮，具有优雅自然的旁白质感", naturalControl: "角色：旁白/讲述人\n指导：沉静自然", text: "今天我们验证批量音色创造的第一条生成句段。" },
-    { id: "row_2", title: "句段 2", instruction: "40岁中年男性，嗓音低沉有磁性，语气稳重沉稳", naturalControl: "角色：老掌柜\n指导：温和沧桑", text: "这是批量生成的第二条音色创造句段。" }
+    { id: `${id}_row_1`, title: "句段 1", instruction: "30岁成熟女性，声音温润清亮，具有优雅自然的旁白质感", naturalControl: "角色：旁白/讲述人\n指导：沉静自然", text: "今天我们验证批量音色创造的第一条生成句段。" },
+    { id: `${id}_row_2`, title: "句段 2", instruction: "40岁中年男性，嗓音低沉有磁性，语气稳重沉稳", naturalControl: "角色：老掌柜\n指导：温和沧桑", text: "这是批量生成的第二条音色创造句段。" }
   ];
 
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
@@ -8665,7 +9235,78 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
         >
           <ClipboardPaste size={14} /> 📋 从 Excel / 表格一键粘贴...
         </button>
-        <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+        <div className="clone-toolbar" style={{ marginTop: 0, padding: 0 }}>
+          <select
+            className="clone-preset-select"
+            style={{ fontSize: 12, height: 28, padding: "2px 6px", width: 135, maxWidth: 140 }}
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) return;
+              if (val === "all_zh") {
+                const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
+                  id: `row_${Date.now()}_${i}`,
+                  title: p.nameZh,
+                  instruction: p.voiceDescriptionEn,
+                  naturalControl: getFormattedNaturalControl(p),
+                  text: p.dialogueZh
+                }));
+                patchRows(nextRows);
+                setPasteToast("已填入全套 8 位游戏角色音色设计 (中文对白)！");
+                setTimeout(() => setPasteToast(null), 3000);
+                return;
+              }
+              if (val === "all_en") {
+                const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
+                  id: `row_${Date.now()}_${i}`,
+                  title: p.nameZh,
+                  instruction: p.voiceDescriptionEn,
+                  naturalControl: getFormattedNaturalControl(p),
+                  text: p.dialogueEn
+                }));
+                patchRows(nextRows);
+                setPasteToast("已填入全套 8 位游戏角色音色设计 (English 对白)！");
+                setTimeout(() => setPasteToast(null), 3000);
+                return;
+              }
+              const isEn = val.endsWith("_en");
+              const charId = val.replace(/_(?:zh|en)$/, "").replace("game_", "");
+              const p = GAME_CHARACTER_PRESETS.find((c) => c.id === charId);
+              if (p) {
+                const newRow: BatchVoiceCloneRow = {
+                  id: `row_${Date.now()}`,
+                  title: p.nameZh,
+                  instruction: p.voiceDescriptionEn,
+                  naturalControl: getFormattedNaturalControl(p),
+                  text: isEn ? p.dialogueEn : p.dialogueZh
+                };
+                if (rows.length <= 1 && (!rows[0]?.text && !rows[0]?.instruction && !rows[0]?.naturalControl)) {
+                  patchRows([newRow]);
+                } else {
+                  patchRows([...rows, newRow]);
+                }
+                setPasteToast(`已填入【${p.nameZh}】音色设计(${isEn ? "EN" : "中文"})！`);
+                setTimeout(() => setPasteToast(null), 3000);
+              }
+            }}
+            title="选择游戏音色设计预设（官方支持多语种）"
+          >
+            <option value="">🎮 角色预设...</option>
+            <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
+              {GAME_CHARACTER_PRESETS.map((p) => (
+                <Fragment key={p.id}>
+                  <option value={`game_${p.id}_zh`}>{p.avatar} {p.nameZh} (中)</option>
+                  <option value={`game_${p.id}_en`}>{p.avatar} {p.nameZh} (英)</option>
+                </Fragment>
+              ))}
+            </optgroup>
+            <optgroup label="⚡ 一键整套载入">
+              <option value="all_zh">🌟 一键载入全套 8 位角色 (中文对白)</option>
+              <option value="all_en">🌟 一键载入全套 8 位角色 (English 对白)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
           {data.isRunning ? (
             <button
               type="button"
@@ -8869,27 +9510,34 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
   const items = data.batchArtifacts || [];
   const listRef = useRef<HTMLDivElement>(null);
   const lastItemRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(items.length);
 
-  useLayoutEffect(() => {
-    updateNodeInternals(id);
+  useEffect(() => {
+    scheduleBatchNodeInternalsUpdate(id, updateNodeInternals);
   }, [id, updateNodeInternals, items.length]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (lastItemRef.current) {
-        lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      } else if (listRef.current) {
-        listRef.current.scrollTop = listRef.current.scrollHeight;
-      }
-    }, 60);
-    return () => clearTimeout(timer);
-  }, [items.length, items[items.length - 1]?.id]);
+    // 仅当实际生成新增了产物条目时，才平滑滚动到最新项
+    // 移动视口导致节点移出再移回重新挂载时，保持用户当前的浏览位置，绝不强制滚到底部
+    if (items.length > prevCountRef.current) {
+      const timer = setTimeout(() => {
+        if (lastItemRef.current) {
+          lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } else if (listRef.current) {
+          listRef.current.scrollTop = listRef.current.scrollHeight;
+        }
+      }, 60);
+      prevCountRef.current = items.length;
+      return () => clearTimeout(timer);
+    }
+    prevCountRef.current = items.length;
+  }, [items.length]);
 
   async function handleDownloadZip() {
     if (!items || items.length === 0) return;
     setIsZipping(true);
     try {
-      const zip = new JSZip();
+      const zip = await createZipInstance();
       const nodeTitle = data.title || "批量产物";
       const parentTitle = data.parentTitle || "批量节点";
       const folderName = `${parentTitle}_${nodeTitle}`.replace(/[:：\s]/g, "_");
@@ -8941,12 +9589,12 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
             {items.map((item, index) => {
               const nodeTitle = data.title || "产物";
               const itemSeq = item.seqIndex ?? (index + 1);
-              const parentTitle = data.parentTitle || "";
+              const parentTitle = (data.parentTitle && data.parentTitle !== "批量节点" && data.parentTitle !== "节点名称") ? data.parentTitle : "";
               const fullStashName = formatHierarchyName(parentTitle, nodeTitle, itemSeq);
               const isLatest = index === items.length - 1;
 
               const artifactForStash: ArtifactData = {
-                fileName: item.fileName,
+                fileName: `${fullStashName}.wav`,
                 audioDataUrl: item.audioDataUrl,
                 elapsedMs: item.elapsedMs,
                 createdAt: item.createdAt,
@@ -9363,8 +10011,8 @@ function BatchAudioUploadModal({
 
 const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, selected }: NodeProps<StudioNode>) {
   const rows = data.batchRows || [
-    { id: "row_1", title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们验证全能综合工作台的第一条生成句段。" },
-    { id: "row_2", title: "句段 2", instruction: "轻松自然的语调", text: "这是全能综合工作台的第二条生成句段，自动分行生成产物。" }
+    { id: `${id}_row_1`, title: "句段 1", instruction: "自然、清晰的讲述感", text: "今天我们验证全能综合工作台的第一条生成句段。" },
+    { id: `${id}_row_2`, title: "句段 2", instruction: "轻松自然的语调", text: "这是全能综合工作台的第二条生成句段，自动分行生成产物。" }
   ];
 
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
@@ -9712,7 +10360,7 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
     if (allArtifacts.length === 0) return;
     setIsZipping(true);
     try {
-      const zip = new JSZip();
+      const zip = await createZipInstance();
       const folderName = (data.title || "全能工作台产物").replace(/[:：\s]/g, "_");
       const folder = zip.folder(folderName) || zip;
 
@@ -9994,19 +10642,26 @@ function IntegratedRowArtifactList({
   const artifacts = row.artifacts || [];
   const containerRef = useRef<HTMLDivElement>(null);
   const lastItemRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(artifacts.length);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (lastItemRef.current) {
-        lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
-      const parentCell = containerRef.current?.closest(".cell-artifact");
-      if (parentCell) {
-        parentCell.scrollTop = parentCell.scrollHeight;
-      }
-    }, 60);
-    return () => clearTimeout(timer);
-  }, [artifacts.length, artifacts[artifacts.length - 1]?.id]);
+    // 仅当实际新增了产物条目时，才平滑滚动到最新项
+    // 移动视口导致节点移出再移回重新挂载时，保持用户当前的浏览位置，绝不强制滚到底部
+    if (artifacts.length > prevCountRef.current) {
+      const timer = setTimeout(() => {
+        if (lastItemRef.current) {
+          lastItemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+        const parentCell = containerRef.current?.closest(".cell-artifact");
+        if (parentCell) {
+          parentCell.scrollTop = parentCell.scrollHeight;
+        }
+      }, 60);
+      prevCountRef.current = artifacts.length;
+      return () => clearTimeout(timer);
+    }
+    prevCountRef.current = artifacts.length;
+  }, [artifacts.length]);
 
   return (
     <div
@@ -10145,6 +10800,614 @@ function StudioNodeFrame({
     </section>
   );
 }
+
+const GameVocalNode = memo(function GameVocalNode({ id, data }: NodeProps<StudioNode>) {
+  const { getNodes, getEdges } = useReactFlow();
+  const [resolvedAudioInfo, setResolvedAudioInfo] = useState<{
+    audio?: AudioAsset;
+    sourceTitle?: string;
+  }>({});
+
+  useEffect(() => {
+    const currentNodes = getNodes() as StudioNode[];
+    const currentEdges = getEdges() as StudioEdge[];
+    const currentNode = currentNodes.find((n) => n.id === id);
+    if (currentNode) {
+      const res = resolveGameVocalInputs(currentNode, currentNodes, currentEdges);
+      setResolvedAudioInfo({ audio: res.audio, sourceTitle: res.sourceTitle });
+    }
+  }, [id, data, getNodes, getEdges]);
+
+  const activeCategoryId = data.selectedCategoryId || GAME_VOCAL_CATEGORIES[0].id;
+  const activeCategory = GAME_VOCAL_CATEGORIES.find((c) => c.id === activeCategoryId) || GAME_VOCAL_CATEGORIES[0];
+
+  const activeSubcategoryId = data.selectedSubcategoryId || activeCategory.subcategories[0]?.id;
+  const activeSubcategory =
+    activeCategory.subcategories.find((s) => s.id === activeSubcategoryId) ||
+    activeCategory.subcategories[0];
+
+  const selectedVocals = data.selectedVocals || [];
+
+  const refMode = data.vocalRefMode || "clone";
+  const activeCharType = data.vocalCharacterType || "human";
+  const currentCharCategory = GAME_CHARACTER_TYPES.find((c) => c.id === activeCharType) || GAME_CHARACTER_TYPES[0];
+  const selectedCharTags = data.vocalSelectedTags ?? currentCharCategory.defaultSelectedTags;
+
+  const generatedVoiceDesc = useMemo(() => {
+    return buildVoiceDescriptionFromTags(activeCharType, selectedCharTags);
+  }, [activeCharType, selectedCharTags]);
+
+  useAutoUpdateNodeInternals(id, [selectedVocals.length, activeCategoryId, activeSubcategoryId, refMode, activeCharType, selectedCharTags.length]);
+
+  const [customText, setCustomText] = useState("");
+
+  function patchData(patch: Partial<NodeData>) {
+    data.onPatch?.(id, patch);
+  }
+
+  function handleSelectCharType(newType: GameCharacterType) {
+    const cat = GAME_CHARACTER_TYPES.find((c) => c.id === newType) || GAME_CHARACTER_TYPES[0];
+    const newTags = cat.defaultSelectedTags;
+    patchData({
+      vocalCharacterType: newType,
+      vocalSelectedTags: newTags,
+      vocalVoiceDescription: buildVoiceDescriptionFromTags(newType, newTags)
+    });
+  }
+
+  function toggleCharTag(tag: string) {
+    const exists = selectedCharTags.includes(tag);
+    const newTags = exists
+      ? selectedCharTags.filter((t) => t !== tag)
+      : [...selectedCharTags, tag];
+    patchData({
+      vocalSelectedTags: newTags,
+      vocalVoiceDescription: buildVoiceDescriptionFromTags(activeCharType, newTags)
+    });
+  }
+
+  function handleRandomCharacterTags() {
+    const randomTags = getRandomCharacterTags(activeCharType);
+    patchData({
+      vocalSelectedTags: randomTags,
+      vocalVoiceDescription: buildVoiceDescriptionFromTags(activeCharType, randomTags)
+    });
+  }
+
+  function handleResetCharacterTags() {
+    patchData({
+      vocalSelectedTags: currentCharCategory.defaultSelectedTags,
+      vocalVoiceDescription: buildVoiceDescriptionFromTags(activeCharType, currentCharCategory.defaultSelectedTags)
+    });
+  }
+
+  function handleClearCharacterTags() {
+    patchData({
+      vocalSelectedTags: [],
+      vocalVoiceDescription: buildVoiceDescriptionFromTags(activeCharType, [])
+    });
+  }
+
+  function handleSelectCategory(catId: string) {
+    const cat = GAME_VOCAL_CATEGORIES.find((c) => c.id === catId);
+    if (!cat) return;
+    const firstSub = cat.subcategories[0];
+    patchData({
+      selectedCategoryId: cat.id,
+      selectedSubcategoryId: firstSub?.id,
+      instruction: cat.defaultInstruction
+    });
+  }
+
+  function handleSelectSubcategory(subId: string) {
+    patchData({ selectedSubcategoryId: subId });
+  }
+
+  function isItemChecked(text: string) {
+    return selectedVocals.some((v) => v.text.toLowerCase() === text.toLowerCase());
+  }
+
+  function toggleVocalItem(text: string) {
+    const exists = selectedVocals.some((v) => v.text.toLowerCase() === text.toLowerCase());
+    if (exists) {
+      patchData({
+        selectedVocals: selectedVocals.filter((v) => v.text.toLowerCase() !== text.toLowerCase())
+      });
+    } else {
+      const newItem: SelectedVocalItem = {
+        id: createId("vocal"),
+        categoryId: activeCategory.id,
+        categoryTitle: activeCategory.title,
+        subcategoryId: activeSubcategory.id,
+        subcategoryLabel: activeSubcategory.label,
+        text
+      };
+      patchData({
+        selectedVocals: [...selectedVocals, newItem]
+      });
+    }
+  }
+
+  function handleSelectAllCurrentSub() {
+    const currentItems = activeSubcategory.items;
+    const existingTexts = new Set(selectedVocals.map((v) => v.text.toLowerCase()));
+    const newItems: SelectedVocalItem[] = [];
+    currentItems.forEach((txt) => {
+      if (!existingTexts.has(txt.toLowerCase())) {
+        newItems.push({
+          id: createId("vocal"),
+          categoryId: activeCategory.id,
+          categoryTitle: activeCategory.title,
+          subcategoryId: activeSubcategory.id,
+          subcategoryLabel: activeSubcategory.label,
+          text: txt
+        });
+      }
+    });
+    patchData({ selectedVocals: [...selectedVocals, ...newItems] });
+  }
+
+  function handleRandomPick(count: number) {
+    const picks = getRandomItemsFromSubcategory(activeSubcategory, count);
+    const existingTexts = new Set(selectedVocals.map((v) => v.text.toLowerCase()));
+    const newItems: SelectedVocalItem[] = [];
+    picks.forEach((txt) => {
+      if (!existingTexts.has(txt.toLowerCase())) {
+        newItems.push({
+          id: createId("vocal"),
+          categoryId: activeCategory.id,
+          categoryTitle: activeCategory.title,
+          subcategoryId: activeSubcategory.id,
+          subcategoryLabel: activeSubcategory.label,
+          text: txt
+        });
+      }
+    });
+    patchData({ selectedVocals: [...selectedVocals, ...newItems] });
+  }
+
+  function handleClearAll() {
+    patchData({ selectedVocals: [] });
+  }
+
+  function handleRemoveItem(itemId: string) {
+    patchData({
+      selectedVocals: selectedVocals.filter((v) => v.id !== itemId)
+    });
+  }
+
+  function handleAddCustom() {
+    const trimmed = customText.trim();
+    if (!trimmed) return;
+    const newItem: SelectedVocalItem = {
+      id: createId("vocal"),
+      categoryId: activeCategory.id,
+      categoryTitle: activeCategory.title,
+      subcategoryId: activeSubcategory.id,
+      subcategoryLabel: activeSubcategory.label,
+      text: trimmed
+    };
+    patchData({
+      selectedVocals: [...selectedVocals, newItem]
+    });
+    setCustomText("");
+  }
+
+  return (
+    <StudioNodeFrame id={id} data={data} icon={<Gamepad2 size={17} />} tone="game-vocal">
+      <Handle type="target" position={Position.Left} id="voice" className="node-handle" style={{ top: 70 }} />
+      <span className="input-handle-label" style={{ top: 70 }}>
+        {refMode === "design" ? "参考(可选)" : "参考"}
+      </span>
+
+      <Handle type="target" position={Position.Left} id="instruction" className="node-handle" style={{ top: 130 }} />
+      <span className="input-handle-label" style={{ top: 130 }}>风格</span>
+
+      <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
+
+      <div className="game-vocal-container nodrag">
+        {/* 0. 模式选择：参考音频克隆 vs 免参考·角色特征生成 */}
+        <div className="game-vocal-mode-tabs">
+          <button
+            type="button"
+            className={`game-vocal-mode-tab ${refMode === "clone" ? "is-active" : ""}`}
+            onClick={() => patchData({ vocalRefMode: "clone" })}
+          >
+            <Mic2 size={13} />
+            <span>🎙️ 参考音频克隆</span>
+          </button>
+          <button
+            type="button"
+            className={`game-vocal-mode-tab ${refMode === "design" ? "is-active" : ""}`}
+            onClick={() => patchData({ vocalRefMode: "design" })}
+          >
+            <Sparkles size={13} />
+            <span>✨ 角色特征生成 (免参考)</span>
+          </button>
+        </div>
+
+        {/* 1. 根据模式呈现：参考音频卡片 VS 角色形容词特征选择面板 */}
+        {refMode === "clone" ? (
+          resolvedAudioInfo.audio ? (
+            <div className="game-vocal-ref-card">
+              <Mic2 size={16} style={{ color: "#a78bfa", flexShrink: 0 }} />
+              <div className="game-vocal-ref-info">
+                <span className="game-vocal-ref-title">
+                  {resolvedAudioInfo.sourceTitle ? `已连入【${resolvedAudioInfo.sourceTitle}】` : "已连接参考音频"}
+                </span>
+                <span className="game-vocal-ref-meta">
+                  {resolvedAudioInfo.audio.fileName} · {formatBytes(resolvedAudioInfo.audio.size)}
+                </span>
+                <span className="game-vocal-ref-tip">
+                  💡 建议使用 3~5 秒干声（无混响/无BGM），拟声短促精准度最高
+                </span>
+              </div>
+              <StudioAudioPlayer src={resolvedAudioInfo.audio.dataUrl} />
+            </div>
+          ) : (
+            <div className="game-vocal-ref-card is-empty">
+              <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+              <span>尚未连入参考音频。支持从左侧接入【参考音频】、【音频整合】或【产物卡片】；若无需参考请切换为【免参考模式】。</span>
+            </div>
+          )
+        ) : (
+          <div className="game-vocal-design-panel">
+            {/* 角色大类切换 Tabs */}
+            <div className="game-vocal-char-type-tabs">
+              {GAME_CHARACTER_TYPES.map((charType) => (
+                <button
+                  key={charType.id}
+                  type="button"
+                  className={`game-vocal-char-type-btn ${activeCharType === charType.id ? "is-active" : ""}`}
+                  onClick={() => handleSelectCharType(charType.id)}
+                >
+                  <span>{charType.emoji}</span>
+                  <span>{charType.nameZh}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* 标签分组与形容词 Chips */}
+            <div className="game-vocal-tag-groups">
+              {currentCharCategory.groups.map((grp) => (
+                <div key={grp.id} className="game-vocal-tag-group-row">
+                  <span className="game-vocal-tag-group-label">{grp.nameZh}:</span>
+                  <div className="game-vocal-tag-group-chips">
+                    {grp.tags.map((tag) => {
+                      const checked = selectedCharTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          className={`game-vocal-tag-chip ${checked ? "is-active" : ""}`}
+                          onClick={() => toggleCharTag(tag)}
+                        >
+                          {checked ? <Check size={11} strokeWidth={2.5} /> : null}
+                          <span>{tag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 快捷随机/清空与自定义角色特征文本框 */}
+            <div className="game-vocal-design-summary-box">
+              <div className="game-vocal-design-summary-header">
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <Sparkles size={12} style={{ color: "#a78bfa" }} />
+                  <span className="game-vocal-design-summary-title">已组合角色特征（无需参考音频）</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    type="button"
+                    className="game-vocal-quick-btn"
+                    onClick={handleRandomCharacterTags}
+                    title="随机摇出一套好玩的特色角色人设标签"
+                  >
+                    🎲 随机人设
+                  </button>
+                  <button
+                    type="button"
+                    className="game-vocal-quick-btn"
+                    onClick={handleResetCharacterTags}
+                    title="恢复当前类别的推荐预设特征"
+                  >
+                    ↺ 默认预设
+                  </button>
+                  {selectedCharTags.length > 0 ? (
+                    <button
+                      type="button"
+                      className="game-vocal-quick-btn game-vocal-clear-btn"
+                      onClick={handleClearCharacterTags}
+                      title="清空已选特征"
+                    >
+                      <Trash2 size={11} /> 清空
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <textarea
+                className="nodrag nopan nowheel game-vocal-design-textarea"
+                value={data.vocalVoiceDescription !== undefined ? data.vocalVoiceDescription : generatedVoiceDesc}
+                onChange={(e) => patchData({ vocalVoiceDescription: e.target.value })}
+                placeholder="根据上方选中的人设形容词自动组装，亦可在此直接手动补充修改..."
+                rows={2}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 2. 10 大分类切换 */}
+        <div className="game-vocal-category-bar">
+          {GAME_VOCAL_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              className={`game-vocal-cat-btn ${cat.id === activeCategoryId ? "is-active" : ""}`}
+              onClick={() => handleSelectCategory(cat.id)}
+              title={cat.description}
+            >
+              <span>{cat.emoji}</span>
+              <span>{cat.nameZh}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* 3. 子类别 Pills 切换 */}
+        <div className="game-vocal-sub-bar">
+          {activeCategory.subcategories.map((sub) => (
+            <button
+              key={sub.id}
+              type="button"
+              className={`game-vocal-sub-btn ${sub.id === activeSubcategoryId ? "is-active" : ""}`}
+              onClick={() => handleSelectSubcategory(sub.id)}
+            >
+              <span>{sub.nameZh}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* 4. 工具栏快捷按钮 */}
+        <div className="game-vocal-toolbar">
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            <button
+              type="button"
+              className="game-vocal-quick-btn"
+              onClick={handleSelectAllCurrentSub}
+              title="全选当前子类别全部 20 个语气词"
+            >
+              <Zap size={12} style={{ color: "#facc15" }} /> 全选当前 (20)
+            </button>
+            <button
+              type="button"
+              className="game-vocal-quick-btn"
+              onClick={() => handleRandomPick(3)}
+              title="随机抽选 3 条语气词"
+            >
+              🎲 抽 3 条
+            </button>
+            <button
+              type="button"
+              className="game-vocal-quick-btn"
+              onClick={() => handleRandomPick(5)}
+              title="随机抽选 5 条语气词"
+            >
+              🎲 抽 5 条
+            </button>
+            <button
+              type="button"
+              className="game-vocal-quick-btn"
+              onClick={() => handleRandomPick(10)}
+              title="随机抽选 10 条语气词"
+            >
+              🎲 抽 10 条
+            </button>
+          </div>
+          {selectedVocals.length > 0 ? (
+            <button
+              type="button"
+              className="game-vocal-quick-btn game-vocal-clear-btn"
+              onClick={handleClearAll}
+              title="清空所有已选语气词"
+            >
+              <Trash2 size={12} /> 清空
+            </button>
+          ) : null}
+        </div>
+
+        {/* 5. 语气词选择池 (4列网格) */}
+        <div className="game-vocal-items-grid">
+          {activeSubcategory.items.map((item, idx) => {
+            const checked = isItemChecked(item);
+            return (
+              <div
+                key={`${activeSubcategory.id}_${idx}_${item}`}
+                className={`game-vocal-item-chip ${checked ? "is-selected" : ""}`}
+                onClick={() => toggleVocalItem(item)}
+              >
+                <span>{item}</span>
+                {checked ? <Check size={13} style={{ color: "#a78bfa" }} /> : <Plus size={12} style={{ opacity: 0.4 }} />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 6. 已选语气词清单 */}
+        <div className="game-vocal-selected-bar">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span className="game-vocal-selected-title">
+              已选语气词队列 ({selectedVocals.length} 条)
+            </span>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="text"
+                className="nodrag game-vocal-custom-input"
+                placeholder="自定义语气词..."
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddCustom();
+                }}
+              />
+              <button
+                type="button"
+                className="game-vocal-quick-btn game-vocal-custom-add-btn"
+                onClick={handleAddCustom}
+                disabled={!customText.trim()}
+              >
+                + 添加
+              </button>
+            </div>
+          </div>
+          {selectedVocals.length > 0 ? (
+            <div className="game-vocal-selected-pills">
+              {selectedVocals.map((v) => (
+                <span key={v.id} className="game-vocal-selected-pill">
+                  <span>{v.text}</span>
+                  <button
+                    type="button"
+                    className="game-vocal-pill-remove-btn"
+                    onClick={() => handleRemoveItem(v.id)}
+                    title="移除此项"
+                  >
+                    <X size={10} strokeWidth={2.4} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="game-vocal-empty-hint">
+              点击上方词条或快速抽选按钮添加要生成的语气词。
+            </span>
+          )}
+        </div>
+
+        {/* 7. 发声与情绪风格指导 (Instruction) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div className="game-vocal-instruction-header">
+            <span className="game-vocal-instruction-title">拟声发声指导 (Prompt / Instruction)</span>
+            <span className="game-vocal-instruction-sub">切换分类自动推荐发声风格指导，亦可手动微调</span>
+          </div>
+          <textarea
+            className="nodrag nopan nowheel game-vocal-instruction-textarea"
+            value={data.instruction ?? ""}
+            onChange={(e) => patchData({ instruction: e.target.value })}
+            placeholder="例如：短促有力、爆发感强的战斗发力拟声，或机械合成质感、电子频响滤波..."
+          />
+        </div>
+
+        {/* 8. 拟声防拖音与精准控制面板 */}
+        <div className="game-vocal-precision-panel nodrag">
+          <div className="game-vocal-precision-header">
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Zap size={13} style={{ color: "#a78bfa" }} />
+              <span className="game-vocal-precision-title">拟声精准控制 & 极速防拖音</span>
+            </div>
+            <span className="game-vocal-precision-badge">MiMo 独家瞬态调优</span>
+          </div>
+
+          <div className="game-vocal-precision-body">
+            <div className="game-vocal-mode-group">
+              <span className="game-vocal-control-label">发声时长倾向:</span>
+              <div className="game-vocal-duration-pills">
+                <button
+                  type="button"
+                  className={`game-vocal-duration-pill ${(data.vocalDurationMode || "standard") === "ultra_short" ? "is-active" : ""}`}
+                  onClick={() => patchData({ vocalDurationMode: "ultra_short" })}
+                  title="限制在0.2~0.6s内，超短爆发瞬态，专治轻受击、跳跃、轻打等拖长音"
+                >
+                  ⚡ 超短瞬态 (0.3~0.6s)
+                </button>
+                <button
+                  type="button"
+                  className={`game-vocal-duration-pill ${(data.vocalDurationMode || "standard") === "standard" ? "is-active" : ""}`}
+                  onClick={() => patchData({ vocalDurationMode: "standard" })}
+                  title="推荐默认：0.6~1.2s，干净利索，单次爆发即止"
+                >
+                  🎯 标准利落 (0.6~1.2s)
+                </button>
+                <button
+                  type="button"
+                  className={`game-vocal-duration-pill ${(data.vocalDurationMode || "standard") === "dramatic" ? "is-active" : ""}`}
+                  onClick={() => patchData({ vocalDurationMode: "dramatic" })}
+                  title="1.2~2.5s，适用于野兽咆哮、长声叹息、反派长笑等戏剧场景"
+                >
+                  🎭 戏剧延展 (1.2~2.5s)
+                </button>
+              </div>
+            </div>
+
+            <div className="game-vocal-switches-row">
+              <label className="game-vocal-switch-label" title="自动向模型下达声带闭合与严禁拖长音的声学硬约束">
+                <input
+                  type="checkbox"
+                  checked={data.antiDrone !== false}
+                  onChange={(e) => patchData({ antiDrone: e.target.checked })}
+                />
+                <span>⚡ 极速防拖长</span>
+              </label>
+
+              <label className="game-vocal-switch-label" title="为英文拟声词自动注入声门/口型发声要领，消除模型生僻读音幻觉">
+                <input
+                  type="checkbox"
+                  checked={data.phoneticAnchor !== false}
+                  onChange={(e) => patchData({ phoneticAnchor: e.target.checked })}
+                />
+                <span>🗣️ 拟声发音强化</span>
+              </label>
+
+              <label className="game-vocal-switch-label" title="若模型偶发拖长声，在上限处平滑淡出截断，产物即拿即用">
+                <input
+                  type="checkbox"
+                  checked={data.autoTrimTail !== false}
+                  onChange={(e) => patchData({ autoTrimTail: e.target.checked })}
+                />
+                <span>✂️ 智能尾音截断</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* 8. 错误提示与运行状态 */}
+        {data.error ? <p className="node-error" style={{ margin: 0 }}>{data.error}</p> : null}
+
+        {/* 9. 一键生成按钮 */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="game-vocal-run-btn nodrag"
+            onClick={() => data.onRunGameVocalClone?.(id)}
+            disabled={data.isRunning || selectedVocals.length === 0}
+          >
+            {data.isRunning ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
+            <span>
+              {data.isRunning
+                ? (data.vocalProgressText || `正在生成 (${selectedVocals.length} 条)...`)
+                : refMode === "design"
+                ? `🎮 免参考·直接生成语气词 (共 ${selectedVocals.length} 条)`
+                : `🎮 一键生成语气词 (共 ${selectedVocals.length} 条)`}
+            </span>
+          </button>
+          {data.isRunning ? (
+            <button
+              type="button"
+              className="batch-abort-btn nodrag"
+              style={{ height: 42, flexShrink: 0, padding: "0 12px" }}
+              onClick={() => {
+                data.onPatch?.(id, { isRunning: false, error: "用户已手动暂停语气词生成。" });
+              }}
+              title="暂停生成"
+            >
+              <Square size={13} /> 暂停
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </StudioNodeFrame>
+  );
+});
 
 function ContextMenu({
   menu,
@@ -10387,24 +11650,9 @@ const DeletableEdge = memo(function DeletableEdge({
 }: EdgeProps<StudioEdge>) {
   const [isHovered, setIsHovered] = useState(false);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
-  const { screenToFlowPosition, getNode } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
 
-  const sourceNode = getNode(source);
-  let strokeColor = style?.stroke || "#c5a45d";
-
-  if (sourceNode) {
-    if (sourceNode.type === "voiceDesign" || sourceNode.type === "batchVoiceDesign") {
-      strokeColor = "#38bdf8";
-    } else if (sourceNode.type === "voiceClone" || sourceNode.type === "batchVoiceClone") {
-      strokeColor = "#facc15";
-    } else if (sourceNode.type === "audioMerge") {
-      strokeColor = "#ea580c";
-    } else if (sourceNode.type === "referenceAudio") {
-      strokeColor = "#facc15";
-    } else if (sourceNode.type === "integratedStudio") {
-      strokeColor = "#38bdf8";
-    }
-  }
+  const strokeColor = style?.stroke || "#c5a45d";
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -10415,7 +11663,7 @@ const DeletableEdge = memo(function DeletableEdge({
     targetPosition
   });
 
-  const updatePosFromEvent = useCallback(
+  const handleMouseEnter = useCallback(
     (e: React.MouseEvent) => {
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const closest = getClosestPointOnBezier(
@@ -10429,24 +11677,9 @@ const DeletableEdge = memo(function DeletableEdge({
         targetPosition
       );
       setHoverPos(closest);
-    },
-    [screenToFlowPosition, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition]
-  );
-
-  const handleMouseEnter = useCallback(
-    (e: React.MouseEvent) => {
-      updatePosFromEvent(e);
       setIsHovered(true);
     },
-    [updatePosFromEvent]
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      updatePosFromEvent(e);
-      if (!isHovered) setIsHovered(true);
-    },
-    [updatePosFromEvent, isHovered]
+    [screenToFlowPosition, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition]
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -10470,7 +11703,6 @@ const DeletableEdge = memo(function DeletableEdge({
       <g
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        onMouseMove={handleMouseMove}
       >
         <path className="edge-hover-path" d={edgePath} />
         <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={edgeStyle} />
@@ -10484,7 +11716,6 @@ const DeletableEdge = memo(function DeletableEdge({
           }}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
-          onMouseMove={handleMouseMove}
           style={{
             transform: `translate(-50%, -50%) translate(${buttonX}px, ${buttonY}px)`,
             borderColor: strokeColor,
@@ -10645,21 +11876,127 @@ function extractAudioAssetFromNode(node?: StudioNode): AudioAsset | undefined {
 
 function resolveCloneInputs(cloneNode: StudioNode, nodes: StudioNode[], edges: StudioEdge[]) {
   const incoming = edges.filter((edge) => edge.target === cloneNode.id);
-  const getSource = (targetHandle: string) => {
-    const edge = incoming.find((item) => item.targetHandle === targetHandle);
-    return edge ? nodes.find((node) => node.id === edge.source) : undefined;
+  const getSources = (targetHandle?: string) => {
+    return incoming
+      .filter((item) => !targetHandle || item.targetHandle === targetHandle)
+      .map((item) => nodes.find((node) => node.id === item.source))
+      .filter((n): n is StudioNode => Boolean(n));
   };
 
-  const voiceNode = getSource("voice");
-  const instructionNode = getSource("instruction");
-  const textNode = getSource("text");
+  // 1. 优先从连接到 voice 的上游节点中获取第一个有有效音频数据的节点（自动跳过空参考音频节点）
+  const voiceSources = getSources("voice");
+  let voiceAudio: AudioAsset | undefined;
+  for (const src of voiceSources) {
+    const asset = extractAudioAssetFromNode(src);
+    if (asset && asset.dataUrl) {
+      voiceAudio = asset;
+      break;
+    }
+  }
 
-  const voiceAudio = extractAudioAssetFromNode(voiceNode);
+  // 2. 如果 voice 未找到有效音频，从所有已连接到当前节点的上游节点（产物节点、参考节点等）自动寻找有效音频
+  if (!voiceAudio) {
+    const allSources = getSources();
+    for (const src of allSources) {
+      const asset = extractAudioAssetFromNode(src);
+      if (asset && asset.dataUrl) {
+        voiceAudio = asset;
+        break;
+      }
+    }
+  }
+
+  // 3. 提取 instruction (风格)
+  const instructionSources = getSources("instruction");
+  let instructionText = "";
+  for (const src of instructionSources) {
+    if (src.data.text?.trim()) {
+      instructionText = src.data.text.trim();
+      break;
+    }
+  }
+
+  // 4. 提取 text (台词)
+  const textSources = getSources("text");
+  let text = "";
+  for (const src of textSources) {
+    if (src.data.text?.trim()) {
+      text = src.data.text.trim();
+      break;
+    }
+  }
 
   return {
     audio: voiceAudio ?? cloneNode.data.audio,
-    instruction: instructionNode?.data.text ?? cloneNode.data.instruction ?? "",
-    text: textNode?.data.text ?? cloneNode.data.text ?? ""
+    instruction: instructionText || (cloneNode.data.instruction ?? ""),
+    text: text || (cloneNode.data.text ?? "")
+  };
+}
+
+function resolveGameVocalInputs(
+  vocalNode: StudioNode,
+  nodes: StudioNode[],
+  edges: StudioEdge[]
+): {
+  audio?: AudioAsset;
+  sourceTitle?: string;
+  sourceNodeType?: string;
+  instruction?: string;
+} {
+  const incoming = edges.filter((edge) => edge.target === vocalNode.id);
+  const getSources = (targetHandle?: string) => {
+    return incoming
+      .filter((item) => !targetHandle || item.targetHandle === targetHandle)
+      .map((item) => nodes.find((node) => node.id === item.source))
+      .filter((n): n is StudioNode => Boolean(n));
+  };
+
+  // 1. 优先从连接到 voice 的上游节点寻找音频
+  let voiceAudio: AudioAsset | undefined;
+  let sourceTitle: string | undefined;
+  let sourceNodeType: string | undefined;
+
+  const voiceSources = getSources("voice");
+  for (const src of voiceSources) {
+    const asset = extractAudioAssetFromNode(src);
+    if (asset && asset.dataUrl) {
+      voiceAudio = asset;
+      sourceTitle = src.data.title || src.type;
+      sourceNodeType = src.type;
+      break;
+    }
+  }
+
+  // 2. 如果未指定 targetHandle="voice"，从所有连接到当前节点的上游节点（自动排除纯文本节点）寻找有效音频
+  if (!voiceAudio) {
+    const allSources = getSources();
+    for (const src of allSources) {
+      if (src.type === "voiceStyle" || src.type === "prompt") continue;
+      const asset = extractAudioAssetFromNode(src);
+      if (asset && asset.dataUrl) {
+        voiceAudio = asset;
+        sourceTitle = src.data.title || src.type;
+        sourceNodeType = src.type;
+        break;
+      }
+    }
+  }
+
+  // 3. 提取 instruction (连接至 instruction 或 style)
+  const instructionSources = getSources("instruction").concat(getSources("style"));
+  let instructionText = "";
+  for (const src of instructionSources) {
+    if (src.data.text?.trim()) {
+      instructionText = src.data.text.trim();
+      break;
+    }
+  }
+
+  return {
+    audio: voiceAudio ?? vocalNode.data.audio,
+    sourceTitle,
+    sourceNodeType,
+    instruction: instructionText || vocalNode.data.instruction || ""
   };
 }
 
@@ -10754,6 +12091,33 @@ function resolveVoiceDesignInstructionInputs(designNode: StudioNode, nodes: Stud
     .filter(Boolean);
 }
 
+async function trimVocalAudioDataUrl(
+  dataUrl: string,
+  mode: GameVocalDurationMode
+): Promise<{ dataUrl: string; size: number }> {
+  const AudioContextConstructor =
+    window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) return { dataUrl, size: 0 };
+  const context = new AudioContextConstructor();
+  try {
+    const u8 = await fetchAudioUint8Array(dataUrl);
+    const arrayBuf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+    const decoded = await context.decodeAudioData(arrayBuf);
+
+    let maxSec = mode === "ultra_short" ? 0.75 : mode === "dramatic" ? 2.6 : 1.35;
+    if (decoded.duration <= maxSec) {
+      return { dataUrl, size: u8.byteLength };
+    }
+
+    const trimmedBuffer = smartTrimGameVocalAudioBuffer(decoded, context, mode);
+    const blob = encodeAudioBufferToWav(trimmedBuffer);
+    const trimmedDataUrl = await blobToDataUrl(blob);
+    return { dataUrl: trimmedDataUrl, size: blob.size };
+  } finally {
+    await context.close();
+  }
+}
+
 function createArtifactNode(
   sourceNode: StudioNode,
   result: DebugResponse,
@@ -10762,7 +12126,9 @@ function createArtifactNode(
   currentNodes?: StudioNode[],
   currentEdges?: StudioEdge[]
 ): StudioNode {
-  const sourceTitle = sourceNode.data.title?.trim() || "产物";
+  const rawTitle = sourceNode.data.title?.trim();
+  const defaultTitle = sourceNode.type === "voiceDesign" ? "音色设计" : sourceNode.type === "gameVocal" ? "游戏语气词" : "音频克隆";
+  const sourceTitle = (rawTitle && rawTitle !== "节点名称") ? rawTitle : defaultTitle;
 
   let initialMaxSeq = 0;
   if (currentNodes && currentEdges) {
@@ -10784,13 +12150,16 @@ function createArtifactNode(
   const seqNum = initialMaxSeq + index + 1;
 
   const itemIndexStr = String(seqNum).padStart(2, "0");
-  const artifactTitle = `${sourceTitle}_${itemIndexStr}`;
+  const baseTitle = _title?.trim() ? `${sourceTitle}_${_title.trim()}` : sourceTitle;
+  const artifactTitle = `${baseTitle}_${itemIndexStr}`;
+  const artifactFileName = `${artifactTitle}.wav`;
 
+  const nodeWidth = (sourceNode.type === "gameVocal" || sourceNode.type === "batchVoiceClone" || sourceNode.type === "integratedStudio") ? 660 : 360;
   const col = (seqNum - 1) % 3;
   const rowPos = Math.floor((seqNum - 1) / 3);
   const stepX = 400;
   const stepY = 205;
-  const startX = sourceNode.position.x + (sourceNode.type === "voiceDesign" ? 420 : 380);
+  const startX = sourceNode.position.x + nodeWidth + 60;
 
   return {
     id: createId("artifact"),
@@ -10803,7 +12172,7 @@ function createArtifactNode(
       title: artifactTitle,
       seqIndex: seqNum,
       artifact: {
-        fileName: result.fileName,
+        fileName: artifactFileName,
         audioDataUrl: result.audioDataUrl,
         elapsedMs: result.elapsedMs,
         createdAt: new Date().toISOString(),
@@ -11522,7 +12891,7 @@ function ExportWorkspaceModal({
         }
 
         if (exportFormat === "zip") {
-          const zip = new JSZip();
+          const zip = await createZipInstance();
           const usedNames = new Set<string>();
 
           for (const ws of exportWorkspaces) {

@@ -5,10 +5,173 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="/icon.ico" />
     <link rel="icon" type="image/png" href="/icon.png" />
-    <title>MiMo 音色复刻调试台</title>
+    <title>铸光音频工作站</title>
+    <script>
+      (function() {
+        try {
+          const savedTheme = localStorage.getItem("mimo_theme_settings");
+          const isSystemLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+          let isLight = isSystemLight;
+          let colors = null;
+
+          if (savedTheme) {
+            const parsed = JSON.parse(savedTheme);
+            const mode = parsed.mode === "system" ? (isSystemLight ? "light" : "dark") : parsed.mode;
+            isLight = mode === "light";
+            colors = isLight ? parsed.lightTheme : parsed.darkTheme;
+          }
+
+          const defaultLightBg = "#ffffff";
+          const defaultDarkBg = "#080807";
+          const bgColor = colors?.bgColor || (isLight ? defaultLightBg : defaultDarkBg);
+          const fgColor = colors?.fgColor || (isLight ? "#0f172a" : "#efe7cf");
+
+          const root = document.documentElement;
+          if (isLight) {
+            root.setAttribute("data-theme", "light");
+            root.style.setProperty("--bg-panel", "#ffffff");
+            root.style.setProperty("--bg-input", "#ffffff");
+            root.style.setProperty("--bg-button", "#e9ecef");
+            root.style.setProperty("--text-muted", "#6c757d");
+            root.style.setProperty("--border-color", (colors?.accentColor || "#2563eb") + "33");
+          } else {
+            root.setAttribute("data-theme", "dark");
+            root.style.setProperty("--bg-panel", "rgba(22, 22, 26, 0.96)");
+            root.style.setProperty("--bg-input", "rgba(10, 10, 12, 0.88)");
+            root.style.setProperty("--bg-button", "rgba(35, 36, 42, 0.92)");
+            root.style.setProperty("--text-muted", "#94a3b8");
+            root.style.setProperty("--border-color", (colors?.accentColor || "#c5a45d") + "44");
+          }
+
+          root.style.setProperty("--bg-main", bgColor);
+          root.style.setProperty("--text-main", fgColor);
+          if (colors) {
+            root.style.setProperty("--accent-color", colors.accentColor);
+            root.style.setProperty("--bg-node", colors.nodeColor || (isLight ? "#ffffff" : "rgba(18, 18, 22, 0.97)"));
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background-color: var(--bg-main, #ffffff);
+        color: var(--text-main, #0f172a);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+        overflow: hidden;
+        user-select: none;
+      }
+      @media (prefers-color-scheme: dark) {
+        html, body {
+          background-color: var(--bg-main, #080807);
+          color: var(--text-main, #efe7cf);
+        }
+      }
+
+      /* 原生轻量开屏微光骨架屏 */
+      .mimo-app-skeleton {
+        display: flex;
+        flex-direction: column;
+        width: 100vw;
+        height: 100vh;
+        background: var(--bg-main, #080807);
+        overflow: hidden;
+      }
+      .mimo-skel-topbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border-color, rgba(148, 163, 184, 0.15));
+        background: var(--bg-panel, rgba(22, 22, 26, 0.6));
+      }
+      .mimo-skel-body {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+      .mimo-skel-sidebar {
+        width: 260px;
+        border-right: 1px solid var(--border-color, rgba(148, 163, 184, 0.15));
+        background: var(--bg-panel, rgba(22, 22, 26, 0.4));
+        padding: 16px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .mimo-skel-canvas {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        background: radial-gradient(circle at center, rgba(139, 92, 246, 0.05) 0%, transparent 70%);
+      }
+      .mimo-skel-pulse {
+        background: rgba(148, 163, 184, 0.12);
+        border-radius: 6px;
+        animation: mimo-skel-shimmer 1.6s ease-in-out infinite alternate;
+      }
+      .mimo-skel-badge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        opacity: 0.85;
+      }
+      .mimo-skel-logo {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #c5a45d, #8b5cf6);
+        box-shadow: 0 8px 24px rgba(139, 92, 246, 0.3);
+        animation: mimo-skel-breath 2s ease-in-out infinite alternate;
+      }
+      .mimo-skel-text {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        color: var(--text-muted, #94a3b8);
+      }
+      @keyframes mimo-skel-shimmer {
+        0% { opacity: 0.3; }
+        100% { opacity: 0.7; }
+      }
+      @keyframes mimo-skel-breath {
+        0% { transform: scale(0.96); filter: drop-shadow(0 4px 12px rgba(139, 92, 246, 0.2)); }
+        100% { transform: scale(1.04); filter: drop-shadow(0 8px 28px rgba(197, 164, 93, 0.45)); }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="mimo-app-skeleton">
+        <div class="mimo-skel-topbar">
+          <div class="mimo-skel-pulse" style="width: 140px; height: 26px;"></div>
+          <div class="mimo-skel-pulse" style="width: 220px; height: 22px;"></div>
+          <div class="mimo-skel-pulse" style="width: 110px; height: 26px;"></div>
+        </div>
+        <div class="mimo-skel-body">
+          <div class="mimo-skel-sidebar">
+            <div class="mimo-skel-pulse" style="width: 80%; height: 32px; margin-bottom: 8px;"></div>
+            <div class="mimo-skel-pulse" style="width: 90%; height: 24px;"></div>
+            <div class="mimo-skel-pulse" style="width: 75%; height: 24px;"></div>
+            <div class="mimo-skel-pulse" style="width: 85%; height: 24px;"></div>
+            <div class="mimo-skel-pulse" style="width: 60%; height: 24px;"></div>
+          </div>
+          <div class="mimo-skel-canvas">
+            <div class="mimo-skel-badge">
+              <div class="mimo-skel-logo"></div>
+              <span class="mimo-skel-text">铸光音频工作站 正在加载画板...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
