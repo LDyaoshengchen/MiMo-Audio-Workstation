@@ -16,6 +16,7 @@ release-build/
 data/
 temp/
 output/
+scratch/
 .claude/
 *.tsbuildinfo
 npm-debug.log*

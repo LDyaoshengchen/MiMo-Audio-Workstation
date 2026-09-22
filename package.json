@@ -1,6 +1,6 @@
 {
   "name": "mimo-voiceclone-debugger",
-  "version": "0.8.31",
+  "version": "0.8.32",
   "description": "MiMo Audio Workstation",
   "author": "MiMo Team",
   "repository": "https://github.com/LDyaoshengchen/MiMo-Audio-Workstation",
@@ -11,7 +11,7 @@
     "dev": "concurrently -k -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite --host 0.0.0.0",
     "dev:server": "tsx watch --exclude \"data/**\" server/index.ts",
-    "build": "tsc -b && vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=build/server/index.cjs",
+    "build": "tsc -b && vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=build/server/index.cjs && node scripts/sync-desktop.cjs",
     "preview": "vite preview --host 0.0.0.0",
     "electron": "npm run build && electron electron/main.cjs",
     "test": "vitest run",

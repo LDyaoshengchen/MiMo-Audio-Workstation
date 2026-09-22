@@ -59,6 +59,8 @@ import {
   Palette,
   Play,
   Plus,
+  Minus,
+  Maximize2,
   RefreshCw,
   RotateCcw,
   Save,
@@ -77,6 +79,7 @@ import {
   Upload,
   Mic,
   Zap,
+  Info,
   X
 } from "lucide-react";
 import { ChangeEvent, Fragment, MouseEvent, ReactNode, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -121,20 +124,38 @@ type StatusResponse = {
   allowedMimeTypes: string[];
 };
 
+export interface AppleConfirmOptions {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  isDestructive?: boolean;
+  icon?: "trash" | "warning" | "info" | "sparkles";
+}
+
+let globalAppleConfirmHandler: ((opts: AppleConfirmOptions) => Promise<boolean>) | null = null;
+
+export function showAppleConfirm(opts: AppleConfirmOptions): Promise<boolean> {
+  if (globalAppleConfirmHandler) {
+    return globalAppleConfirmHandler(opts);
+  }
+  return Promise.resolve(window.confirm(`${opts.title}\n\n${opts.message || ""}`));
+}
+
 const NODE_COLOR_MAP: Record<string, string> = {
-  referenceAudio: "#f59e0b",
-  audioMerge: "#fb923c",
-  voiceStyle: "#c084fc",
-  prompt: "#34d399",
-  voiceClone: "#facc15",
-  voiceDesign: "#38bdf8",
-  artifact: "#fef08a",
-  batchVoiceClone: "#facc15",
-  batchVoiceDesign: "#38bdf8",
-  batchArtifact: "#fef08a",
-  integratedStudio: "#f8fafc",
-  gameVocal: "#8b5cf6",
-  comment: "#94a3b8"
+  referenceAudio: "#0a84ff", // Apple Blue
+  audioMerge: "#fb923c",     // Apple Coral / Rose
+  voiceStyle: "#af52de",     // Apple Purple
+  prompt: "#30d158",         // Apple Mint
+  voiceClone: "#f5a623",     // Warm Amber
+  voiceDesign: "#00c7be",    // Apple Cyan / Teal
+  artifact: "#e5c07b",       // Platinum Gold
+  batchVoiceClone: "#f5a623",// Warm Amber
+  batchVoiceDesign: "#00c7be", // Apple Cyan / Teal
+  batchArtifact: "#e5c07b",   // Platinum Gold
+  integratedStudio: "#e5e5ea",// Titanium Platinum
+  gameVocal: "#bf5af2",      // Apple Indigo / Purple
+  comment: "#8e8e93"         // Apple Slate
 };
 
 type ApiSettingsResponse = {
@@ -851,14 +872,14 @@ interface ThemeConfig {
 }
 
 const lightPresets: Record<string, { label: string; bgColor: string; fgColor: string; accentColor: string; nodeColor: string }> = {
-  default: { label: "Default Light", bgColor: "#f8fafc", fgColor: "#0f172a", accentColor: "#2563eb", nodeColor: "#ffffff" },
+  default: { label: "Apple Light (苹果浅色)", bgColor: "#f2f2f7", fgColor: "#1d1d1f", accentColor: "#0071e3", nodeColor: "#ffffff" },
   catppuccin: { label: "Catppuccin", bgColor: "#eff1f5", fgColor: "#4c4f69", accentColor: "#8839ef", nodeColor: "#ffffff" },
   onelight: { label: "One Light", bgColor: "#fafafa", fgColor: "#383a42", accentColor: "#4078f2", nodeColor: "#ffffff" },
   solarized: { label: "Solarized Light", bgColor: "#fdf6e3", fgColor: "#657b83", accentColor: "#268bd2", nodeColor: "#eee8d5" }
 };
 
 const darkPresets: Record<string, { label: string; bgColor: string; fgColor: string; accentColor: string; nodeColor: string }> = {
-  default: { label: "Default Dark", bgColor: "#0a0b0d", fgColor: "#f8fafc", accentColor: "#007acc", nodeColor: "#121216" },
+  default: { label: "Apple Pro Dark (苹果深色)", bgColor: "#0d0e11", fgColor: "#f5f5f7", accentColor: "#0a84ff", nodeColor: "#16161a" },
   catppuccin: { label: "Catppuccin", bgColor: "#1e1e2e", fgColor: "#cdd6f4", accentColor: "#cba6f7", nodeColor: "#181825" },
   dracula: { label: "Dracula", bgColor: "#282a36", fgColor: "#f8f8f2", accentColor: "#bd93f9", nodeColor: "#21222c" },
   monokai: { label: "Monokai", bgColor: "#272822", fgColor: "#f8f8f2", accentColor: "#f92672", nodeColor: "#1e1f1c" },
@@ -879,13 +900,25 @@ function getInitialTheme(): ThemeConfig {
     const saved = localStorage.getItem("mimo_theme_settings");
     if (saved) {
       const parsed = JSON.parse(saved);
+      // 彻底净化旧版残留标题，默认保持纯净留空
+      if (!parsed.brandTitleZh || parsed.brandTitleZh.includes("铸光")) {
+        parsed.brandTitleZh = "";
+      }
+      if (!parsed.brandTitleEn || parsed.brandTitleEn.includes("ZHUGUANG")) {
+        parsed.brandTitleEn = "";
+      }
+      parsed.brandInitialized = true;
+      try {
+        localStorage.setItem("mimo_theme_settings", JSON.stringify(parsed));
+      } catch {}
+
       if (parsed.lightTheme && parsed.darkTheme && parsed.mode) {
         return {
           ...parsed,
           lightTheme: { ...defaultLight, ...parsed.lightTheme },
           darkTheme: { ...defaultDark, ...parsed.darkTheme },
-          brandTitleZh: parsed.brandTitleZh ?? "铸光音频工作站",
-          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION",
+          brandTitleZh: parsed.brandTitleZh || "",
+          brandTitleEn: parsed.brandTitleEn || "",
           autoHideTopbar: parsed.autoHideTopbar ?? true
         };
       }
@@ -896,8 +929,8 @@ function getInitialTheme(): ThemeConfig {
           darkTheme: parsed.preset === "custom" || parsed.bgColor
             ? { preset: "custom", bgColor: parsed.bgColor || defaultDark.bgColor, fgColor: parsed.fgColor || defaultDark.fgColor, accentColor: parsed.accentColor || defaultDark.accentColor, nodeColor: defaultDark.nodeColor }
             : defaultDark,
-          brandTitleZh: parsed.brandTitleZh ?? "铸光音频工作站",
-          brandTitleEn: parsed.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION",
+          brandTitleZh: parsed.brandTitleZh || "",
+          brandTitleEn: parsed.brandTitleEn || "",
           autoHideTopbar: parsed.autoHideTopbar ?? true
         };
       }
@@ -908,18 +941,126 @@ function getInitialTheme(): ThemeConfig {
     mode: "system",
     lightTheme: defaultLight,
     darkTheme: defaultDark,
-    brandTitleZh: "铸光音频工作站",
-    brandTitleEn: "ZHUGUANG AUDIO WORKSTATION",
+    brandTitleZh: "",
+    brandTitleEn: "",
     autoHideTopbar: true
   };
 }
 
+function AppleCanvasControls() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  return (
+    <div className="apple-canvas-controls nodrag">
+      <button
+        type="button"
+        className="apple-canvas-ctrl-btn"
+        onClick={() => zoomIn({ duration: 220 })}
+        title="放大视图 (Ctrl + +)"
+        aria-label="放大"
+      >
+        <Plus size={15} strokeWidth={2.2} />
+      </button>
+      <div className="apple-canvas-ctrl-divider" />
+      <button
+        type="button"
+        className="apple-canvas-ctrl-btn"
+        onClick={() => zoomOut({ duration: 220 })}
+        title="缩小视图 (Ctrl + -)"
+        aria-label="缩小"
+      >
+        <Minus size={15} strokeWidth={2.2} />
+      </button>
+      <div className="apple-canvas-ctrl-divider" />
+      <button
+        type="button"
+        className="apple-canvas-ctrl-btn"
+        onClick={() => fitView({ duration: 260, padding: 0.2 })}
+        title="适应画布全景 (Space + 0)"
+        aria-label="适应画布"
+      >
+        <Maximize2 size={13} strokeWidth={2.2} />
+      </button>
+    </div>
+  );
+}
+
 function StudioApp() {
   const [themeConfig, setThemeConfig] = useState<ThemeConfig>(getInitialTheme);
+  const [systemMode, setSystemMode] = useState<"dark" | "light">(resolveSystemMode);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemMode(e.matches ? "dark" : "light");
+    };
+    mq.addEventListener("change", handler);
+
+    const unsubscribe = (window as any).electronApi?.onNativeThemeChanged?.((data: any) => {
+      setSystemMode(data.shouldUseDarkColors ? "dark" : "light");
+    });
+
+    return () => {
+      mq.removeEventListener("change", handler);
+      unsubscribe?.();
+    };
+  }, []);
+
+  const effectiveMode = themeConfig.mode === "system" ? systemMode : themeConfig.mode;
+  const isLight = effectiveMode === "light";
   const [showAppearanceModal, setShowAppearanceModal] = useState(false);
   const [showLightCustomColors, setShowLightCustomColors] = useState(false);
   const [showDarkCustomColors, setShowDarkCustomColors] = useState(false);
   const [showStoragePathModal, setShowStoragePathModal] = useState(false);
+  const [appleConfirmState, setAppleConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message?: string;
+    confirmLabel: string;
+    cancelLabel: string;
+    isDestructive: boolean;
+    icon: "trash" | "warning" | "info" | "sparkles";
+    resolve: (val: boolean) => void;
+  } | null>(null);
+
+  useEffect(() => {
+    globalAppleConfirmHandler = (opts: AppleConfirmOptions) => {
+      return new Promise<boolean>((resolve) => {
+        setAppleConfirmState({
+          isOpen: true,
+          title: opts.title,
+          message: opts.message,
+          confirmLabel: opts.confirmLabel ?? (opts.isDestructive !== false ? "清空" : "确定"),
+          cancelLabel: opts.cancelLabel ?? "取消",
+          isDestructive: opts.isDestructive !== false,
+          icon: opts.icon ?? (opts.isDestructive !== false ? "trash" : "warning"),
+          resolve
+        });
+      });
+    };
+    return () => {
+      globalAppleConfirmHandler = null;
+    };
+  }, []);
+
+  const handleAppleConfirmClose = useCallback((result: boolean) => {
+    if (appleConfirmState) {
+      appleConfirmState.resolve(result);
+      setAppleConfirmState(null);
+    }
+  }, [appleConfirmState]);
+
+  useEffect(() => {
+    if (!appleConfirmState?.isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleAppleConfirmClose(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [appleConfirmState, handleAppleConfirmClose]);
+
   const [deleteModalState, setDeleteModalState] = useState<{
     isOpen: boolean;
     title: string;
@@ -1048,8 +1189,6 @@ function StudioApp() {
   }, [workspaces]);
 
   useLayoutEffect(() => {
-    const effectiveMode = themeConfig.mode === "system" ? resolveSystemMode() : themeConfig.mode;
-    const isLight = effectiveMode === "light";
     const activeColors = isLight ? themeConfig.lightTheme : themeConfig.darkTheme;
     const clientTheme = {
       mode: themeConfig.mode,
@@ -1309,8 +1448,6 @@ function StudioApp() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const effectiveMode = themeConfig.mode === "system" ? resolveSystemMode() : themeConfig.mode;
-    const isLight = effectiveMode === "light";
     const activeColors = isLight ? themeConfig.lightTheme : themeConfig.darkTheme;
 
     root.style.setProperty("--bg-main", activeColors.bgColor);
@@ -1320,18 +1457,18 @@ function StudioApp() {
 
     if (isLight) {
       root.setAttribute("data-theme", "light");
-      root.style.setProperty("--bg-panel", "#ffffff");
-      root.style.setProperty("--bg-input", "#ffffff");
-      root.style.setProperty("--bg-button", "#e9ecef");
-      root.style.setProperty("--text-muted", "#6c757d");
-      root.style.setProperty("--border-color", `${activeColors.accentColor}33`);
+      root.style.setProperty("--bg-panel", "rgba(255, 255, 255, 0.88)");
+      root.style.setProperty("--bg-input", "rgba(255, 255, 255, 0.95)");
+      root.style.setProperty("--bg-button", "rgba(0, 0, 0, 0.05)");
+      root.style.setProperty("--text-muted", "#6e6e73");
+      root.style.setProperty("--border-color", "rgba(0, 0, 0, 0.08)");
     } else {
       root.setAttribute("data-theme", "dark");
-      root.style.setProperty("--bg-panel", "rgba(22, 22, 26, 0.96)");
-      root.style.setProperty("--bg-input", "rgba(10, 10, 12, 0.88)");
-      root.style.setProperty("--bg-button", "rgba(35, 36, 42, 0.92)");
-      root.style.setProperty("--text-muted", "#94a3b8");
-      root.style.setProperty("--border-color", `${activeColors.accentColor}44`);
+      root.style.setProperty("--bg-panel", "rgba(22, 23, 27, 0.86)");
+      root.style.setProperty("--bg-input", "rgba(0, 0, 0, 0.28)");
+      root.style.setProperty("--bg-button", "rgba(255, 255, 255, 0.08)");
+      root.style.setProperty("--text-muted", "#a1a1a6");
+      root.style.setProperty("--border-color", "rgba(255, 255, 255, 0.08)");
     }
 
     try {
@@ -1346,7 +1483,7 @@ function StudioApp() {
         });
       }
     } catch { /* ignore */ }
-  }, [themeConfig]);
+  }, [themeConfig, effectiveMode, isLight]);
 
   function updateMode(mode: ThemeConfig["mode"]) {
     setThemeConfig((prev) => ({ ...prev, mode }));
@@ -1427,8 +1564,8 @@ function StudioApp() {
       mode: "system",
       lightTheme: { preset: "default", ...lightPresets.default },
       darkTheme: { preset: "default", ...darkPresets.default },
-      brandTitleZh: "铸光音频工作站",
-      brandTitleEn: "ZHUGUANG AUDIO WORKSTATION",
+      brandTitleZh: "",
+      brandTitleEn: "",
       autoHideTopbar: true
     });
     setTopbarCollapsed(false);
@@ -2138,7 +2275,7 @@ function StudioApp() {
         return cached.resultEdge;
       }
       const sourceNode = nodeMap.get(edge.source);
-      const strokeColor = edge.style?.stroke || (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#c5a45d";
+      const strokeColor = edge.style?.stroke || (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#0a84ff";
       const newResultData = {
         ...edge.data,
         onDeleteEdge: deleteEdge
@@ -2968,18 +3105,19 @@ function StudioApp() {
     await loadWorkspaceList();
   }
 
-  function promptDeleteCurrentWorkspace() {
+  async function promptDeleteCurrentWorkspace() {
     if (!activeWorkspace) return;
-    setDeleteModalState({
-      isOpen: true,
+    const confirmed = await showAppleConfirm({
       title: "删除画板",
       message: `确定要删除「${activeWorkspace.name}」吗？删除后不可恢复。`,
-      confirmLabel: "确定删除",
-      onConfirm: async () => {
-        setDeleteModalState((s) => ({ ...s, isOpen: false }));
-        await executeDeleteWorkspace(activeWorkspace.id);
-      }
+      confirmLabel: "删除画板",
+      cancelLabel: "取消",
+      isDestructive: true,
+      icon: "trash"
     });
+    if (confirmed) {
+      await executeDeleteWorkspace(activeWorkspace.id);
+    }
   }
 
   function openSaveAsModal(target?: WorkspaceSummary) {
@@ -3382,19 +3520,20 @@ function StudioApp() {
     }
   }
 
-  function promptBatchDeleteWorkspaces() {
+  async function promptBatchDeleteWorkspaces() {
     const ids = Array.from(selectedWorkspaceIds);
     if (ids.length === 0) return;
-    setDeleteModalState({
-      isOpen: true,
+    const confirmed = await showAppleConfirm({
       title: "批量删除画板",
       message: `确定要批量删除选中的 ${ids.length} 个画板吗？删除后画板数据不可恢复。`,
-      confirmLabel: `确定删除 (${ids.length})`,
-      onConfirm: async () => {
-        setDeleteModalState((s) => ({ ...s, isOpen: false }));
-        await executeBatchDeleteWorkspaces(ids);
-      }
+      confirmLabel: `删除画板 (${ids.length})`,
+      cancelLabel: "取消",
+      isDestructive: true,
+      icon: "trash"
     });
+    if (confirmed) {
+      await executeBatchDeleteWorkspaces(ids);
+    }
   }
 
   async function batchExportSelectedWorkspaces() {
@@ -3651,7 +3790,7 @@ function StudioApp() {
       const currentNodes = nodesRef.current;
       const sourceNode = currentNodes.find((n) => n.id === connection.source);
       const targetNode = currentNodes.find((n) => n.id === connection.target);
-      const strokeColor = (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#c5a45d";
+      const strokeColor = (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#0a84ff";
 
       setEdges((items) =>
         addEdge(
@@ -3772,7 +3911,7 @@ function StudioApp() {
 
       if (handleType === "source") {
         const sourceNode = nodesRef.current.find((n) => n.id === sourceId);
-        const strokeColor = (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#c5a45d";
+        const strokeColor = (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#0a84ff";
         newEdge = {
           id: createId("edge"),
           source: sourceId,
@@ -3784,7 +3923,7 @@ function StudioApp() {
           style: { stroke: strokeColor, strokeWidth: 2 }
         };
       } else {
-        const strokeColor = NODE_COLOR_MAP[type] || "#c5a45d";
+        const strokeColor = NODE_COLOR_MAP[type] || "#0a84ff";
         newEdge = {
           id: createId("edge"),
           source: newNodeId,
@@ -4338,7 +4477,7 @@ function StudioApp() {
             targetHandle: "artifact",
             type: "deletable",
             animated: true,
-            style: { stroke: "#c5a45d", strokeWidth: 2 }
+            style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
           };
 
           setNodes((items) => items.concat(newArtifactNode));
@@ -4883,7 +5022,7 @@ function StudioApp() {
           targetHandle: "artifact",
           type: "deletable",
           animated: true,
-          style: { stroke: "#c5a45d", strokeWidth: 2 }
+          style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
         };
 
         setNodes((items) => items.concat(artifactNode));
@@ -5188,8 +5327,8 @@ function StudioApp() {
         }}
       >
         <div className="brand-block">
-          <span className="brand-kicker">{themeConfig.brandTitleEn || "ZHUGUANG AUDIO WORKSTATION"}</span>
-          <h1>{themeConfig.brandTitleZh || "铸光音频工作站"}</h1>
+          {themeConfig.brandTitleEn ? <span className="brand-kicker">{themeConfig.brandTitleEn}</span> : null}
+          {themeConfig.brandTitleZh ? <h1>{themeConfig.brandTitleZh}</h1> : null}
         </div>
         <div className="topbar-actions">
           <StatusPill apiKey={apiKey} serverConfigured={serverApiKeyConfigured} onOpenModal={openApiKeyModal} />
@@ -5385,9 +5524,9 @@ function StudioApp() {
                       <input
                         type="text"
                         className="appearance-text-input"
-                        value={themeConfig.brandTitleZh ?? "铸光音频工作站"}
+                        value={themeConfig.brandTitleZh || ""}
                         onChange={(e) => updateBrandTitle("brandTitleZh", e.target.value)}
-                        placeholder="铸光音频工作站"
+                        placeholder="留空或输入工作站名称"
                       />
                     </div>
                     <div className="appearance-col">
@@ -5395,9 +5534,9 @@ function StudioApp() {
                       <input
                         type="text"
                         className="appearance-text-input"
-                        value={themeConfig.brandTitleEn ?? "ZHUGUANG AUDIO WORKSTATION"}
+                        value={themeConfig.brandTitleEn || ""}
                         onChange={(e) => updateBrandTitle("brandTitleEn", e.target.value)}
-                        placeholder="ZHUGUANG AUDIO WORKSTATION"
+                        placeholder="留空或输入英文标识"
                       />
                     </div>
                   </div>
@@ -5798,64 +5937,54 @@ function StudioApp() {
         </div>
       )}
 
-      {deleteModalState.isOpen && (
+      {appleConfirmState?.isOpen && (
         <div
-          className="api-key-modal"
+          className="apple-modal-overlay"
           onMouseDown={handleBackdropMouseDown}
-          onClick={(e) => handleBackdropClick(e, () => setDeleteModalState((s) => ({ ...s, isOpen: false })))}
+          onClick={(e) => handleBackdropClick(e, () => handleAppleConfirmClose(false))}
         >
           <div
-            className="api-key-modal-content"
-            style={{ maxWidth: 440 }}
+            className="apple-confirm-dialog"
             onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
           >
-            <div className="api-key-modal-header">
-              <h3 style={{ color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
-                <Trash2 size={18} />
-                {deleteModalState.title}
-              </h3>
-              <button
-                className="api-key-modal-close"
-                type="button"
-                onClick={() => setDeleteModalState((s) => ({ ...s, isOpen: false }))}
-              >
-                <X size={18} />
-              </button>
+            <div className="apple-confirm-badge-wrap">
+              <div className={`apple-confirm-icon-badge ${appleConfirmState.isDestructive ? "destructive" : "accent"}`}>
+                {appleConfirmState.icon === "trash" ? (
+                  <Trash2 size={24} />
+                ) : appleConfirmState.icon === "info" ? (
+                  <Info size={24} />
+                ) : appleConfirmState.icon === "sparkles" ? (
+                  <Sparkles size={24} />
+                ) : (
+                  <AlertTriangle size={24} />
+                )}
+              </div>
             </div>
-            <div className="api-key-modal-body" style={{ padding: "20px 20px 10px 20px" }}>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "var(--text-main, #f8fafc)" }}>
-                {deleteModalState.message}
-              </p>
+
+            <div className="apple-confirm-content">
+              <h3 className="apple-confirm-title">{appleConfirmState.title}</h3>
+              {appleConfirmState.message ? (
+                <p className="apple-confirm-message">{appleConfirmState.message}</p>
+              ) : null}
             </div>
-            <div className="api-key-modal-footer">
+
+            <div className="apple-confirm-actions">
               <button
                 type="button"
-                className="api-key-btn-cancel"
-                onClick={() => setDeleteModalState((s) => ({ ...s, isOpen: false }))}
+                className="apple-confirm-btn cancel"
+                onClick={() => handleAppleConfirmClose(false)}
+                autoFocus
               >
-                取消
+                {appleConfirmState.cancelLabel}
               </button>
               <button
                 type="button"
-                className="integrated-danger-btn"
-                style={{
-                  height: 38,
-                  padding: "0 18px",
-                  borderRadius: 8,
-                  background: "#dc2626",
-                  borderColor: "#dc2626",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6
-                }}
-                onClick={() => void deleteModalState.onConfirm()}
+                className={`apple-confirm-btn confirm ${appleConfirmState.isDestructive ? "destructive" : "primary"}`}
+                onClick={() => handleAppleConfirmClose(true)}
               >
-                <Trash2 size={15} />
-                {deleteModalState.confirmLabel || "确认删除"}
+                {appleConfirmState.confirmLabel}
               </button>
             </div>
           </div>
@@ -6157,9 +6286,9 @@ function StudioApp() {
                 fitViewOptions={{ minZoom: 0.005, maxZoom: 1.5, padding: 0.2 }}
                 proOptions={{ hideAttribution: true }}
               >
-                <Background color="#3f3a2d" gap={34} size={1.2} variant={BackgroundVariant.Dots} />
-                <Controls />
-                <MiniMap pannable zoomable nodeColor={(node) => (node.type && NODE_COLOR_MAP[node.type]) || "#c5a45d"} maskColor="rgba(8, 8, 7, 0.72)" />
+                <Background color={isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.08)"} gap={34} size={1.2} variant={BackgroundVariant.Dots} />
+                <AppleCanvasControls />
+                <MiniMap pannable zoomable nodeColor={(node) => (node.type && NODE_COLOR_MAP[node.type]) || "#0a84ff"} maskColor={isLight ? "rgba(242, 242, 247, 0.75)" : "rgba(13, 14, 17, 0.78)"} />
               </ReactFlow>
               {menu ? (
                 <ContextMenu
@@ -6627,8 +6756,16 @@ function BoardCreateDialog({
                         <button
                           className="icon-button"
                           type="button"
-                          onClick={() => {
-                            if (window.confirm(`确认删除模板「${tpl.name}」？`)) {
+                          onClick={async () => {
+                            const confirmed = await showAppleConfirm({
+                              title: "删除模板",
+                              message: `确定要删除自定义模板「${tpl.name}」吗？此操作不可逆。`,
+                              confirmLabel: "删除",
+                              cancelLabel: "取消",
+                              isDestructive: true,
+                              icon: "trash"
+                            });
+                            if (confirmed) {
                               void fetch(`/api/templates/${tpl.id}`, { method: "DELETE" }).then(() => {
                                 setTemplates((list) => list.filter((t) => t.id !== tpl.id));
                               });
@@ -8621,13 +8758,23 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
     patchRows(nextRows);
   }
 
-  function handleClearRows() {
-    patchRows([
-      { id: createId("row"), title: "句段 1", instruction: "", text: "" }
-    ]);
+  async function handleClearRows() {
+    const confirmed = await showAppleConfirm({
+      title: "清空所有行数据",
+      message: "确定要清空当前批量音色克隆表格中的所有行吗？表格将重置为单个初始句段。",
+      confirmLabel: "清空表格",
+      cancelLabel: "取消",
+      isDestructive: true,
+      icon: "trash"
+    });
+    if (confirmed) {
+      patchRows([
+        { id: createId("row"), title: "句段 1", instruction: "", text: "" }
+      ]);
+    }
   }
 
-  function handleClearColumn(columnType: "style" | "text") {
+  async function handleClearColumn(columnType: "style" | "text") {
     if (columnType === "style") {
       const hasContent = rows.some((r) => Boolean((r.instruction || r.voiceStyle || "").trim()));
       if (!hasContent) {
@@ -8635,7 +8782,15 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         setTimeout(() => setPasteToast(null), 2000);
         return;
       }
-      if (window.confirm("确定要清空所有行的「语音风格」吗？")) {
+      const confirmed = await showAppleConfirm({
+        title: "清空「语音风格」",
+        message: "确定要清空所有行的「语音风格」吗？此操作无法撤销。",
+        confirmLabel: "清空",
+        cancelLabel: "取消",
+        isDestructive: true,
+        icon: "trash"
+      });
+      if (confirmed) {
         const nextRows = rows.map((r) => ({
           ...r,
           instruction: "",
@@ -8652,7 +8807,15 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         setTimeout(() => setPasteToast(null), 2000);
         return;
       }
-      if (window.confirm("确定要清空所有行的「音频文本」吗？")) {
+      const confirmed = await showAppleConfirm({
+        title: "清空「音频文本」",
+        message: "确定要清空所有行的「音频文本」吗？此操作无法撤销。",
+        confirmLabel: "清空",
+        cancelLabel: "取消",
+        isDestructive: true,
+        icon: "trash"
+      });
+      if (confirmed) {
         const nextRows = rows.map((r) => ({
           ...r,
           text: ""
@@ -8968,7 +9131,7 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
             <div className="batch-row-meta-col">
               <div className="batch-row-meta-top">
                 <span className="node-muted" style={{ fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, cursor: "grab" }} title="按住拖拽可上下排序">
-                  <GripVertical size={12} style={{ color: "#c5a45d" }} /> #{index + 1}
+                  <GripVertical size={12} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
                 </span>
                 <div style={{ display: "flex", gap: 2, marginLeft: "auto" }}>
                   <button
@@ -9143,20 +9306,38 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
     patchRows(nextRows);
   }
 
-  function handleClearRows() {
-    patchRows([
-      { id: createId("row"), title: "句段 1", instruction: "", naturalControl: "", voiceStyle: "", text: "" }
-    ]);
+  async function handleClearRows() {
+    const confirmed = await showAppleConfirm({
+      title: "清空所有行数据",
+      message: "确定要清空当前批量音色设计表格中的所有行吗？表格将重置为单个初始句段。",
+      confirmLabel: "清空表格",
+      cancelLabel: "取消",
+      isDestructive: true,
+      icon: "trash"
+    });
+    if (confirmed) {
+      patchRows([
+        { id: createId("row"), title: "句段 1", instruction: "", naturalControl: "", voiceStyle: "", text: "" }
+      ]);
+    }
   }
 
-  function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
+  async function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
     const hasContent = rows.some((r) => Boolean((r[field] || "").trim()));
     if (!hasContent) {
       setPasteToast(`「${label}」列已经是空的`);
       setTimeout(() => setPasteToast(null), 2000);
       return;
     }
-    if (window.confirm(`确定要清空所有行的「${label}」吗？`)) {
+    const confirmed = await showAppleConfirm({
+      title: `清空「${label}」`,
+      message: `确定要清空所有行的「${label}」内容吗？此操作无法撤销。`,
+      confirmLabel: "清空",
+      cancelLabel: "取消",
+      isDestructive: true,
+      icon: "trash"
+    });
+    if (confirmed) {
       const nextRows = rows.map((r) => ({
         ...r,
         [field]: ""
@@ -9483,7 +9664,7 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
             <div className="batch-row-meta-col">
               <div className="batch-row-meta-top">
                 <span className="node-muted" style={{ fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, cursor: "grab" }} title="按住拖拽可上下排序">
-                  <GripVertical size={12} style={{ color: "#c5a45d" }} /> #{index + 1}
+                  <GripVertical size={12} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
                 </span>
                 <div style={{ display: "flex", gap: 2, marginLeft: "auto" }}>
                   <button
@@ -11641,7 +11822,7 @@ function StashPanel({
           onWheel={(event) => event.stopPropagation()}
         >
           <div className="stash-toolbar">
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#c5a45d" }}>共暂存 {items.length} 个音效产物</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-color, #0a84ff)" }}>共暂存 {items.length} 个音效产物</span>
             <button className="stash-download-all" type="button" onClick={onBatchDownload} title="打包下载全部 ZIP">
               <Download size={13} />
               ZIP 打包
@@ -11773,7 +11954,7 @@ const DeletableEdge = memo(function DeletableEdge({
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const { screenToFlowPosition } = useReactFlow();
 
-  const strokeColor = style?.stroke || "#c5a45d";
+  const strokeColor = style?.stroke || "#0a84ff";
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -13498,14 +13679,14 @@ function NodeSearchModal({
               spellCheck={false}
             />
           </div>
-          <div style={{ maxHeight: 380, overflowY: "auto", display: "grid", gap: 8 }}>
+          <div className="node-search-results-list">
             {isLoading ? (
-              <p className="node-muted" style={{ textAlign: "center", padding: "20px 0" }}>
-                <Loader2 size={16} className="spin" style={{ display: "inline-block", verticalAlign: "-3px", marginRight: 6 }} />
+              <p className="node-muted" style={{ textAlign: "center", padding: "28px 0" }}>
+                <Loader2 size={18} className="spin" style={{ display: "inline-block", verticalAlign: "-3px", marginRight: 8 }} />
                 正在检索全库 {workspaces.length} 个画板的数据...
               </p>
             ) : filteredItems.length === 0 ? (
-              <p className="node-muted" style={{ textAlign: "center", padding: "20px 0" }}>全库画板中未找到匹配的节点</p>
+              <p className="node-muted" style={{ textAlign: "center", padding: "28px 0" }}>全库画板中未找到匹配的节点</p>
             ) : (
               filteredItems.map(({ workspaceId, workspaceName, node }) => {
                 const label = nodeCatalog[node.type as StudioNodeType]?.label || node.type;
@@ -13517,17 +13698,15 @@ function NodeSearchModal({
                     className="node-search-item-card"
                     onClick={() => void onSelectNode(workspaceId, node)}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-                      <strong style={{ color: "#f5ecd4", fontSize: 14 }}>
-                        <span style={{ color: "#c5a45d", marginRight: 6 }}>[{workspaceName}]</span>
-                        {node.data.title || label}
-                      </strong>
-                      <span className="template-badge">{label}</span>
+                    <div className="node-search-item-header">
+                      <div className="node-search-title-group">
+                        <span className="node-search-workspace-tag">[{workspaceName}]</span>
+                        <strong className="node-search-node-name">{node.data.title || label}</strong>
+                      </div>
+                      <span className="node-search-type-badge">{label}</span>
                     </div>
                     {snippet ? (
-                      <p style={{ margin: "4px 0 0", color: "#9f947b", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {snippet}
-                      </p>
+                      <p className="node-search-item-snippet">{snippet}</p>
                     ) : null}
                   </button>
                 );

@@ -31,24 +31,7 @@ function setupChineseMenu() {
   const isMac = process.platform === "darwin";
 
   const template = [
-    ...(isMac
-      ? [
-          {
-            label: "铸光音频工作站",
-            submenu: [
-              { role: "about", label: "关于 铸光音频工作站" },
-              { type: "separator" },
-              { role: "services", label: "服务" },
-              { type: "separator" },
-              { role: "hide", label: "隐藏 铸光音频工作站" },
-              { role: "hideOthers", label: "隐藏其他应用" },
-              { role: "unhide", label: "显示全部" },
-              { type: "separator" },
-              { role: "quit", label: "退出 铸光音频工作站" }
-            ]
-          }
-        ]
-      : []),
+    ...(isMac ? [{ role: "appMenu" }] : []),
     {
       label: "文件",
       submenu: [
@@ -100,12 +83,12 @@ function setupChineseMenu() {
       label: "帮助",
       submenu: [
         {
-          label: "关于 铸光音频工作站",
+          label: "关于 MiMo 音色复刻调试台",
           click: async () => {
             dialog.showMessageBox({
               type: "info",
-              title: "关于 铸光音频工作站",
-              message: "铸光音频工作站 (MiMo Audio Workstation)",
+              title: "关于 MiMo 音色复刻调试台",
+              message: "MiMo 音色复刻调试台 (MiMo Audio Workstation)",
               detail: `基于大模型的高性能音频设计、语音克隆与智能有声书制作工作流工作站\n版本: v${APP_VERSION}`
             });
           }
@@ -250,7 +233,7 @@ async function createWindow(serverUrlPromise) {
   const themeInfo = getPersistedThemeInfo();
 
   try {
-    nativeTheme.themeSource = themeInfo.isLight ? "light" : "dark";
+    nativeTheme.themeSource = themeInfo.mode === "system" ? "system" : (themeInfo.isLight ? "light" : "dark");
   } catch {}
 
   const window = new BrowserWindow({
@@ -258,7 +241,7 @@ async function createWindow(serverUrlPromise) {
     height: 960,
     minWidth: 1024,
     minHeight: 720,
-    title: "铸光音频工作站",
+    title: "MiMo 音色复刻调试台",
     icon: iconPath,
     show: false, // 先创建，Chromium 渲染骨架就绪时（ready-to-show）立即现身
     backgroundColor: themeInfo.bgColor, // 严格按照当前颜色模式预先设定白色或黑色背景，消除开屏闪烁
@@ -269,6 +252,19 @@ async function createWindow(serverUrlPromise) {
       sandbox: false,
       spellcheck: false // 禁用富文本拼写检查，提升大画板长文本渲染性能
     }
+  });
+
+  const handleNativeThemeUpdated = () => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("native-theme-changed", {
+        shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+        isLight: !nativeTheme.shouldUseDarkColors
+      });
+    }
+  };
+  nativeTheme.on("updated", handleNativeThemeUpdated);
+  window.on("closed", () => {
+    nativeTheme.removeListener("updated", handleNativeThemeUpdated);
   });
 
   let hasShown = false;
@@ -292,11 +288,13 @@ async function createWindow(serverUrlPromise) {
           window.setBackgroundColor(clientTheme.bgColor);
         } catch {}
       }
-      if (clientTheme.isLight !== undefined) {
-        try {
+      try {
+        if (clientTheme.mode === "system") {
+          nativeTheme.themeSource = "system";
+        } else if (clientTheme.isLight !== undefined) {
           nativeTheme.themeSource = clientTheme.isLight ? "light" : "dark";
-        } catch {}
-      }
+        }
+      } catch {}
       try {
         const themeFile = path.join(app.getPath("userData"), "theme.json");
         fs.writeFileSync(themeFile, JSON.stringify(clientTheme, null, 2), "utf8");
@@ -311,11 +309,13 @@ async function createWindow(serverUrlPromise) {
       if (!newTheme || typeof newTheme !== "object") return;
       const themeFile = path.join(app.getPath("userData"), "theme.json");
       fs.writeFileSync(themeFile, JSON.stringify(newTheme, null, 2), "utf8");
-      if (newTheme.isLight !== undefined) {
-        try {
+      try {
+        if (newTheme.mode === "system") {
+          nativeTheme.themeSource = "system";
+        } else if (newTheme.isLight !== undefined) {
           nativeTheme.themeSource = newTheme.isLight ? "light" : "dark";
-        } catch {}
-      }
+        }
+      } catch {}
       if (newTheme.bgColor && window && !window.isDestroyed()) {
         try {
           window.setBackgroundColor(newTheme.bgColor);

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MiMo Audio Workstation (铸光音频工作站) — a visual node-based audio workstation for voice cloning and voice design using the Xiaomi MiMo TTS API. Users wire together reference audio, voice style instructions, text prompts, and TTS nodes on a React Flow canvas to generate cloned or designed audio. The UI is entirely in Chinese.
+MiMo Audio Workstation — a visual node-based audio workstation for voice cloning and voice design using the Xiaomi MiMo TTS API. Users wire together reference audio, voice style instructions, text prompts, and TTS nodes on a React Flow canvas to generate cloned or designed audio. The UI is entirely in Chinese.
 
 ## Commands
 

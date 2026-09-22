@@ -10,5 +10,14 @@ contextBridge.exposeInMainWorld("electronApi", {
     try {
       ipcRenderer.send("app-theme-update", themeData);
     } catch {}
+  },
+  onNativeThemeChanged: (callback) => {
+    try {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on("native-theme-changed", listener);
+      return () => ipcRenderer.removeListener("native-theme-changed", listener);
+    } catch {
+      return () => {};
+    }
   }
 });
