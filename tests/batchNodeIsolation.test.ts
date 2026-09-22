@@ -150,4 +150,36 @@ describe("Batch Voice Clone Downstream Node & Title Isolation (回归验证)", (
     expect(updatedStash[1].sourceNodeName).toBe("批量克隆B_角色开场白_01");
     expect(updatedStash[1].fileName).toBe("批量克隆B_角色开场白_01.wav");
   });
+
+  it("should clear specific column across all rows without modifying other columns", () => {
+    const rows = [
+      { id: "row_1", title: "VO_00081", instruction: "Friendly and earnest", text: "Adventurers, there's something" },
+      { id: "row_2", title: "VO_00082", instruction: "Concerned and sincere", text: "An unwelcome visitor" },
+      { id: "row_3", title: "VO_00083", instruction: "Hopeful and sincere", text: "I hope you can drive it away" }
+    ];
+
+    // 清空语音风格列 (instruction / voiceStyle)
+    const clearedStyleRows = rows.map((r) => ({
+      ...r,
+      instruction: "",
+      voiceStyle: ""
+    }));
+
+    // 验证语音风格已完全清空
+    expect(clearedStyleRows.every((r) => r.instruction === "" && r.voiceStyle === "")).toBe(true);
+    // 验证其他列 (title, text) 完好无损保留
+    expect(clearedStyleRows[0].title).toBe("VO_00081");
+    expect(clearedStyleRows[0].text).toBe("Adventurers, there's something");
+    expect(clearedStyleRows[1].title).toBe("VO_00082");
+    expect(clearedStyleRows[1].text).toBe("An unwelcome visitor");
+
+    // 清空音频文本列 (text)
+    const clearedTextRows = rows.map((r) => ({
+      ...r,
+      text: ""
+    }));
+
+    expect(clearedTextRows.every((r) => r.text === "")).toBe(true);
+    expect(clearedTextRows[0].instruction).toBe("Friendly and earnest");
+  });
 });

@@ -8627,6 +8627,43 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
     ]);
   }
 
+  function handleClearColumn(columnType: "style" | "text") {
+    if (columnType === "style") {
+      const hasContent = rows.some((r) => Boolean((r.instruction || r.voiceStyle || "").trim()));
+      if (!hasContent) {
+        setPasteToast("「语音风格」列已经是空的");
+        setTimeout(() => setPasteToast(null), 2000);
+        return;
+      }
+      if (window.confirm("确定要清空所有行的「语音风格」吗？")) {
+        const nextRows = rows.map((r) => ({
+          ...r,
+          instruction: "",
+          voiceStyle: ""
+        }));
+        patchRows(nextRows);
+        setPasteToast("✨ 已清空所有行的语音风格！");
+        setTimeout(() => setPasteToast(null), 2500);
+      }
+    } else if (columnType === "text") {
+      const hasContent = rows.some((r) => Boolean(r.text?.trim()));
+      if (!hasContent) {
+        setPasteToast("「音频文本」列已经是空的");
+        setTimeout(() => setPasteToast(null), 2000);
+        return;
+      }
+      if (window.confirm("确定要清空所有行的「音频文本」吗？")) {
+        const nextRows = rows.map((r) => ({
+          ...r,
+          text: ""
+        }));
+        patchRows(nextRows);
+        setPasteToast("✨ 已清空所有行的音频文本！");
+        setTimeout(() => setPasteToast(null), 2500);
+      }
+    }
+  }
+
   function handleUpdateRow(rowId: string, field: keyof BatchVoiceCloneRow, value: string) {
     patchRows(
       rows.map((r) => {
@@ -8891,8 +8928,30 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         <div className="batch-col-meta">
           <span>音频克隆</span>
         </div>
-        <div className="batch-col-style">语音风格</div>
-        <div className="batch-col-text">音频文本</div>
+        <div className="batch-col-style batch-col-header-cell">
+          <span className="batch-col-header-title">语音风格</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn"
+            onClick={() => handleClearColumn("style")}
+            title="一键清空整列「语音风格」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
+        <div className="batch-col-text batch-col-header-cell">
+          <span className="batch-col-header-title">音频文本</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn"
+            onClick={() => handleClearColumn("text")}
+            title="一键清空整列「音频文本」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
         <div className="batch-col-action">操作</div>
       </div>
 
@@ -9088,6 +9147,24 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
     patchRows([
       { id: createId("row"), title: "句段 1", instruction: "", naturalControl: "", voiceStyle: "", text: "" }
     ]);
+  }
+
+  function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
+    const hasContent = rows.some((r) => Boolean((r[field] || "").trim()));
+    if (!hasContent) {
+      setPasteToast(`「${label}」列已经是空的`);
+      setTimeout(() => setPasteToast(null), 2000);
+      return;
+    }
+    if (window.confirm(`确定要清空所有行的「${label}」吗？`)) {
+      const nextRows = rows.map((r) => ({
+        ...r,
+        [field]: ""
+      }));
+      patchRows(nextRows);
+      setPasteToast(`✨ 已清空所有行的${label}！`);
+      setTimeout(() => setPasteToast(null), 2500);
+    }
   }
 
   function handleUpdateRow(rowId: string, field: keyof BatchVoiceCloneRow, value: string) {
@@ -9342,10 +9419,54 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
         <div className="batch-col-meta">
           <span>音色创造</span>
         </div>
-        <div className="batch-col-style">音色描述词</div>
-        <div className="batch-col-style">自然语言控制</div>
-        <div className="batch-col-style">语音风格</div>
-        <div className="batch-col-text">音频文本</div>
+        <div className="batch-col-style batch-col-header-cell">
+          <span className="batch-col-header-title">音色描述词</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn design-mode"
+            onClick={() => handleClearColumn("instruction", "音色描述词")}
+            title="一键清空整列「音色描述词」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
+        <div className="batch-col-style batch-col-header-cell">
+          <span className="batch-col-header-title">自然语言控制</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn design-mode"
+            onClick={() => handleClearColumn("naturalControl", "自然语言控制")}
+            title="一键清空整列「自然语言控制」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
+        <div className="batch-col-style batch-col-header-cell">
+          <span className="batch-col-header-title">语音风格</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn design-mode"
+            onClick={() => handleClearColumn("voiceStyle", "语音风格")}
+            title="一键清空整列「语音风格」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
+        <div className="batch-col-text batch-col-header-cell">
+          <span className="batch-col-header-title">音频文本</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn design-mode"
+            onClick={() => handleClearColumn("text", "音频文本")}
+            title="一键清空整列「音频文本」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
+        </div>
         <div className="batch-col-action">操作</div>
       </div>
 
