@@ -19,8 +19,8 @@
 }
 
 *::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
@@ -28,17 +28,45 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 999px;
+  transition: background 0.15s ease;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.65);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* ── LIGHT MODE GLOBAL SCROLLBARS (HIGH CONTRAST & VISIBILITY) ── */
+[data-theme="light"] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.24) !important;
+  border-radius: 999px !important;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.42) !important;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.60) !important;
+}
+
+[data-theme="light"],
+[data-theme="light"] * {
+  scrollbar-color: rgba(0, 0, 0, 0.24) transparent !important;
 }
 
 body {
@@ -354,6 +382,68 @@ h1 {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.studio-node .modal-backdrop,
+.node-modal-backdrop {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 99 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 8px !important;
+  border-radius: 14px !important;
+  background: rgba(12, 14, 20, 0.72) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  animation: nodeModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.node-integratedStudio .modal-backdrop,
+.node-integratedStudio .node-modal-backdrop,
+.node-integrated-studio .modal-backdrop,
+.node-integrated-studio .node-modal-backdrop {
+  border-radius: 16px !important;
+}
+
+[data-theme="light"] .studio-node .modal-backdrop,
+[data-theme="light"] .node-modal-backdrop {
+  background: rgba(240, 242, 245, 0.72) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+}
+
+@keyframes nodeModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.node-confirm-dialog {
+  width: min(380px, calc(100% - 32px));
+  background: rgba(28, 28, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+  animation: appleModalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] .node-confirm-dialog {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
 }
 
 .board-modal {
@@ -1280,27 +1370,27 @@ a.stash-round-action:hover {
   border-radius: 8px !important;
 }
 
-/* 7. 产物节点 (Artifact Output & Batch Artifact) - Apple Platinum Gold Accent */
+/* 7. 产物节点 (Artifact Output & Batch Artifact) - Apple Indigo Accent */
 .node-artifact .node-header svg,
 .node-batch-artifact .node-header svg {
-  color: #ffd60a;
+  color: #818cf8;
 }
 .node-artifact .node-title-wrap,
 .node-batch-artifact .node-title-wrap {
-  background: rgba(255, 214, 10, 0.12) !important;
-  border: 1px solid rgba(255, 214, 10, 0.3) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
   border-radius: 8px !important;
 }
 .node-artifact .node-title-input,
 .node-batch-artifact .node-title-input {
-  color: #ffd60a !important;
+  color: #c7d2fe !important;
   font-weight: 600 !important;
 }
 .node-artifact .node-handle,
 .node-batch-artifact .node-handle {
-  background: #ffd60a !important;
+  background: #6366f1 !important;
   border: 2px solid var(--bg-node, #1c1c1e) !important;
-  box-shadow: 0 0 6px rgba(255, 214, 10, 0.4) !important;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4) !important;
 }
 
 /* 8. 游戏语气词生成 (Game Vocal Generator) - Apple Purple Accent */
@@ -2011,21 +2101,37 @@ a.stash-round-action:hover {
 }
 
 .excel-paste-modal {
-  width: min(780px, calc(100vw - 32px));
+  width: min(640px, calc(100% - 16px));
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 12px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.excel-paste-modal .api-key-modal-body {
+  padding: 10px 14px;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .excel-paste-textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 56px;
+  height: 68px;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   color: #f5f5f7;
   font-family: -apple-system, BlinkMacSystemFont, monospace;
-  font-size: 12px;
-  padding: 10px;
-  margin-top: 8px;
+  font-size: 11.5px;
+  padding: 6px 10px;
+  margin-top: 4px;
   box-sizing: border-box;
+  resize: vertical;
 }
 
 .excel-paste-preview-table {
@@ -2040,12 +2146,14 @@ a.stash-round-action:hover {
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 6px 8px;
   text-align: left;
+  vertical-align: top !important;
 }
 
 .excel-paste-preview-table th {
   background: rgba(255, 255, 255, 0.06);
   color: #f5f5f7;
   font-weight: 600;
+  vertical-align: top !important;
 }
 
 .excel-col-select {
@@ -2201,8 +2309,13 @@ a.stash-round-action:hover {
 
 .batch-row-style-col textarea::-webkit-scrollbar-thumb,
 .batch-row-text-col textarea::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.25);
   border-radius: 4px;
+}
+
+[data-theme="light"] .batch-row-style-col textarea::-webkit-scrollbar-thumb,
+[data-theme="light"] .batch-row-text-col textarea::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25) !important;
 }
 
 .batch-add-row-btn {
@@ -2229,25 +2342,25 @@ a.stash-round-action:hover {
   color: #ffffff;
 }
 
-/* 10. 批量音频克隆产物 (Batch Artifact Node - Apple Platinum Gold) */
+/* 10. 批量音频克隆产物 (Batch Artifact Node - Apple Indigo) */
 .node-batch-artifact {
   width: 440px;
-  border-color: rgba(255, 214, 10, 0.35);
+  border-color: rgba(99, 102, 241, 0.35);
   background:
-    linear-gradient(180deg, rgba(34, 32, 22, 0.88), rgba(20, 20, 18, 0.96)),
-    #161614;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 214, 10, 0.15);
+    linear-gradient(180deg, rgba(28, 28, 38, 0.88), rgba(18, 18, 24, 0.96)),
+    #141418;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(99, 102, 241, 0.15);
 }
 
 .node-batch-artifact .node-header svg,
 .node-batch-artifact .input-handle-label {
-  color: #ffd60a;
+  color: #818cf8;
 }
 
 .node-batch-artifact .node-handle {
-  background: #ffd60a;
+  background: #6366f1;
   border: 2px solid #161618;
-  box-shadow: 0 0 8px rgba(255, 214, 10, 0.4);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
 }
 
 .batch-artifact-item-list {
@@ -2257,15 +2370,50 @@ a.stash-round-action:hover {
   margin-top: 8px;
   max-height: 380px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
   overscroll-behavior: contain;
+}
+
+.batch-artifact-item-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.batch-artifact-item-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+  margin: 4px 0;
+}
+
+.batch-artifact-item-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+}
+
+.batch-artifact-item-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.48);
+}
+
+[data-theme="light"] .batch-artifact-item-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06) !important;
+  border-radius: 999px !important;
+  margin: 4px 0 !important;
+}
+
+[data-theme="light"] .batch-artifact-item-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.32) !important;
+  border-radius: 999px !important;
+}
+
+[data-theme="light"] .batch-artifact-item-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.52) !important;
 }
 
 .batch-artifact-item-card {
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2333,8 +2481,11 @@ a.stash-round-action:hover {
   font-weight: 500;
   padding: 3px 8px;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  text-decoration: none !important;
   gap: 4px;
   min-height: 24px;
   white-space: nowrap !important;
@@ -2434,9 +2585,9 @@ a.stash-round-action:hover {
 
 .node-artifact .node-title-wrap,
 .node-batch-artifact .node-title-wrap {
-  background: rgba(255, 214, 10, 0.14) !important;
-  border: 1px solid rgba(255, 214, 10, 0.32) !important;
-  color: #ffd60a !important;
+  background: rgba(99, 102, 241, 0.14) !important;
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
+  color: #c7d2fe !important;
 }
 
 .node-audio-merge .node-title-wrap {
@@ -2540,11 +2691,12 @@ a.stash-round-action:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid rgba(10, 132, 255, 0.28);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.25);
   margin-top: 6px;
+  box-sizing: border-box;
 }
 
 .reference-audio-card-header {
@@ -2649,61 +2801,68 @@ a.stash-round-action:hover {
 /* ── GLOBAL LIGHT MODE AUDIO PLAYER FALLBACK ── */
 [data-theme="light"] .studio-player,
 [data-theme="light"] .compact-audio-player {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  box-shadow: inset 0 1px 0 #ffffff, 0 4px 12px rgba(15, 23, 42, 0.05) !important;
+  background: #f5f5f7 !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0, 0, 0, 0.03) !important;
 }
 
 [data-theme="light"] .studio-player .player-button,
 [data-theme="light"] .compact-player-button {
-  background: var(--accent-color, #2563eb) !important;
-  border-color: var(--accent-color, #2563eb) !important;
+  background: var(--player-accent, var(--accent-color, #0071e3)) !important;
+  border-color: var(--player-accent, var(--accent-color, #0071e3)) !important;
   color: #ffffff !important;
 }
 
 [data-theme="light"] .studio-player .player-time,
 [data-theme="light"] .compact-player-time {
-  color: #334155 !important;
+  color: #6e6e73 !important;
 }
 
 [data-theme="light"] .player-range,
 [data-theme="light"] .compact-player-range {
-  background: linear-gradient(90deg, var(--accent-color, #2563eb) var(--progress), #cbd5e1 var(--progress)) !important;
+  background: linear-gradient(90deg, var(--player-accent, var(--accent-color, #0071e3)) var(--progress), rgba(0, 0, 0, 0.08) var(--progress)) !important;
 }
 
 [data-theme="light"] .player-range::-webkit-slider-thumb,
 [data-theme="light"] .compact-player-range::-webkit-slider-thumb {
   background: #ffffff !important;
-  border: 2px solid var(--accent-color, #2563eb) !important;
+  border: 2.5px solid var(--player-accent, var(--accent-color, #0071e3)) !important;
 }
 
-/* ── PER-NODE TONE MATCHING AUDIO PLAYERS ── */
+[data-theme="light"] .player-range::-moz-range-thumb,
+[data-theme="light"] .compact-player-range::-moz-range-thumb {
+  background: #ffffff !important;
+  border: 2.5px solid var(--player-accent, var(--accent-color, #0071e3)) !important;
+}
+
+/* ── PER-NODE TONE MATCHING AUDIO PLAYERS (DARK MODE CLEAN GLASS) ── */
 /* 1. 音色创造 (Voice Design) -> .node-design */
 .node-design .studio-player,
 .node-design .compact-audio-player {
-  background: rgba(14, 165, 233, 0.15) !important;
-  border-color: rgba(14, 165, 233, 0.4) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(0, 199, 190, 0.25) !important;
 }
 .node-design .player-button,
 .node-design .compact-player-button {
-  background: #0ea5e9 !important;
-  border-color: #0ea5e9 !important;
+  background: #00c7be !important;
+  border-color: #00c7be !important;
   color: #ffffff !important;
 }
 .node-design .player-time,
 .node-design .compact-player-time {
-  color: #bae6fd !important;
+  color: #a1a1a6 !important;
 }
 .node-design .player-range,
 .node-design .compact-player-range {
-  background: linear-gradient(90deg, #0ea5e9 var(--progress), rgba(14, 165, 233, 0.25) var(--progress)) !important;
+  background: linear-gradient(90deg, #00c7be var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
 }
 
 [data-theme="light"] .node-design .studio-player,
 [data-theme="light"] .node-design .compact-audio-player {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 10px !important;
+  border-radius: 999px !important;
 }
 [data-theme="light"] .node-design .player-button,
 [data-theme="light"] .node-design .compact-player-button {
@@ -2726,29 +2885,29 @@ a.stash-round-action:hover {
 /* 2. 参考音频 (Reference Audio) -> .node-audio */
 .node-audio .studio-player,
 .node-audio .compact-audio-player {
-  background: rgba(245, 158, 11, 0.15) !important;
-  border-color: rgba(245, 158, 11, 0.4) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(10, 132, 255, 0.25) !important;
 }
 .node-audio .player-button,
 .node-audio .compact-player-button {
-  background: #f59e0b !important;
-  border-color: #f59e0b !important;
-  color: #090908 !important;
+  background: #0a84ff !important;
+  border-color: #0a84ff !important;
+  color: #ffffff !important;
 }
 .node-audio .player-time,
 .node-audio .compact-player-time {
-  color: #fde68a !important;
+  color: #a1a1a6 !important;
 }
 .node-audio .player-range,
 .node-audio .compact-player-range {
-  background: linear-gradient(90deg, #f59e0b var(--progress), rgba(245, 158, 11, 0.25) var(--progress)) !important;
+  background: linear-gradient(90deg, #0a84ff var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
 }
 
 [data-theme="light"] .node-audio .studio-player,
 [data-theme="light"] .node-audio .compact-audio-player {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 10px !important;
+  border-radius: 999px !important;
 }
 [data-theme="light"] .node-audio .player-button,
 [data-theme="light"] .node-audio .compact-player-button {
@@ -2771,29 +2930,29 @@ a.stash-round-action:hover {
 /* 3. 参考音频整合 (Audio Merge) -> .node-audio-merge */
 .node-audio-merge .studio-player,
 .node-audio-merge .compact-audio-player {
-  background: rgba(249, 115, 22, 0.15) !important;
-  border-color: rgba(249, 115, 22, 0.4) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 55, 95, 0.25) !important;
 }
 .node-audio-merge .player-button,
 .node-audio-merge .compact-player-button {
-  background: #f97316 !important;
-  border-color: #f97316 !important;
+  background: #ff375f !important;
+  border-color: #ff375f !important;
   color: #ffffff !important;
 }
 .node-audio-merge .player-time,
 .node-audio-merge .compact-player-time {
-  color: #ffedd5 !important;
+  color: #a1a1a6 !important;
 }
 .node-audio-merge .player-range,
 .node-audio-merge .compact-player-range {
-  background: linear-gradient(90deg, #f97316 var(--progress), rgba(249, 115, 22, 0.25) var(--progress)) !important;
+  background: linear-gradient(90deg, #ff375f var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
 }
 
 [data-theme="light"] .node-audio-merge .studio-player,
 [data-theme="light"] .node-audio-merge .compact-audio-player {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 10px !important;
+  border-radius: 999px !important;
 }
 [data-theme="light"] .node-audio-merge .player-button,
 [data-theme="light"] .node-audio-merge .compact-player-button {
@@ -2813,46 +2972,25 @@ a.stash-round-action:hover {
   background: linear-gradient(90deg, #ff375f var(--progress), rgba(0, 0, 0, 0.06) var(--progress)) !important;
 }
 
-/* 3. 音色创造 (Voice Design) -> .node-design */
-.node-design .studio-player,
-.node-design .compact-audio-player {
-  background: rgba(14, 165, 233, 0.15) !important;
-  border-color: rgba(14, 165, 233, 0.4) !important;
-}
-.node-design .player-button,
-.node-design .compact-player-button {
-  background: #0ea5e9 !important;
-  border-color: #0ea5e9 !important;
-  color: #ffffff !important;
-}
-.node-design .player-time,
-.node-design .compact-player-time {
-  color: #bae6fd !important;
-}
-.node-design .player-range,
-.node-design .compact-player-range {
-  background: linear-gradient(90deg, #0ea5e9 var(--progress), rgba(14, 165, 233, 0.25) var(--progress)) !important;
-}
-
 /* 4. 音频克隆 (Voice Clone) -> .node-clone */
 .node-clone .studio-player,
 .node-clone .compact-audio-player {
-  background: rgba(234, 179, 8, 0.15) !important;
-  border-color: rgba(234, 179, 8, 0.4) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 159, 10, 0.25) !important;
 }
 .node-clone .player-button,
 .node-clone .compact-player-button {
-  background: #eab308 !important;
-  border-color: #eab308 !important;
-  color: #090908 !important;
+  background: #ff9f0a !important;
+  border-color: #ff9f0a !important;
+  color: #ffffff !important;
 }
 .node-clone .player-time,
 .node-clone .compact-player-time {
-  color: #fef08a !important;
+  color: #a1a1a6 !important;
 }
 .node-clone .player-range,
 .node-clone .compact-player-range {
-  background: linear-gradient(90deg, #eab308 var(--progress), rgba(234, 179, 8, 0.25) var(--progress)) !important;
+  background: linear-gradient(90deg, #ff9f0a var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
 }
 
 [data-theme="light"] .node-clone .studio-player,
@@ -2861,7 +2999,7 @@ a.stash-round-action:hover {
 [data-theme="light"] .node-batch-clone .compact-audio-player {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 10px !important;
+  border-radius: 999px !important;
 }
 [data-theme="light"] .node-clone .player-button,
 [data-theme="light"] .node-clone .compact-player-button,
@@ -2890,22 +3028,22 @@ a.stash-round-action:hover {
 /* 5. 产物节点 (Artifact Output) -> .node-artifact */
 .node-artifact .studio-player,
 .node-artifact .compact-audio-player {
-  background: rgba(250, 204, 21, 0.18) !important;
-  border-color: rgba(250, 204, 21, 0.45) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
 }
 .node-artifact .player-button,
 .node-artifact .compact-player-button {
-  background: #facc15 !important;
-  border-color: #facc15 !important;
-  color: #090908 !important;
+  background: #6366f1 !important;
+  border-color: #6366f1 !important;
+  color: #ffffff !important;
 }
 .node-artifact .player-time,
 .node-artifact .compact-player-time {
-  color: #fef08a !important;
+  color: #a1a1a6 !important;
 }
 .node-artifact .player-range,
 .node-artifact .compact-player-range {
-  background: linear-gradient(90deg, #facc15 var(--progress), rgba(250, 204, 21, 0.25) var(--progress)) !important;
+  background: linear-gradient(90deg, #6366f1 var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
 }
 
 [data-theme="light"] .node-artifact .studio-player,
@@ -2914,7 +3052,7 @@ a.stash-round-action:hover {
 [data-theme="light"] .node-batch-artifact .compact-audio-player {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 10px !important;
+  border-radius: 999px !important;
 }
 [data-theme="light"] .node-artifact .player-button,
 [data-theme="light"] .node-artifact .compact-player-button,
@@ -2941,9 +3079,13 @@ a.stash-round-action:hover {
 }
 
 .merge-result {
-  margin: 0;
+  margin: 4px 0;
   color: #d8cfb9;
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 4px;
 }
 
 .recording-panel {
@@ -3085,11 +3227,12 @@ a.stash-round-action:hover {
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #f5f5f7;
   border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  text-decoration: none !important;
   gap: 8px;
-  text-decoration: none;
   width: 100%;
   background: rgba(255, 255, 255, 0.08);
   font-weight: 500;
@@ -3103,35 +3246,45 @@ a.stash-round-action:hover {
 }
 
 .studio-player {
-  margin-top: 12px;
-  min-height: 48px;
+  margin-top: 8px;
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  width: 100%;
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: 34px auto 1fr 30px;
+  grid-template-columns: 32px auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 4px 8px 4px 5px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
+  border-radius: 999px !important;
   background: rgba(0, 0, 0, 0.35);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 4px 16px rgba(0, 0, 0, 0.25);
+    0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .player-button {
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  border-radius: 50%;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  background: #0a84ff;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: var(--player-accent, #0a84ff);
+  color: #ffffff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   cursor: pointer;
+  flex-shrink: 0 !important;
   transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.player-button svg.lucide-play {
+  margin-left: 2px;
 }
 
 .player-button:hover:not(:disabled) {
@@ -3141,44 +3294,63 @@ a.stash-round-action:hover {
 
 .player-time {
   color: #a1a1a6;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", monospace;
-  font-size: 12px;
-  min-width: 74px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Mono", Menlo, monospace;
+  font-size: 11.5px !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.2px;
+  min-width: 58px;
   white-space: nowrap;
+  text-align: center;
+  user-select: none;
+  flex-shrink: 0;
 }
 
 .player-range {
   --progress: 0%;
   appearance: none;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #0a84ff var(--progress), rgba(255, 255, 255, 0.12) var(--progress));
+  -webkit-appearance: none;
+  height: 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, var(--player-accent, #0a84ff) var(--progress), rgba(255, 255, 255, 0.12) var(--progress)) !important;
   cursor: pointer;
+  outline: none;
 }
 
 .player-range::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid #161618;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  -webkit-appearance: none;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2.5px solid var(--player-accent, #0a84ff) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  transition: transform 120ms ease;
+  cursor: pointer;
 }
 
 .player-range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid #161618;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2.5px solid var(--player-accent, #0a84ff) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  transition: transform 120ms ease;
+  cursor: pointer;
+}
+
+.player-range::-webkit-slider-thumb:hover,
+.player-range::-moz-range-thumb:hover {
+  transform: scale(1.18);
 }
 
 .player-progress {
-  min-width: 86px;
+  min-width: 36px;
+  width: 100%;
 }
 
 
@@ -3273,40 +3445,40 @@ a.stash-round-action:hover {
   background: var(--accent-color, #0a84ff);
 }
 
-.context-menu-item.tone-integratedStudio::before { background: #38bdf8; box-shadow: 0 0 6px rgba(56, 189, 248, 0.6); }
-.context-menu-item.tone-integratedStudio span { color: #f8fafc; font-weight: 800; }
+.context-menu-item.tone-integratedStudio::before { background: #0071e3; box-shadow: 0 0 6px rgba(0, 113, 227, 0.6); }
+.context-menu-item.tone-integratedStudio span { color: #38bdf8; font-weight: 800; }
 
-.context-menu-item.tone-referenceAudio::before { background: #f59e0b; }
-.context-menu-item.tone-referenceAudio span { color: #f59e0b; }
+.context-menu-item.tone-referenceAudio::before { background: #0071e3; }
+.context-menu-item.tone-referenceAudio span { color: #38bdf8; }
 
-.context-menu-item.tone-audioMerge::before { background: #fb923c; }
-.context-menu-item.tone-audioMerge span { color: #fb923c; }
+.context-menu-item.tone-audioMerge::before { background: #ff375f; }
+.context-menu-item.tone-audioMerge span { color: #fb7185; }
 
-.context-menu-item.tone-voiceStyle::before { background: #c084fc; }
+.context-menu-item.tone-voiceStyle::before { background: #8b5cf6; }
 .context-menu-item.tone-voiceStyle span { color: #c084fc; }
 
-.context-menu-item.tone-prompt::before { background: #34d399; }
+.context-menu-item.tone-prompt::before { background: #16a34a; }
 .context-menu-item.tone-prompt span { color: #34d399; }
 
-.context-menu-item.tone-voiceClone::before { background: #facc15; }
-.context-menu-item.tone-voiceClone span { color: #facc15; }
+.context-menu-item.tone-voiceClone::before { background: #ff9f0a; }
+.context-menu-item.tone-voiceClone span { color: #ffb340; }
 
-.context-menu-item.tone-batchVoiceClone::before { background: #eab308; }
-.context-menu-item.tone-batchVoiceClone span { color: #eab308; }
+.context-menu-item.tone-batchVoiceClone::before { background: #ff9f0a; }
+.context-menu-item.tone-batchVoiceClone span { color: #ffb340; }
 
-.context-menu-item.tone-batchVoiceDesign::before { background: #38bdf8; }
+.context-menu-item.tone-batchVoiceDesign::before { background: #00c7be; }
 .context-menu-item.tone-batchVoiceDesign span { color: #38bdf8; }
 
-.context-menu-item.tone-batchArtifact::before { background: #fef08a; }
-.context-menu-item.tone-batchArtifact span { color: #fef08a; }
+.context-menu-item.tone-batchArtifact::before { background: #5856d6; }
+.context-menu-item.tone-batchArtifact span { color: #a5b4fc; }
 
-.context-menu-item.tone-voiceDesign::before { background: #38bdf8; }
+.context-menu-item.tone-voiceDesign::before { background: #00c7be; }
 .context-menu-item.tone-voiceDesign span { color: #38bdf8; }
 
-.context-menu-item.tone-comment::before { background: #94a3b8; }
+.context-menu-item.tone-comment::before { background: #64748b; }
 .context-menu-item.tone-comment span { color: #94a3b8; }
 
-.context-menu-item.tone-gameVocal::before { background: #8b5cf6; box-shadow: 0 0 6px rgba(139, 92, 246, 0.6); }
+.context-menu-item.tone-gameVocal::before { background: #7c3aed; box-shadow: 0 0 6px rgba(124, 58, 237, 0.6); }
 .context-menu-item.tone-gameVocal span { color: #c4b5fd; font-weight: 800; }
 
 .context-menu button span {
@@ -3371,11 +3543,26 @@ a.stash-round-action:hover {
   color: #ffe6df;
 }
 
+.spin,
+.spin-icon {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  transform-origin: 50% 50% !important;
+  transform-box: fill-box !important;
+  flex-shrink: 0 !important;
+  will-change: transform !important;
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+}
+
 .spin {
-  animation: spin 0.8s linear infinite;
+  animation: spin 0.8s linear infinite !important;
 }
 
 @keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
   to {
     transform: rotate(360deg);
   }
@@ -4706,6 +4893,8 @@ a.stash-round-action:hover {
   background: #fbfbfd !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   border-radius: 8px !important;
+  padding: 8px 12px !important;
+  box-sizing: border-box !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
 }
 
@@ -4726,6 +4915,8 @@ a.stash-round-action:hover {
   background: #fbfbfd !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   border-radius: 8px !important;
+  padding: 10px 12px !important;
+  box-sizing: border-box !important;
 }
 
 [data-theme="light"] .batch-artifact-item-card.is-latest {
@@ -4771,31 +4962,31 @@ a.stash-round-action:hover {
   background: #f1f5f9;
 }
 
-[data-theme="light"] .context-menu-item.tone-integratedStudio::before { background: #2563eb !important; box-shadow: 0 0 4px rgba(37, 99, 235, 0.4); }
-[data-theme="light"] .context-menu-item.tone-integratedStudio span { color: #1e293b !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-integratedStudio::before { background: #0071e3 !important; box-shadow: 0 0 4px rgba(0, 113, 227, 0.4); }
+[data-theme="light"] .context-menu-item.tone-integratedStudio span { color: #0071e3 !important; font-weight: 800 !important; }
 
-[data-theme="light"] .context-menu-item.tone-referenceAudio::before { background: #d97706 !important; }
-[data-theme="light"] .context-menu-item.tone-referenceAudio span { color: #b45309 !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-referenceAudio::before { background: #0071e3 !important; }
+[data-theme="light"] .context-menu-item.tone-referenceAudio span { color: #0071e3 !important; font-weight: 800 !important; }
 
-[data-theme="light"] .context-menu-item.tone-audioMerge::before { background: #ea580c !important; }
-[data-theme="light"] .context-menu-item.tone-audioMerge span { color: #c2410c !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-audioMerge::before { background: #ff375f !important; }
+[data-theme="light"] .context-menu-item.tone-audioMerge span { color: #e11d48 !important; font-weight: 800 !important; }
 
-[data-theme="light"] .context-menu-item.tone-voiceStyle::before { background: #9333ea !important; }
-[data-theme="light"] .context-menu-item.tone-voiceStyle span { color: #7e22ce !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-voiceStyle::before { background: #8b5cf6 !important; }
+[data-theme="light"] .context-menu-item.tone-voiceStyle span { color: #7c3aed !important; font-weight: 800 !important; }
 
-[data-theme="light"] .context-menu-item.tone-prompt::before { background: #059669 !important; }
-[data-theme="light"] .context-menu-item.tone-prompt span { color: #047857 !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-prompt::before { background: #16a34a !important; }
+[data-theme="light"] .context-menu-item.tone-prompt span { color: #15803d !important; font-weight: 800 !important; }
 
 [data-theme="light"] .context-menu-item.tone-voiceClone::before { background: #ff9f0a !important; }
-[data-theme="light"] .context-menu-item.tone-voiceClone span { color: #b25e00 !important; font-weight: 600 !important; }
+[data-theme="light"] .context-menu-item.tone-voiceClone span { color: #b25e00 !important; font-weight: 800 !important; }
 
 [data-theme="light"] .context-menu-item.tone-batchVoiceClone::before { background: #ff9f0a !important; }
-[data-theme="light"] .context-menu-item.tone-batchVoiceClone span { color: #b25e00 !important; font-weight: 600 !important; }
+[data-theme="light"] .context-menu-item.tone-batchVoiceClone span { color: #b25e00 !important; font-weight: 800 !important; }
 
 [data-theme="light"] .context-menu-item.tone-voiceDesign::before,
 [data-theme="light"] .context-menu-item.tone-batchVoiceDesign::before { background: #00c7be !important; }
 [data-theme="light"] .context-menu-item.tone-voiceDesign span,
-[data-theme="light"] .context-menu-item.tone-batchVoiceDesign span { color: #0369a1 !important; font-weight: 800 !important; }
+[data-theme="light"] .context-menu-item.tone-batchVoiceDesign span { color: #009688 !important; font-weight: 800 !important; }
 
 [data-theme="light"] .context-menu-item.tone-comment::before { background: #64748b !important; }
 [data-theme="light"] .context-menu-item.tone-comment span { color: #475569 !important; font-weight: 800 !important; }
@@ -5930,24 +6121,26 @@ a.stash-round-action:hover {
   display: grid;
   grid-template-columns: 125px 1fr 1fr 78px;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 6px 12px;
   font-size: 11px;
   font-weight: 700;
   color: var(--accent-color, #0a84ff);
   border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   margin-bottom: 6px;
+  box-sizing: border-box;
 }
 
 .batch-row-card {
   display: grid;
   grid-template-columns: 125px 1fr 1fr 78px;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   margin-bottom: 6px;
   align-items: center;
+  box-sizing: border-box;
 }
 
 .batch-row-action-col {
@@ -6083,6 +6276,8 @@ a.stash-round-action:hover {
   background: #fbfbfd;
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 8px;
+  padding: 8px 12px;
+  box-sizing: border-box;
 }
 
 [data-theme="light"] .batch-row-single-clone-btn {
@@ -7362,7 +7557,7 @@ button.capsule-switch.checked .capsule-switch-thumb {
 /* 综合全能工作台 (Integrated Studio Node - Apple Titanium Platinum) */
 .node-integratedStudio,
 .node-integrated-studio {
-  width: 1280px;
+  width: 1180px;
   max-width: 100%;
   min-height: 480px;
   border-radius: 16px;
@@ -7373,7 +7568,7 @@ button.capsule-switch.checked .capsule-switch-thumb {
   box-shadow: 0 8px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   overflow-x: hidden !important;
   box-sizing: border-box !important;
-  resize: vertical;
+  resize: none !important;
   display: flex;
   flex-direction: column;
 }
@@ -7402,7 +7597,7 @@ button.capsule-switch.checked .capsule-switch-thumb {
 
 .integrated-top-headers {
   display: grid;
-  grid-template-columns: 290px 465px 455px;
+  grid-template-columns: 280px 1fr 340px;
   gap: 12px;
   margin-top: 8px;
   margin-bottom: 10px;
@@ -7416,7 +7611,9 @@ button.capsule-switch.checked .capsule-switch-thumb {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  padding: 8px 12px;
+  padding: 6px 12px;
+  min-height: 48px;
+  box-sizing: border-box;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -7427,6 +7624,82 @@ button.capsule-switch.checked .capsule-switch-thumb {
   color: #2997ff;
   border: 1px solid rgba(10, 132, 255, 0.25);
   background: rgba(10, 132, 255, 0.08);
+  justify-content: space-between;
+}
+
+.integrated-header-title-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.25;
+}
+
+.integrated-header-icon {
+  flex-shrink: 0;
+  color: #2997ff;
+}
+
+[data-theme="light"] .integrated-header-icon {
+  color: #0071e3 !important;
+}
+
+.integrated-header-text-stacked {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.integrated-header-title-main {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.integrated-header-title-sub {
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.82;
+  white-space: nowrap;
+}
+
+[data-theme="light"] .integrated-header-title-main {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .integrated-header-title-sub {
+  color: #48484a !important;
+}
+
+.integrated-mini-tool.integrated-batch-upload-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 4px 8px !important;
+  margin-left: auto !important;
+  line-height: 1.15 !important;
+  border-radius: 6px !important;
+  flex-shrink: 0 !important;
+}
+
+.integrated-btn-text-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.integrated-btn-text-stacked .btn-text-main {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.integrated-btn-text-stacked .btn-text-sub {
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 .integrated-header-cell.col-2 {
@@ -7436,9 +7709,19 @@ button.capsule-switch.checked .capsule-switch-thumb {
 }
 
 .integrated-header-cell.col-3 {
-  color: #ffd60a;
-  border: 1px solid rgba(255, 214, 10, 0.25);
-  background: rgba(255, 214, 10, 0.08);
+  color: #a5b4fc !important;
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+}
+
+.integrated-header-cell.col-3 svg {
+  color: #818cf8 !important;
+}
+
+.integrated-header-cell.col-3 span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .batch-artifact-item-btn.download-btn,
@@ -7450,12 +7733,18 @@ a.batch-artifact-item-btn.download-btn {
   box-shadow: 0 2px 6px rgba(10, 132, 255, 0.35) !important;
   padding: 3px 10px !important;
   border-radius: 6px !important;
+  text-decoration: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
 }
 
 .batch-artifact-item-btn.download-btn:hover,
 a.batch-artifact-item-btn.download-btn:hover {
   background: #0071e3 !important;
   color: #ffffff !important;
+  text-decoration: none !important;
 }
 
 .integrated-pipeline-rows-list {
@@ -7475,7 +7764,7 @@ a.batch-artifact-item-btn.download-btn:hover {
 
 .integrated-pipeline-row {
   display: grid;
-  grid-template-columns: 290px 465px 455px;
+  grid-template-columns: 280px 1fr 340px;
   gap: 12px;
   align-items: stretch;
   width: 100%;
@@ -7485,10 +7774,11 @@ a.batch-artifact-item-btn.download-btn:hover {
 .integrated-cell {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-radius: 6px;
-  padding: 10px;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 14px 16px;
   min-height: 160px;
+  box-sizing: border-box;
 }
 
 /* Col 1: Reference Audio Cell (Platinum Silver) */
@@ -7504,6 +7794,18 @@ a.batch-artifact-item-btn.download-btn:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 2px 4px;
+  min-height: 26px;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.integrated-cell.cell-ref .cell-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 /* Col 2: Voice Clone Cell (Titanium White) */
@@ -7516,6 +7818,9 @@ a.batch-artifact-item-btn.download-btn:hover {
   color: #f8fafc;
   font-size: 12px;
   font-weight: 700;
+  padding: 2px 4px;
+  min-height: 26px;
+  margin-bottom: 4px;
 }
 
 /* Col 3: Audio Artifact Cell (Cool Silver Output) */
@@ -7531,6 +7836,9 @@ a.batch-artifact-item-btn.download-btn:hover {
   color: #e2e8f0;
   font-size: 12px;
   font-weight: 700;
+  padding: 2px 4px;
+  min-height: 26px;
+  margin-bottom: 4px;
 }
 
 .integrated-col-tools {
@@ -7603,25 +7911,43 @@ a.batch-artifact-item-btn.download-btn:hover {
 .integrated-row-top {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 22px;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px;
+  margin-bottom: 4px;
 }
 
 .integrated-row-top .batch-row-title-input {
   font-size: 12px !important;
   font-weight: 700 !important;
   color: #f8fafc;
+  padding: 4px 8px !important;
 }
 
 .integrated-row-artifact-header {
-  min-height: 22px;
+  min-height: 26px;
   display: flex;
   align-items: center;
+  padding: 2px 6px;
+  margin-bottom: 6px;
+  border-radius: 6px;
 }
 
 .integrated-row-artifact-header span {
   font-size: 12px !important;
   font-weight: 700 !important;
+  line-height: 1.4 !important;
+  color: #94a3b8;
+  letter-spacing: -0.1px;
+}
+
+[data-theme="light"] .integrated-row-artifact-header span {
+  color: #475569 !important;
+}
+
+.integrated-row-artifact-box > .node-muted {
+  padding: 4px 6px;
+  display: block;
 }
 
 .integrated-ref-title {
@@ -7718,6 +8044,11 @@ a.batch-artifact-item-btn.download-btn:hover {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  box-sizing: border-box;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 
 .integrated-artifact-cards-list {
@@ -7725,19 +8056,20 @@ a.batch-artifact-item-btn.download-btn:hover {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .integrated-cell.cell-artifact .batch-artifact-item-card {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(14, 13, 9, 0.95);
-  border: 1px solid rgba(234, 179, 8, 0.35);
+  background: rgba(18, 18, 26, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
 }
 
 /* ── Generating Highlighting Styles & Animations ── */
-.integrated-cell.cell-clone.is-row-generating,
+/* Voice Clone Batch Row Generating Highlight (Amber / Orange) */
 .batch-row-card.is-row-generating {
   background: linear-gradient(180deg, rgba(68, 52, 18, 0.95), rgba(32, 24, 10, 0.98)) !important;
   border: 1px solid rgba(250, 204, 21, 0.9) !important;
@@ -7756,6 +8088,67 @@ a.batch-artifact-item-btn.download-btn:hover {
   }
 }
 
+/* Voice Design Batch Row Generating Highlight (Teal) */
+.node-batch-design .batch-row-card.is-row-generating {
+  background: linear-gradient(180deg, rgba(13, 71, 68, 0.95), rgba(8, 38, 36, 0.98)) !important;
+  border: 1px solid rgba(0, 199, 190, 0.9) !important;
+  box-shadow: 0 0 22px rgba(0, 199, 190, 0.35) !important;
+  animation: design-row-generating-pulse 1.5s infinite alternate !important;
+}
+
+@keyframes design-row-generating-pulse {
+  from {
+    border-color: rgba(0, 199, 190, 0.6);
+    box-shadow: 0 0 12px rgba(0, 199, 190, 0.25);
+  }
+  to {
+    border-color: rgba(94, 234, 212, 1);
+    box-shadow: 0 0 26px rgba(0, 199, 190, 0.6);
+  }
+}
+
+/* Integrated Studio Row Generating Highlight (Apple System Blue) */
+.node-integrated-studio .integrated-cell.cell-clone.is-row-generating,
+.node-integratedStudio .integrated-cell.cell-clone.is-row-generating,
+.integrated-cell.cell-clone.is-row-generating {
+  background: linear-gradient(180deg, rgba(0, 113, 227, 0.16), rgba(10, 132, 255, 0.06)) !important;
+  border: 1px solid rgba(10, 132, 255, 0.85) !important;
+  box-shadow: 0 0 16px rgba(0, 113, 227, 0.35) !important;
+  animation: integrated-row-generating-pulse 1.8s infinite alternate !important;
+}
+
+@keyframes integrated-row-generating-pulse {
+  from {
+    border-color: rgba(10, 132, 255, 0.5);
+    box-shadow: 0 0 8px rgba(0, 113, 227, 0.2);
+  }
+  to {
+    border-color: rgba(10, 132, 255, 1);
+    box-shadow: 0 0 20px rgba(0, 113, 227, 0.55);
+  }
+}
+
+/* Integrated Studio Row Generating in Light Mode */
+[data-theme="light"] .node-integrated-studio .integrated-cell.cell-clone.is-row-generating,
+[data-theme="light"] .node-integratedStudio .integrated-cell.cell-clone.is-row-generating,
+[data-theme="light"] .integrated-cell.cell-clone.is-row-generating {
+  background: linear-gradient(180deg, rgba(0, 113, 227, 0.08), rgba(0, 113, 227, 0.02)) !important;
+  border: 1px solid #0071e3 !important;
+  box-shadow: 0 0 14px rgba(0, 113, 227, 0.25) !important;
+  animation: integrated-row-generating-pulse-light 1.8s infinite alternate !important;
+}
+
+@keyframes integrated-row-generating-pulse-light {
+  from {
+    border-color: rgba(0, 113, 227, 0.5);
+    box-shadow: 0 0 6px rgba(0, 113, 227, 0.15);
+  }
+  to {
+    border-color: rgba(0, 113, 227, 1);
+    box-shadow: 0 0 18px rgba(0, 113, 227, 0.45);
+  }
+}
+
 .integrated-btn.is-generating,
 .batch-row-single-clone-btn.is-generating,
 .run-button.is-generating,
@@ -7765,18 +8158,18 @@ button.is-generating {
   color: #ffffff !important;
   font-weight: 600 !important;
   box-shadow: 0 0 16px rgba(0, 113, 227, 0.6) !important;
-  animation: button-generating-pulse 1.2s infinite alternate !important;
+  transform: none !important;
+  animation: button-generating-pulse 1.5s infinite alternate !important;
 }
 
 @keyframes button-generating-pulse {
   from {
     box-shadow: 0 0 8px rgba(0, 113, 227, 0.4);
-    opacity: 0.85;
+    opacity: 0.92;
   }
   to {
-    box-shadow: 0 0 20px rgba(0, 113, 227, 0.8);
+    box-shadow: 0 0 18px rgba(0, 113, 227, 0.8);
     opacity: 1;
-    transform: scale(1.02);
   }
 }
 
@@ -7959,21 +8352,26 @@ button.is-generating {
 }
 
 .player-speed-btn {
-  width: 28px !important;
-  height: 28px !important;
-  min-width: 28px !important;
-  min-height: 28px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
   padding: 0 !important;
   border-radius: 50% !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
   background: rgba(255, 255, 255, 0.08) !important;
   color: #f5f5f7 !important;
   font-size: 11px !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
   cursor: pointer !important;
-  display: inline-flex !important;
+  display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
   transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
   margin: 0 !important;
   flex-shrink: 0 !important;
@@ -7983,6 +8381,7 @@ button.is-generating {
   background: rgba(255, 255, 255, 0.16) !important;
   border-color: rgba(255, 255, 255, 0.3) !important;
   color: #ffffff !important;
+  transform: scale(1.06) !important;
 }
 
 .stash-item {
@@ -8040,9 +8439,64 @@ button.is-generating {
   box-shadow: 0 0 8px rgba(0, 0, 0, 0.2) !important;
 }
 
+.batch-row-drag-handle {
+  cursor: grab !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  transition: all 0.15s ease !important;
+  border-radius: 4px !important;
+  padding: 1px 4px !important;
+}
+
+.batch-row-drag-handle:hover {
+  background: rgba(10, 132, 255, 0.15) !important;
+  color: #0a84ff !important;
+}
+
+[data-theme="light"] .batch-row-drag-handle:hover {
+  background: rgba(0, 113, 227, 0.12) !important;
+  color: #0071e3 !important;
+}
+
+.batch-row-drag-handle:active {
+  cursor: grabbing !important;
+}
+
+.batch-row-list.is-dragging-active .batch-row-card input,
+.batch-row-list.is-dragging-active .batch-row-card textarea,
+.batch-row-list.is-dragging-active .batch-row-card button,
+.batch-row-list.is-dragging-active .batch-row-card select {
+  pointer-events: none !important;
+}
+
 .batch-row-card.is-dragging {
-  opacity: 0.5 !important;
-  border: 1px dashed rgba(10, 132, 255, 0.6) !important;
+  opacity: 0.65 !important;
+  border: 2px dashed #0a84ff !important;
+  background: rgba(10, 132, 255, 0.08) !important;
+  box-shadow: 0 8px 24px rgba(10, 132, 255, 0.25), 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+  transform: scale(0.99) !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease !important;
+}
+
+[data-theme="light"] .batch-row-card.is-dragging {
+  opacity: 0.65 !important;
+  border: 2px dashed #0071e3 !important;
+  background: rgba(0, 113, 227, 0.06) !important;
+  box-shadow: 0 8px 24px rgba(0, 113, 227, 0.18), 0 2px 6px rgba(0, 0, 0, 0.04) !important;
+}
+
+.batch-row-card.is-drag-over {
+  border: 2px solid #0a84ff !important;
+  background: rgba(10, 132, 255, 0.12) !important;
+  box-shadow: 0 0 16px rgba(10, 132, 255, 0.35) !important;
+  transform: translateY(-2px) scale(1.008) !important;
+}
+
+[data-theme="light"] .batch-row-card.is-drag-over {
+  border: 2px solid #0071e3 !important;
+  background: rgba(0, 113, 227, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 113, 227, 0.22) !important;
+  transform: translateY(-2px) scale(1.008) !important;
 }
 
 /* ── UNIFIED DARK MODE BUTTON FONT COLORS BY NODE ACCENT TONE ── */
@@ -8078,7 +8532,23 @@ button.is-generating {
 
 /* 2. 音频克隆 (Voice Clone & Batch Voice Clone) -> Amber/Gold Accent (#ff9f0a) */
 .node-clone .run-button,
-.node-batch-clone .run-button,
+.node-batch-clone .run-button {
+  background: #ff9f0a !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(255, 159, 10, 0.35) !important;
+}
+
+.node-clone .run-button:hover:not(:disabled),
+.node-batch-clone .run-button:hover:not(:disabled) {
+  background: #f59300 !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(255, 159, 10, 0.45) !important;
+}
+
 .node-batch-clone .batch-excel-paste-btn,
 .node-batch-clone .batch-row-single-clone-btn,
 .node-batch-clone .batch-add-row-btn {
@@ -8089,8 +8559,6 @@ button.is-generating {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
 }
 
-.node-clone .run-button:hover:not(:disabled),
-.node-batch-clone .run-button:hover:not(:disabled),
 .node-batch-clone .batch-excel-paste-btn:hover:not(:disabled),
 .node-batch-clone .batch-row-single-clone-btn:hover:not(:disabled),
 .node-batch-clone .batch-add-row-btn:hover:not(:disabled) {
@@ -8100,27 +8568,34 @@ button.is-generating {
   box-shadow: 0 2px 8px rgba(255, 159, 10, 0.25) !important;
 }
 
-/* 3. 产物节点 (Artifact Output & Batch Artifact) -> Platinum Gold Accent (#ffd60a) */
+/* 3. 产物节点 (Artifact Output & Batch Artifact) -> Apple Indigo Accent (#6366f1) */
 .node-artifact .download-link,
 .node-batch-artifact .batch-download-all-btn,
 .node-batch-artifact .batch-artifact-item-btn,
 .batch-artifact-item-btn.download-btn,
 a.batch-artifact-item-btn.download-btn {
-  background: rgba(255, 214, 10, 0.14) !important;
-  border: 1px solid rgba(255, 214, 10, 0.35) !important;
-  color: #ffd60a !important;
+  background: rgba(99, 102, 241, 0.16) !important;
+  border: 1px solid rgba(99, 102, 241, 0.4) !important;
+  color: #a5b4fc !important;
   font-weight: 600 !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+  text-decoration: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
 }
 
 .node-artifact .download-link:hover,
 .node-batch-artifact .batch-download-all-btn:hover,
 .node-batch-artifact .batch-artifact-item-btn:hover,
-.batch-artifact-item-btn.download-btn:hover {
-  background: rgba(255, 214, 10, 0.24) !important;
-  border-color: rgba(255, 214, 10, 0.6) !important;
+.batch-artifact-item-btn.download-btn:hover,
+a.batch-artifact-item-btn.download-btn:hover {
+  background: rgba(99, 102, 241, 0.28) !important;
+  border-color: rgba(99, 102, 241, 0.7) !important;
   color: #ffffff !important;
-  box-shadow: 0 2px 8px rgba(255, 214, 10, 0.25) !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3) !important;
+  text-decoration: none !important;
 }
 
 /* 4. 参考音频整合 (Audio Merge) -> Coral Accent (#ff375f) */
@@ -8412,69 +8887,79 @@ a.batch-artifact-item-btn.download-btn {
   color: #ffffff !important;
 }
 
-/* Gold Nodes (node-clone, node-batch-clone, node-artifact, node-batch-artifact) */
+/* Orange Nodes (node-clone, node-batch-clone) */
 .node-clone .node-header-actions .icon-button,
 .node-batch-clone .node-header-actions .icon-button,
-.node-artifact .node-header-actions .icon-button,
-.node-batch-artifact .node-header-actions .icon-button,
 .node-clone .batch-clear-btn,
 .node-batch-clone .batch-clear-btn,
-.node-artifact .batch-clear-btn,
-.node-batch-artifact .batch-clear-btn,
 .node-clone .node-clear-btn,
-.node-batch-clone .node-clear-btn,
-.node-artifact .node-clear-btn,
-.node-batch-artifact .node-clear-btn {
-  background: rgba(250, 204, 21, 0.16) !important;
-  border: 1px solid rgba(250, 204, 21, 0.55) !important;
-  color: #fde047 !important;
+.node-batch-clone .node-clear-btn {
+  background: rgba(255, 159, 10, 0.16) !important;
+  border: 1px solid rgba(255, 159, 10, 0.45) !important;
+  color: #ffb340 !important;
 }
 .node-clone .node-header-actions .icon-button:hover,
 .node-batch-clone .node-header-actions .icon-button:hover,
-.node-artifact .node-header-actions .icon-button:hover,
-.node-batch-artifact .node-header-actions .icon-button:hover,
 .node-clone .batch-clear-btn:hover,
 .node-batch-clone .batch-clear-btn:hover,
-.node-artifact .batch-clear-btn:hover,
-.node-batch-artifact .batch-clear-btn:hover,
 .node-clone .node-clear-btn:hover,
-.node-batch-clone .node-clear-btn:hover,
-.node-artifact .node-clear-btn:hover,
-.node-batch-artifact .node-clear-btn:hover {
-  background: rgba(250, 204, 21, 0.35) !important;
-  border-color: #facc15 !important;
+.node-batch-clone .node-clear-btn:hover {
+  background: rgba(255, 159, 10, 0.35) !important;
+  border-color: #ff9f0a !important;
   color: #ffffff !important;
 }
 
-/* Orange Nodes (node-audio-merge) */
+/* Indigo Nodes (node-artifact, node-batch-artifact) */
+.node-artifact .node-header-actions .icon-button,
+.node-batch-artifact .node-header-actions .icon-button,
+.node-artifact .batch-clear-btn,
+.node-batch-artifact .batch-clear-btn,
+.node-artifact .node-clear-btn,
+.node-batch-artifact .node-clear-btn {
+  background: rgba(99, 102, 241, 0.16) !important;
+  border: 1px solid rgba(99, 102, 241, 0.45) !important;
+  color: #a5b4fc !important;
+}
+.node-artifact .node-header-actions .icon-button:hover,
+.node-batch-artifact .node-header-actions .icon-button:hover,
+.node-artifact .batch-clear-btn:hover,
+.node-batch-artifact .batch-clear-btn:hover,
+.node-artifact .node-clear-btn:hover,
+.node-batch-artifact .node-clear-btn:hover {
+  background: rgba(99, 102, 241, 0.35) !important;
+  border-color: #6366f1 !important;
+  color: #ffffff !important;
+}
+
+/* Rose Nodes (node-audio-merge) */
 .node-audio-merge .node-header-actions .icon-button,
 .node-audio-merge .batch-clear-btn,
 .node-audio-merge .node-clear-btn {
-  background: rgba(249, 115, 22, 0.16) !important;
-  border: 1px solid rgba(249, 115, 22, 0.45) !important;
-  color: #fb923c !important;
+  background: rgba(255, 55, 95, 0.16) !important;
+  border: 1px solid rgba(255, 55, 95, 0.45) !important;
+  color: #ff6482 !important;
 }
 .node-audio-merge .node-header-actions .icon-button:hover,
 .node-audio-merge .batch-clear-btn:hover,
 .node-audio-merge .node-clear-btn:hover {
-  background: rgba(249, 115, 22, 0.35) !important;
-  border-color: #fb923c !important;
+  background: rgba(255, 55, 95, 0.35) !important;
+  border-color: #ff375f !important;
   color: #ffffff !important;
 }
 
-/* Amber Nodes (node-audio) */
+/* Blue Nodes (node-audio) */
 .node-audio .node-header-actions .icon-button,
 .node-audio .batch-clear-btn,
 .node-audio .node-clear-btn {
-  background: rgba(245, 158, 11, 0.16) !important;
-  border: 1px solid rgba(245, 158, 11, 0.45) !important;
-  color: #f59e0b !important;
+  background: rgba(10, 132, 255, 0.16) !important;
+  border: 1px solid rgba(10, 132, 255, 0.45) !important;
+  color: #2997ff !important;
 }
 .node-audio .node-header-actions .icon-button:hover,
 .node-audio .batch-clear-btn:hover,
 .node-audio .node-clear-btn:hover {
-  background: rgba(245, 158, 11, 0.35) !important;
-  border-color: #f59e0b !important;
+  background: rgba(10, 132, 255, 0.35) !important;
+  border-color: #0a84ff !important;
   color: #ffffff !important;
 }
 
@@ -8547,10 +9032,13 @@ a.batch-artifact-item-btn.download-btn {
 }
 
 .node-clone .node-header svg,
-.node-batch-clone .node-header svg,
+.node-batch-clone .node-header svg {
+  color: #ff9f0a !important;
+}
+
 .node-artifact .node-header svg,
 .node-batch-artifact .node-header svg {
-  color: #ff9f0a !important;
+  color: #818cf8 !important;
 }
 
 .node-audio-merge .node-header svg {
@@ -8605,6 +9093,11 @@ a.batch-artifact-item-btn.download-btn {
 
 /* Speed Button High Contrast in Light Mode */
 [data-theme="light"] .player-speed-btn {
+  width: auto !important;
+  height: 24px !important;
+  min-width: 28px !important;
+  min-height: 24px !important;
+  padding: 0 6px !important;
   background: #ffffff !important;
   border: 1px solid rgba(0, 0, 0, 0.12) !important;
   color: #1d1d1f !important;
@@ -8815,12 +9308,19 @@ a.batch-artifact-item-btn.download-btn {
   color: #1d1d1f !important;
   font-weight: 500 !important;
   border-radius: 6px !important;
+  text-decoration: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
 }
 
 [data-theme="light"] .node-batch-artifact .batch-artifact-item-btn:hover,
-[data-theme="light"] .batch-artifact-item-btn.download-btn:hover {
+[data-theme="light"] .batch-artifact-item-btn.download-btn:hover,
+[data-theme="light"] a.batch-artifact-item-btn.download-btn:hover {
   background: #e5e5ea !important;
   color: #1d1d1f !important;
+  text-decoration: none !important;
 }
 
 /* 5. 参考音频整合 (Audio Merge) -> Apple Coral Rose */
@@ -8856,6 +9356,8 @@ a.batch-artifact-item-btn.download-btn {
   background: #fbfbfd !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   border-radius: 10px !important;
+  padding: 10px 12px !important;
+  box-sizing: border-box !important;
 }
 
 [data-theme="light"] .reference-audio-card-header span {
@@ -8910,7 +9412,8 @@ a.batch-artifact-item-btn.download-btn {
   background: #ffffff !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   color: #1d1d1f !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
+  padding: 14px 16px !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
 }
 
@@ -8922,10 +9425,16 @@ a.batch-artifact-item-btn.download-btn {
   font-weight: 600 !important;
 }
 
+[data-theme="light"] .integrated-row-artifact-box {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
 [data-theme="light"] .integrated-row-card,
 [data-theme="light"] .integrated-ref-card,
-[data-theme="light"] .integrated-artifact-card,
-[data-theme="light"] .integrated-row-artifact-box {
+[data-theme="light"] .integrated-artifact-card {
   background: #fbfbfd !important;
   border: 1px solid rgba(0, 0, 0, 0.06) !important;
   color: #1d1d1f !important;
@@ -8933,9 +9442,9 @@ a.batch-artifact-item-btn.download-btn {
 }
 
 [data-theme="light"] .integrated-row-card textarea,
-[data-theme="light"] .integrated-row-card input,
+[data-theme="light"] .integrated-row-card input:not([type="range"]):not(.player-range),
 [data-theme="light"] .integrated-cell textarea,
-[data-theme="light"] .integrated-cell input {
+[data-theme="light"] .integrated-cell input:not([type="range"]):not(.player-range) {
   background: #ffffff !important;
   border: 1px solid rgba(0, 0, 0, 0.1) !important;
   color: #1d1d1f !important;
@@ -8945,8 +9454,8 @@ a.batch-artifact-item-btn.download-btn {
 [data-theme="light"] .integrated-btn,
 [data-theme="light"] label.integrated-btn,
 [data-theme="light"] button.integrated-btn,
-[data-theme="light"] .integrated-col-tools button,
-[data-theme="light"] .integrated-cell button,
+[data-theme="light"] .integrated-col-tools button:not(.is-running):not(.is-generating),
+[data-theme="light"] .integrated-cell button:not(.player-button):not(.player-speed-btn):not(.compact-player-button):not(.is-running):not(.is-generating):not(.batch-row-single-clone-btn),
 [data-theme="light"] .integrated-cell label {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
@@ -8958,19 +9467,47 @@ a.batch-artifact-item-btn.download-btn {
 [data-theme="light"] .integrated-btn:hover,
 [data-theme="light"] label.integrated-btn:hover,
 [data-theme="light"] button.integrated-btn:hover,
-[data-theme="light"] .integrated-col-tools button:hover:not(:disabled),
-[data-theme="light"] .integrated-cell button:hover:not(:disabled),
+[data-theme="light"] .integrated-col-tools button:not(.is-running):not(.is-generating):hover:not(:disabled),
+[data-theme="light"] .integrated-cell button:not(.player-button):not(.player-speed-btn):not(.compact-player-button):not(.is-running):not(.is-generating):not(.batch-row-single-clone-btn):hover:not(:disabled),
 [data-theme="light"] .integrated-cell label:hover {
   background: #e5e5ea !important;
   color: #1d1d1f !important;
 }
 
-[data-theme="light"] .node-integrated-studio .run-button,
-[data-theme="light"] .node-integratedStudio .run-button,
-[data-theme="light"] .integrated-run-all-btn,
+[data-theme="light"] .integrated-cell .player-button {
+  background: #0071e3 !important;
+  border: none !important;
+  color: #ffffff !important;
+  border-radius: 50% !important;
+  box-shadow: 0 1px 4px rgba(0, 113, 227, 0.3) !important;
+}
+
+[data-theme="light"] .integrated-cell .player-button:hover:not(:disabled) {
+  background: #005bb5 !important;
+  transform: scale(1.06) !important;
+}
+
 [data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn,
 [data-theme="light"] .node-integratedStudio .batch-row-single-clone-btn,
 [data-theme="light"] .integrated-cell.cell-clone .batch-row-single-clone-btn {
+  background: #f5f5f7 !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  color: #1d1d1f !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn:hover:not(:disabled),
+[data-theme="light"] .node-integratedStudio .batch-row-single-clone-btn:hover:not(:disabled),
+[data-theme="light"] .integrated-cell.cell-clone .batch-row-single-clone-btn:hover:not(:disabled) {
+  background: #e5e5ea !important;
+  color: #0071e3 !important;
+}
+
+[data-theme="light"] .node-integrated-studio .run-button,
+[data-theme="light"] .node-integratedStudio .run-button,
+[data-theme="light"] .integrated-run-all-btn {
   background: #0071e3 !important;
   border: none !important;
   color: #ffffff !important;
@@ -8981,10 +9518,7 @@ a.batch-artifact-item-btn.download-btn {
 
 [data-theme="light"] .node-integrated-studio .run-button:hover:not(:disabled),
 [data-theme="light"] .node-integratedStudio .run-button:hover:not(:disabled),
-[data-theme="light"] .integrated-run-all-btn:hover:not(:disabled),
-[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn:hover:not(:disabled),
-[data-theme="light"] .node-integratedStudio .batch-row-single-clone-btn:hover:not(:disabled),
-[data-theme="light"] .integrated-cell.cell-clone .batch-row-single-clone-btn:hover:not(:disabled) {
+[data-theme="light"] .integrated-run-all-btn:hover:not(:disabled) {
   background: #0077ed !important;
 }
 
@@ -9407,12 +9941,14 @@ a.batch-artifact-item-btn.download-btn {
   background: #e2e8f0 !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
+  vertical-align: top !important;
 }
 
 [data-theme="light"] .excel-paste-preview-table td {
   background: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
+  vertical-align: top !important;
 }
 
 [data-theme="light"] .excel-col-select {
@@ -9456,19 +9992,43 @@ a.batch-artifact-item-btn.download-btn {
 }
 
 /* ── INTEGRATED MULTI-AUDIO ASSIGN MODAL (全能工作台音频分配弹窗) ── */
+/* ── INTEGRATED MULTI-AUDIO MODAL BACKDROP (FULLSCREEN PORTAL) ── */
+.integrated-audio-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 24px !important;
+  background: rgba(10, 12, 18, 0.72) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  animation: nodeModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+[data-theme="light"] .integrated-audio-modal-backdrop {
+  background: rgba(240, 242, 245, 0.76) !important;
+}
+
 .integrated-multi-audio-card {
-  width: 680px;
-  max-width: 92vw;
+  width: min(800px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: min(720px, calc(100vh - 48px));
   background: #10131a;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 12px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.9), 0 0 35px rgba(255, 255, 255, 0.08);
   color: #ffffff;
-  padding: 22px 26px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   transition: all 0.15s ease;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .integrated-multi-audio-card.dragging-over {
@@ -9510,7 +10070,9 @@ a.batch-artifact-item-btn.download-btn {
 }
 
 .integrated-multi-audio-table-wrap {
-  max-height: 320px;
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 420px;
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
@@ -9534,6 +10096,11 @@ a.batch-artifact-item-btn.download-btn {
   padding: 10px 14px;
   color: #cbd5e1;
   font-weight: 700;
+  vertical-align: middle !important;
+}
+
+.integrated-multi-audio-table tbody td {
+  vertical-align: middle !important;
 }
 
 .integrated-multi-audio-table tbody tr {
@@ -9542,7 +10109,9 @@ a.batch-artifact-item-btn.download-btn {
 
 .integrated-multi-audio-select {
   flex: 1;
-  padding: 6px 10px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
   background: #283040;
   color: #ffffff;
   border: 1px solid #475569;
@@ -9550,6 +10119,38 @@ a.batch-artifact-item-btn.download-btn {
   font-size: 12px;
   font-weight: 600;
   outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.integrated-multi-audio-del-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.integrated-multi-audio-del-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+.integrated-multi-audio-del-btn:active {
+  transform: scale(0.96);
 }
 
 .integrated-multi-audio-summary {
@@ -9564,11 +10165,13 @@ a.batch-artifact-item-btn.download-btn {
 }
 
 .integrated-multi-audio-footer {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .integrated-modal-cancel-btn {
@@ -9661,6 +10264,7 @@ a.batch-artifact-item-btn.download-btn {
 
 [data-theme="light"] .integrated-multi-audio-table thead th {
   color: #0f172a !important;
+  vertical-align: middle !important;
 }
 
 [data-theme="light"] .integrated-multi-audio-table tbody tr {
@@ -9669,18 +10273,49 @@ a.batch-artifact-item-btn.download-btn {
 
 [data-theme="light"] .integrated-multi-audio-table tbody td {
   color: #0f172a !important;
+  vertical-align: middle !important;
 }
 
 [data-theme="light"] .integrated-multi-audio-select {
+  height: 32px !important;
+  box-sizing: border-box !important;
   background: #f8fafc !important;
   color: #0f172a !important;
   border: 1px solid #94a3b8 !important;
+}
+
+[data-theme="light"] .integrated-multi-audio-select:hover,
+[data-theme="light"] .integrated-multi-audio-select:focus {
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15) !important;
+}
+
+[data-theme="light"] .integrated-multi-audio-del-btn {
+  background: #fef2f2 !important;
+  border: 1px solid #fca5a5 !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="light"] .integrated-multi-audio-del-btn:hover {
+  background: #fee2e2 !important;
+  border-color: #ef4444 !important;
+  color: #dc2626 !important;
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.15) !important;
+  transform: scale(1.05) !important;
+}
+
+[data-theme="light"] .integrated-multi-audio-del-btn:active {
+  transform: scale(0.96) !important;
 }
 
 [data-theme="light"] .integrated-multi-audio-summary {
   background: #f1f5f9 !important;
   border: 1px solid #cbd5e1 !important;
   color: #0f172a !important;
+}
+
+[data-theme="light"] .integrated-multi-audio-footer {
+  border-top: 1px solid #e2e8f0 !important;
 }
 
 [data-theme="light"] .integrated-modal-cancel-btn {
@@ -10128,6 +10763,601 @@ a.batch-artifact-item-btn.download-btn {
 [data-theme="light"] .apple-canvas-ctrl-divider {
   background: rgba(0, 0, 0, 0.06);
 }
+
+/* ── CANONICAL STUDIO AUDIO PLAYER & DOWNLOAD BUTTON HARMONIZATION (FIG 2 BENCHMARK) ── */
+
+/* 1. Global Per-Node Theme Tone Binding for Players */
+.node-design, .node-batch-design { --player-accent: #00c7be; }
+[data-theme="light"] .node-design, [data-theme="light"] .node-batch-design { --player-accent: #00c7be; }
+
+.node-audio { --player-accent: #0a84ff; }
+[data-theme="light"] .node-audio { --player-accent: #0071e3; }
+
+.node-audio-merge { --player-accent: #ff375f; }
+[data-theme="light"] .node-audio-merge { --player-accent: #ff375f; }
+
+.node-clone, .node-batch-clone { --player-accent: #ff9f0a; }
+[data-theme="light"] .node-clone, [data-theme="light"] .node-batch-clone { --player-accent: #ff9f0a; }
+
+.node-artifact, .node-batch-artifact { --player-accent: #6366f1; }
+[data-theme="light"] .node-artifact, [data-theme="light"] .node-batch-artifact { --player-accent: #5856d6; }
+
+.integrated-cell.cell-ref { --player-accent: #0071e3; }
+.integrated-cell.cell-artifact { --player-accent: #6366f1; }
+[data-theme="light"] .integrated-cell.cell-artifact { --player-accent: #5856d6; }
+.node-integrated-studio, .node-integratedStudio { --player-accent: #0071e3; }
+
+/* 2. Absolute Removal of Underlines and Centering on All Download Buttons / Links */
+a.download-link,
+a.download-link:hover,
+a.download-link:focus,
+a.download-link:visited,
+a.download-link:active,
+a.batch-artifact-item-btn,
+a.batch-artifact-item-btn:hover,
+a.batch-artifact-item-btn:focus,
+a.batch-artifact-item-btn:visited,
+a.batch-artifact-item-btn:active,
+.download-btn,
+.download-btn:hover,
+.download-btn:focus,
+.download-btn:visited,
+.download-btn:active,
+.batch-artifact-item-btn.download-btn,
+.batch-artifact-item-btn.download-btn:hover,
+.batch-artifact-item-btn.download-btn:focus,
+.batch-artifact-item-btn.download-btn:visited,
+.batch-artifact-item-btn.download-btn:active,
+.product-download-button,
+.product-download-button:hover,
+.product-download-button:focus,
+.product-download-button:visited,
+.product-download-button:active {
+  text-decoration: none !important;
+}
+
+.batch-artifact-item-btn,
+a.batch-artifact-item-btn,
+button.batch-artifact-item-btn,
+.download-link,
+a.download-link,
+button.download-link {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  text-decoration: none !important;
+}
+
+.batch-artifact-item-btn > span,
+a.batch-artifact-item-btn > span,
+button.batch-artifact-item-btn > span,
+.download-link > span,
+a.download-link > span,
+button.download-link > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  text-align: center !important;
+  text-decoration: none !important;
+}
+
+/* 3. Canonical Fig 2 Player Proportions Unified in Any Node */
+.studio-player,
+.compact-audio-player {
+  margin-top: 8px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  grid-template-columns: 32px auto 1fr 32px !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 4px 6px 4px 5px !important;
+  border-radius: 999px !important;
+}
+
+[data-theme="light"] .studio-player,
+[data-theme="light"] .compact-audio-player {
+  background: #f5f5f7 !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+}
+
+.studio-player .player-button,
+.compact-audio-player .player-button,
+.compact-player-button {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.studio-player .player-button svg,
+.compact-audio-player .player-button svg,
+.compact-player-button svg,
+.studio-player .player-button svg.lucide-play,
+.compact-audio-player .player-button svg.lucide-play,
+.compact-player-button svg.lucide-play {
+  margin: 0 !important;
+}
+
+.studio-player .player-time,
+.compact-audio-player .player-time,
+.compact-player-time {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Mono", Menlo, monospace !important;
+  font-size: 11.5px !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.2px !important;
+  min-width: 58px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  user-select: none !important;
+  flex-shrink: 0 !important;
+}
+
+.studio-player .player-range,
+.compact-audio-player .player-range,
+.compact-player-range,
+.player-range {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  height: 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 999px !important;
+  min-width: 36px !important;
+  outline: none !important;
+  cursor: pointer !important;
+  background: linear-gradient(to right, var(--player-accent, #0071e3) 0%, var(--player-accent, #0071e3) var(--progress, 0%), rgba(0, 0, 0, 0.08) var(--progress, 0%), rgba(0, 0, 0, 0.08) 100%) !important;
+}
+
+.studio-player .player-range::-webkit-slider-runnable-track,
+.compact-audio-player .player-range::-webkit-slider-runnable-track,
+.compact-player-range::-webkit-slider-runnable-track,
+.player-range::-webkit-slider-runnable-track {
+  height: 4px !important;
+  border-radius: 999px !important;
+  border: none !important;
+  background: linear-gradient(to right, var(--player-accent, #0071e3) 0%, var(--player-accent, #0071e3) var(--progress, 0%), rgba(0, 0, 0, 0.08) var(--progress, 0%), rgba(0, 0, 0, 0.08) 100%) !important;
+}
+
+.studio-player .player-range::-webkit-slider-thumb,
+.compact-audio-player .player-range::-webkit-slider-thumb,
+.compact-player-range::-webkit-slider-thumb,
+.player-range::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2.5px solid var(--player-accent, #0071e3) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  cursor: pointer !important;
+  margin-top: -4px !important;
+  transition: transform 120ms ease, box-shadow 120ms ease !important;
+}
+
+.studio-player .player-range::-webkit-slider-thumb:hover,
+.compact-audio-player .player-range::-webkit-slider-thumb:hover,
+.compact-player-range::-webkit-slider-thumb:hover,
+.player-range::-webkit-slider-thumb:hover,
+.player-range:hover::-webkit-slider-thumb {
+  transform: scale(1.2) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--player-accent, #0071e3) 25%, transparent), 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.studio-player .player-range::-webkit-slider-thumb:active,
+.compact-audio-player .player-range::-webkit-slider-thumb:active,
+.compact-player-range::-webkit-slider-thumb:active,
+.player-range::-webkit-slider-thumb:active,
+.player-range:active::-webkit-slider-thumb {
+  transform: scale(1.3) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--player-accent, #0071e3) 35%, transparent), 0 2px 5px rgba(0, 0, 0, 0.35) !important;
+}
+
+.studio-player .player-range::-moz-range-track,
+.compact-audio-player .player-range::-moz-range-track,
+.compact-player-range::-moz-range-track,
+.player-range::-moz-range-track {
+  height: 4px !important;
+  border-radius: 999px !important;
+  border: none !important;
+  background: linear-gradient(to right, var(--player-accent, #0071e3) 0%, var(--player-accent, #0071e3) var(--progress, 0%), rgba(0, 0, 0, 0.08) var(--progress, 0%), rgba(0, 0, 0, 0.08) 100%) !important;
+}
+
+.studio-player .player-range::-moz-range-progress,
+.compact-audio-player .player-range::-moz-range-progress,
+.compact-player-range::-moz-range-progress,
+.player-range::-moz-range-progress {
+  height: 4px !important;
+  border-radius: 999px !important;
+  background: var(--player-accent, #0071e3) !important;
+}
+
+.studio-player .player-range::-moz-range-thumb,
+.compact-audio-player .player-range::-moz-range-thumb,
+.compact-player-range::-moz-range-thumb,
+.player-range::-moz-range-thumb {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2.5px solid var(--player-accent, #0071e3) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  cursor: pointer !important;
+  transition: transform 120ms ease, box-shadow 120ms ease !important;
+}
+
+.studio-player .player-range::-moz-range-thumb:hover,
+.compact-audio-player .player-range::-moz-range-thumb:hover,
+.compact-player-range::-moz-range-thumb:hover,
+.player-range::-moz-range-thumb:hover,
+.player-range:hover::-moz-range-thumb {
+  transform: scale(1.2) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--player-accent, #0071e3) 25%, transparent), 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.studio-player .player-range::-moz-range-thumb:active,
+.compact-audio-player .player-range::-moz-range-thumb:active,
+.compact-player-range::-moz-range-thumb:active,
+.player-range::-moz-range-thumb:active,
+.player-range:active::-moz-range-thumb {
+  transform: scale(1.3) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--player-accent, #0071e3) 35%, transparent), 0 2px 5px rgba(0, 0, 0, 0.35) !important;
+}
+
+.studio-player .player-speed-btn,
+.compact-audio-player .player-speed-btn,
+.player-speed-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   1. RUNNING & GENERATING BUTTONS: COLOR HARMONY & VIBRANCY
+   ────────────────────────────────────────────────────────── */
+@keyframes studioButtonPulse {
+  0% {
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+  }
+}
+
+button.is-running,
+button.is-generating,
+button:disabled.is-running,
+button:disabled.is-generating,
+.run-button.is-running,
+.run-button.is-generating,
+.batch-row-single-clone-btn.is-running,
+.batch-row-single-clone-btn.is-generating,
+.game-vocal-run-btn.is-running,
+.game-vocal-run-btn.is-generating {
+  opacity: 1 !important;
+  cursor: wait !important;
+  color: #ffffff !important;
+  transform: none !important;
+  animation: studioButtonPulse 2s ease-in-out infinite !important;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+button.is-running *,
+button.is-generating *,
+button:disabled.is-running *,
+button:disabled.is-generating * {
+  color: #ffffff !important;
+}
+
+/* Voice Clone & Batch Voice Clone Running State -> Apple Vibrant Orange */
+.node-clone .run-button.is-running,
+.node-batch-clone .run-button.is-running,
+.node-batch-clone .batch-row-single-clone-btn.is-running {
+  background: linear-gradient(135deg, #ff9f0a, #e07a00) !important;
+  border-color: #ff9f0a !important;
+  box-shadow: 0 0 16px rgba(255, 159, 10, 0.5) !important;
+}
+
+/* Voice Design & Batch Voice Design Running State -> Apple Vibrant Teal */
+.node-design .run-button.is-running,
+.node-batch-design .run-button.is-running,
+.node-batch-design .batch-row-single-clone-btn.is-running {
+  background: linear-gradient(135deg, #00c7be, #009688) !important;
+  border-color: #00c7be !important;
+  box-shadow: 0 0 16px rgba(0, 199, 190, 0.5) !important;
+}
+
+/* Audio Merge Running State -> Apple Vibrant Rose / Coral */
+.node-audio-merge .run-button.is-running {
+  background: linear-gradient(135deg, #ff375f, #e0244d) !important;
+  border-color: #ff375f !important;
+  box-shadow: 0 0 16px rgba(255, 55, 95, 0.5) !important;
+}
+
+/* Integrated Studio Running & Generating State -> Apple System Blue */
+.node-integrated-studio .run-button.is-running,
+.node-integrated-studio .run-button.is-generating,
+.node-integratedStudio .run-button.is-running,
+.node-integratedStudio .run-button.is-generating,
+.node-integrated-studio .batch-row-single-clone-btn.is-running,
+.node-integrated-studio .batch-row-single-clone-btn.is-generating,
+.node-integratedStudio .batch-row-single-clone-btn.is-running,
+.node-integratedStudio .batch-row-single-clone-btn.is-generating,
+.integrated-cell .batch-row-single-clone-btn.is-running,
+.integrated-cell .batch-row-single-clone-btn.is-generating,
+.integrated-cell.cell-clone .batch-row-single-clone-btn.is-running,
+.integrated-cell.cell-clone .batch-row-single-clone-btn.is-generating,
+.integrated-cell button.batch-row-single-clone-btn.is-running,
+.integrated-cell button.batch-row-single-clone-btn.is-generating,
+.node-integrated-studio .batch-row-single-clone-btn:disabled.is-running,
+.node-integrated-studio .batch-row-single-clone-btn:disabled.is-generating,
+.node-integrated-studio .run-button:disabled.is-running,
+.node-integrated-studio .run-button:disabled.is-generating,
+[data-theme="light"] .node-integrated-studio .run-button.is-running,
+[data-theme="light"] .node-integrated-studio .run-button.is-generating,
+[data-theme="light"] .node-integratedStudio .run-button.is-running,
+[data-theme="light"] .node-integratedStudio .run-button.is-generating,
+[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn.is-running,
+[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn.is-generating,
+[data-theme="light"] .node-integratedStudio .batch-row-single-clone-btn.is-running,
+[data-theme="light"] .node-integratedStudio .batch-row-single-clone-btn.is-generating,
+[data-theme="light"] .integrated-cell .batch-row-single-clone-btn.is-running,
+[data-theme="light"] .integrated-cell .batch-row-single-clone-btn.is-generating,
+[data-theme="light"] .integrated-cell.cell-clone .batch-row-single-clone-btn.is-running,
+[data-theme="light"] .integrated-cell.cell-clone .batch-row-single-clone-btn.is-generating,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn.is-running,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn.is-generating,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn:disabled.is-running,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn:disabled.is-generating,
+[data-theme="light"] .node-integrated-studio button.batch-row-single-clone-btn:disabled.is-running,
+[data-theme="light"] .node-integrated-studio button.batch-row-single-clone-btn:disabled.is-generating,
+[data-theme="light"] .node-integrated-studio .run-button:disabled.is-running,
+[data-theme="light"] .node-integrated-studio .run-button:disabled.is-generating {
+  background: linear-gradient(135deg, #0071e3, #0056b3) !important;
+  border: 1px solid #0071e3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  cursor: wait !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 18px rgba(0, 113, 227, 0.55), 0 2px 8px rgba(0, 113, 227, 0.3) !important;
+  animation: integratedButtonPulse 1.8s ease-in-out infinite alternate !important;
+}
+
+.node-integrated-studio .batch-row-single-clone-btn.is-running *,
+.node-integrated-studio .batch-row-single-clone-btn.is-generating *,
+.node-integratedStudio .batch-row-single-clone-btn.is-running *,
+.node-integratedStudio .batch-row-single-clone-btn.is-generating *,
+.integrated-cell .batch-row-single-clone-btn.is-running *,
+.integrated-cell .batch-row-single-clone-btn.is-generating *,
+.integrated-cell.cell-clone .batch-row-single-clone-btn.is-running *,
+.integrated-cell.cell-clone .batch-row-single-clone-btn.is-generating *,
+.integrated-cell button.batch-row-single-clone-btn.is-running *,
+.integrated-cell button.batch-row-single-clone-btn.is-generating *,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn.is-running *,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn.is-generating *,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn:disabled.is-running *,
+[data-theme="light"] .integrated-cell button.batch-row-single-clone-btn:disabled.is-generating *,
+[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn.is-running *,
+[data-theme="light"] .node-integrated-studio .batch-row-single-clone-btn.is-generating *,
+.node-integrated-studio .run-button.is-running *,
+.node-integrated-studio .run-button.is-generating *,
+[data-theme="light"] .node-integrated-studio .run-button.is-running *,
+[data-theme="light"] .node-integrated-studio .run-button.is-generating * {
+  color: #ffffff !important;
+  fill: none !important;
+  opacity: 1 !important;
+}
+
+@keyframes integratedButtonPulse {
+  0% {
+    box-shadow: 0 0 10px rgba(0, 113, 227, 0.4), 0 2px 4px rgba(0, 113, 227, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 20px rgba(0, 113, 227, 0.75), 0 3px 8px rgba(0, 113, 227, 0.35);
+  }
+}
+
+/* Game Vocal Running State -> Apple Vibrant Purple */
+.node-game-vocal .game-vocal-run-btn.is-running,
+.node-game-vocal .run-button.is-running {
+  background: linear-gradient(135deg, #af52de, #8e39be) !important;
+  border-color: #af52de !important;
+  box-shadow: 0 0 16px rgba(175, 82, 222, 0.5) !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   2. LIGHT MODE CONNECTING EDGES & HANDLES - CRISP & DISTINCT
+   ────────────────────────────────────────────────────────── */
+[data-theme="light"] .react-flow__edge-path {
+  stroke-width: 2.4px !important;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12));
+  opacity: 0.95;
+}
+
+[data-theme="light"] .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3.2px !important;
+  filter: drop-shadow(0 2px 6px rgba(0, 113, 227, 0.4)) !important;
+}
+
+[data-theme="light"] .node-handle {
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22) !important;
+  width: 11px !important;
+  height: 11px !important;
+}
+
+[data-theme="light"] .node-audio .node-handle {
+  background: #0071e3 !important;
+}
+[data-theme="light"] .node-audio-merge .node-handle {
+  background: #ff375f !important;
+}
+[data-theme="light"] .node-clone .node-handle,
+[data-theme="light"] .node-batch-clone .node-handle {
+  background: #e07a00 !important;
+}
+[data-theme="light"] .node-design .node-handle,
+[data-theme="light"] .node-batch-design .node-handle {
+  background: #009688 !important;
+}
+[data-theme="light"] .node-artifact .node-handle,
+[data-theme="light"] .node-batch-artifact .node-handle {
+  background: #5856d6 !important;
+}
+[data-theme="light"] .node-integratedStudio .node-handle,
+[data-theme="light"] .node-integrated-studio .node-handle {
+  background: #0071e3 !important;
+}
+[data-theme="light"] .node-style .node-handle {
+  background: #8b5cf6 !important;
+}
+[data-theme="light"] .node-prompt .node-handle {
+  background: #16a34a !important;
+}
+[data-theme="light"] .node-game-vocal .node-handle {
+  background: #8b5cf6 !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   3. DARK MODE GLOBAL AUDIO PLAYERS - CLEAN UNIFIED GLASS
+   ────────────────────────────────────────────────────────── */
+[data-theme="dark"] .studio-player,
+[data-theme="dark"] .compact-audio-player {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28) !important;
+}
+
+[data-theme="dark"] .studio-player .player-time,
+[data-theme="dark"] .compact-audio-player .player-time {
+  color: #a1a1a6 !important;
+}
+
+[data-theme="dark"] .studio-player .player-range,
+[data-theme="dark"] .compact-audio-player .player-range,
+[data-theme="dark"] .player-range,
+[data-theme="dark"] .studio-player .player-range::-webkit-slider-runnable-track,
+[data-theme="dark"] .compact-audio-player .player-range::-webkit-slider-runnable-track,
+[data-theme="dark"] .player-range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--player-accent, #0a84ff) 0%, var(--player-accent, #0a84ff) var(--progress, 0%), rgba(255, 255, 255, 0.12) var(--progress, 0%), rgba(255, 255, 255, 0.12) 100%) !important;
+}
+
+[data-theme="dark"] .studio-player .player-speed-btn,
+[data-theme="dark"] .compact-audio-player .player-speed-btn,
+[data-theme="dark"] .player-speed-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  color: #f5f5f7 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+[data-theme="dark"] .studio-player .player-speed-btn:hover,
+[data-theme="dark"] .compact-audio-player .player-speed-btn:hover,
+[data-theme="dark"] .player-speed-btn:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: #ffffff !important;
+  transform: scale(1.06) !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   4. LIGHT MODE GLOBAL AUDIO PLAYERS - CRISP HIGH CONTRAST
+   ────────────────────────────────────────────────────────── */
+[data-theme="light"] .studio-player,
+[data-theme="light"] .compact-audio-player {
+  background: #f5f5f7 !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .studio-player .player-time,
+[data-theme="light"] .compact-audio-player .player-time {
+  color: #6e6e73 !important;
+}
+
+[data-theme="light"] .studio-player .player-range,
+[data-theme="light"] .compact-audio-player .player-range,
+[data-theme="light"] .player-range,
+[data-theme="light"] .studio-player .player-range::-webkit-slider-runnable-track,
+[data-theme="light"] .compact-audio-player .player-range::-webkit-slider-runnable-track,
+[data-theme="light"] .player-range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--player-accent, #0071e3) 0%, var(--player-accent, #0071e3) var(--progress, 0%), rgba(0, 0, 0, 0.08) var(--progress, 0%), rgba(0, 0, 0, 0.08) 100%) !important;
+}
+
+[data-theme="light"] .studio-player .player-speed-btn,
+[data-theme="light"] .compact-audio-player .player-speed-btn,
+[data-theme="light"] .player-speed-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.14) !important;
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .studio-player .player-speed-btn:hover,
+[data-theme="light"] .compact-audio-player .player-speed-btn:hover,
+[data-theme="light"] .player-speed-btn:hover {
+  background: #f0f0f2 !important;
+  border-color: rgba(0, 0, 0, 0.24) !important;
+  color: var(--player-accent, #0071e3) !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12) !important;
+  transform: scale(1.06) !important;
+}
+
+
+
 
 
 

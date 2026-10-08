@@ -327,7 +327,9 @@ export function computeSmartDagLayout(
       const isDownstreamInput = (n: LayoutNodeInput): boolean => {
         // 若节点直接为主生成器提供输入，其根本角色为前置输入源，必须排布在生成器左侧，绝不视作下游！
         if (feedsIntoPrimaryGen(n.id)) return false;
-        return getUpstreamArtifactFromOtherGen(n.id, "") !== null;
+        const ins = inEdgesMap.get(n.id) || [];
+        const hasGeneratorUpstream = ins.some((e) => isGeneratorType(blockNodeMap.get(e.source)?.type || ""));
+        return hasGeneratorUpstream || getUpstreamArtifactFromOtherGen(n.id, "") !== null;
       };
 
       if (generators.length === 0) {
@@ -346,24 +348,40 @@ export function computeSmartDagLayout(
         (generatorArtifactMap.get(primaryGens[0].id) || []).length > 0 &&
         (generatorArtifactMap.get(primaryGens[0].id) || []).length <= 2;
 
-      // 逻辑输入节点分类 (排除下游分支专属的中间输入，如接收产物的 audioMerge)
-      const rootInputs = logicNodes.filter((n) => {
+      // 候选前置输入节点分类 (排除下游分支专属的接收产物节点)
+      const candidateInputs = logicNodes.filter((n) => {
         if (isGeneratorType(n.type) || isDirectArtifactNode.has(n.id)) return false;
         if (isDownstreamInput(n)) return false;
-        const ins = inEdgesMap.get(n.id) || [];
-        if (isUpstreamOriginGen) return false;
-        const hasLogicInEdges = ins.some((e) => {
-          const src = blockNodeMap.get(e.source);
-          return src && !isDirectArtifactNode.has(src.id);
-        });
-        return ins.length === 0 || (!hasLogicInEdges && feedsIntoPrimaryGen(n.id));
+        return true;
       });
 
-      const intermediateInputs = logicNodes.filter((n) => {
-        if (isGeneratorType(n.type) || isDirectArtifactNode.has(n.id)) return false;
-        if (isDownstreamInput(n)) return false;
-        return !rootInputs.some((r) => r.id === n.id);
-      });
+      // 检查输入节点是否输出到了另一个前置候选输入节点 (如 referenceAudio -> audioMerge)
+      const feedsIntoAnotherCandidateInput = (nodeId: string): boolean => {
+        const outs = outEdgesMap.get(nodeId) || [];
+        return outs.some((e) => candidateInputs.some((cand) => cand.id === e.target));
+      };
+
+      // 是否存在输入节点之间的前后流水线依赖
+      const hasInputPipeline = candidateInputs.some((n) => feedsIntoAnotherCandidateInput(n.id));
+
+      let rootInputs: LayoutNodeInput[] = [];
+      let intermediateInputs: LayoutNodeInput[] = [];
+
+      if (isUpstreamOriginGen) {
+        rootInputs = [];
+        intermediateInputs = candidateInputs;
+      } else if (!hasInputPipeline) {
+        // 如果没有前置多阶段输入 (例如图三：所有输入直接接入生成器)
+        // 则所有输入整齐归于第一列 (rootInputs)，生成器自然紧随其后为第二列
+        rootInputs = candidateInputs;
+        intermediateInputs = [];
+      } else {
+        // 如果存在多阶段输入 (例如图一：参考音频 -> 音频整合 -> 音频克隆)
+        // 第一列 (rootInputs)：输出了连线给其他输入卡片的上游根节点 (如 referenceAudio)
+        // 第二列 (intermediateInputs)：直接连接到生成器的所有前置输入卡片 (如 audioMerge, voiceStyle, prompt)
+        rootInputs = candidateInputs.filter((n) => feedsIntoAnotherCandidateInput(n.id));
+        intermediateInputs = candidateInputs.filter((n) => !rootInputs.some((r) => r.id === n.id));
+      }
 
       // 计算列横向坐标
       const rootColW = rootInputs.length > 0 ? Math.max(...rootInputs.map(getNodeW)) : 0;
@@ -394,6 +412,65 @@ export function computeSmartDagLayout(
       let currentBranchY = currentBlockStartY;
       let prevBranchDownstreamArtifactsBottomY = currentBlockStartY;
       let blockMaxY = currentBlockStartY;
+
+      // 计算输入节点的连线目标重心纵坐标 (Barycenter)，用于垂直排序消除连线交叉
+      // 使得输入卡片从上到下的顺序与目标生成器及其 Handle 的垂直顺序高度一致
+      const computeInputTargetY = (node: LayoutNodeInput): number => {
+        const outs = outEdgesMap.get(node.id) || [];
+        if (outs.length === 0) {
+          return node.originalY;
+        }
+
+        let totalTargetY = 0;
+        let validTargets = 0;
+
+        outs.forEach((e) => {
+          const targetNode = blockNodeMap.get(e.target);
+          if (!targetNode) return;
+
+          // 1. 目标基准纵坐标 (参考目标节点在画布中的原始垂直位置)
+          const targetBaseY = targetNode.originalY;
+
+          // 2. 目标 Handle 的垂直槽位偏移
+          // voice/audio 在最顶层 (~40px), instruction/style 在中间 (~150px), text/prompt 在最底层 (~280px)
+          let handleOffset = 100;
+          const h = e.targetHandle || "";
+          if (h === "voice" || h === "audio") {
+            handleOffset = 40;
+          } else if (h === "instruction" || h === "style") {
+            handleOffset = 150;
+          } else if (h === "text" || h === "prompt") {
+            handleOffset = 280;
+          } else if (h === "artifact") {
+            handleOffset = 50;
+          } else {
+            // 如果连线未显式声明 targetHandle，则根据源节点特征智能识别槽位
+            if (node.type === "referenceAudio" || node.type === "audioMerge") {
+              handleOffset = 40;
+            } else if (node.type === "voiceStyle") {
+              handleOffset = 150;
+            } else if (node.type === "prompt") {
+              handleOffset = 280;
+            }
+          }
+
+          totalTargetY += (targetBaseY + handleOffset);
+          validTargets++;
+        });
+
+        return validTargets > 0 ? totalTargetY / validTargets : node.originalY;
+      };
+
+      // 对 rootInputs 和 intermediateInputs 按目标重心排序，确保线路从上而下平滑流动无交叉
+      rootInputs.sort((a, b) => {
+        const diff = computeInputTargetY(a) - computeInputTargetY(b);
+        return Math.abs(diff) > 0.001 ? diff : a.originalY - b.originalY;
+      });
+
+      intermediateInputs.sort((a, b) => {
+        const diff = computeInputTargetY(a) - computeInputTargetY(b);
+        return Math.abs(diff) > 0.001 ? diff : a.originalY - b.originalY;
+      });
 
       primaryGens.forEach((gen, gIdx) => {
         let branchStartY = currentBranchY;
@@ -427,7 +504,10 @@ export function computeSmartDagLayout(
             return outs.some((e) => e.target === gen.id);
           });
           if (gInputs.length > 0) {
-            gInputs.sort((a, b) => a.originalY - b.originalY);
+            gInputs.sort((a, b) => {
+              const diff = computeInputTargetY(a) - computeInputTargetY(b);
+              return Math.abs(diff) > 0.001 ? diff : a.originalY - b.originalY;
+            });
             gInputs.forEach((an, aIdx) => {
               const auxY = branchStartY - (gInputs.length - aIdx) * 235 - 50;
               resultPositions.set(an.id, { x: intermediateColX, y: Math.max(currentBlockStartY, auxY) });
@@ -477,18 +557,43 @@ export function computeSmartDagLayout(
         const genBottomY = branchStartY + Math.max(getNodeH(gen), artGridH);
         if (genBottomY > branchMaxY) branchMaxY = genBottomY;
 
-        // 下游流水线生成器 (承接该分支产物向右延伸)
-        const downstreamInBranch = Array.from(downstreamGens)
-          .map((id) => blockNodeMap.get(id))
-          .filter((dg): dg is LayoutNodeInput => {
-            if (!dg) return false;
-            const inE = inEdgesMap.get(dg.id) || [];
-            return inE.some((e) => {
-              if (e.source === gen.id || arts.some((a) => a.id === e.source)) return true;
-              const artNode = getUpstreamArtifactFromOtherGen(e.source, dg.id);
-              return artNode && arts.some((a) => a.id === artNode.id);
+        // 下游流水线生成器 (递归/BFS 收集从当前分支主生成器及其产物出发的所有下游生成器，保持拓扑顺序)
+        const getDownstreamGensForBranch = (startGenId: string): LayoutNodeInput[] => {
+          const visited = new Set<string>();
+          const orderedGens: LayoutNodeInput[] = [];
+          const queue: string[] = [startGenId];
+          visited.add(startGenId);
+
+          while (queue.length > 0) {
+            const currGenId = queue.shift()!;
+            const currGenArts = generatorArtifactMap.get(currGenId) || [];
+            const srcIds = new Set<string>([currGenId, ...currGenArts.map((a) => a.id)]);
+
+            blockNodes.forEach((node) => {
+              if (!isGeneratorType(node.type) || visited.has(node.id)) return;
+              const inE = inEdgesMap.get(node.id) || [];
+              const receivesFromCurrent = inE.some((e) => {
+                if (srcIds.has(e.source)) return true;
+                const midNode = blockNodeMap.get(e.source);
+                if (midNode && !isGeneratorType(midNode.type) && !isDirectArtifactNode.has(midNode.id)) {
+                  const midInE = inEdgesMap.get(midNode.id) || [];
+                  return midInE.some((me) => srcIds.has(me.source));
+                }
+                return false;
+              });
+
+              if (receivesFromCurrent) {
+                visited.add(node.id);
+                orderedGens.push(node);
+                queue.push(node.id);
+              }
             });
-          });
+          }
+
+          return orderedGens;
+        };
+
+        const downstreamInBranch = getDownstreamGensForBranch(gen.id);
 
         if (downstreamInBranch.length > 0) {
           downstreamInBranch.forEach((dsGen) => {
@@ -496,9 +601,72 @@ export function computeSmartDagLayout(
               .map((e) => blockNodeMap.get(e.source))
               .filter((n): n is LayoutNodeInput => Boolean(n && isDownstreamInput(n)));
 
-            const artGridRight = arts.length > 0
-              ? (artStartX + (Math.min(arts.length, 3) - 1) * (itemW + colGap) + itemW)
-              : (genColX + genW);
+            // 动态计算该下游生成器所有上游依赖的最右边缘 (必须避开上游所有产物网格列，如 3 列全部避开！)
+            const dsInEdges = inEdgesMap.get(dsGen.id) || [];
+            let upstreamMaxRightX = genColX + genW;
+
+            // 包含当前主生成器自身产物网格的最右边缘
+            if (arts.length > 0) {
+              const mainArtRight = artStartX + (Math.min(arts.length, 3) - 1) * (itemW + colGap) + itemW;
+              if (mainArtRight > upstreamMaxRightX) upstreamMaxRightX = mainArtRight;
+            }
+
+            dsInEdges.forEach((e) => {
+              const srcNode = blockNodeMap.get(e.source);
+              if (!srcNode) return;
+
+              // 1. 如果源是生成器，避开该生成器及其所有已生成的产物
+              if (isGeneratorType(srcNode.type)) {
+                if (resultPositions.has(srcNode.id)) {
+                  const gX = resultPositions.get(srcNode.id)!.x + getNodeW(srcNode);
+                  if (gX > upstreamMaxRightX) upstreamMaxRightX = gX;
+                }
+                const gArts = generatorArtifactMap.get(srcNode.id) || [];
+                gArts.forEach((ga) => {
+                  if (resultPositions.has(ga.id)) {
+                    const gaX = resultPositions.get(ga.id)!.x + getNodeW(ga);
+                    if (gaX > upstreamMaxRightX) upstreamMaxRightX = gaX;
+                  }
+                });
+              } else if (isDirectArtifactNode.has(srcNode.id)) {
+                // 2. 如果源是产物节点，必须避开该产物所属生成器的整个产物网格 (避开全部 3 列产物！)
+                const parentGenId = artifactGeneratorMap.get(srcNode.id);
+                if (parentGenId) {
+                  if (resultPositions.has(parentGenId)) {
+                    const pgX = resultPositions.get(parentGenId)!.x + getNodeW(blockNodeMap.get(parentGenId)!);
+                    if (pgX > upstreamMaxRightX) upstreamMaxRightX = pgX;
+                  }
+                  const parentArts = generatorArtifactMap.get(parentGenId) || [];
+                  parentArts.forEach((pa) => {
+                    if (resultPositions.has(pa.id)) {
+                      const paX = resultPositions.get(pa.id)!.x + getNodeW(pa);
+                      if (paX > upstreamMaxRightX) upstreamMaxRightX = paX;
+                    }
+                  });
+                }
+                if (resultPositions.has(srcNode.id)) {
+                  const sX = resultPositions.get(srcNode.id)!.x + getNodeW(srcNode);
+                  if (sX > upstreamMaxRightX) upstreamMaxRightX = sX;
+                }
+              } else if (resultPositions.has(srcNode.id)) {
+                // 3. 普通已排布的上游输入卡片 (如接收产物的中间输入)
+                const sInE = inEdgesMap.get(srcNode.id) || [];
+                sInE.forEach((se) => {
+                  const pGenId = artifactGeneratorMap.get(se.source);
+                  if (pGenId) {
+                    const pArts = generatorArtifactMap.get(pGenId) || [];
+                    pArts.forEach((pa) => {
+                      if (resultPositions.has(pa.id)) {
+                        const paX = resultPositions.get(pa.id)!.x + getNodeW(pa);
+                        if (paX > upstreamMaxRightX) upstreamMaxRightX = paX;
+                      }
+                    });
+                  }
+                });
+                const sX = resultPositions.get(srcNode.id)!.x + getNodeW(srcNode);
+                if (sX > upstreamMaxRightX) upstreamMaxRightX = sX;
+              }
+            });
 
             let dsGenX = 0;
             let dsGenY = 0;
@@ -517,8 +685,8 @@ export function computeSmartDagLayout(
               dsGenY = (gIdx === 0 || prevBranchDownstreamArtifactsBottomY === currentBlockStartY) ? currentBlockStartY : branchStartY;
             } else if (dsInputs.length > 0) {
               // 综合规则：下游分支带有前置中间输入卡片（如 audioMerge 参考音频整合）
-              // 1. 中间输入排布在上游产物网格之后 (artGridRight + 60)
-              const interColX = artGridRight + 60;
+              // 1. 中间输入排布在上游产物网格之后 (upstreamMaxRightX + 60)
+              const interColX = upstreamMaxRightX + 60;
               const interColW = Math.max(...dsInputs.map(getNodeW));
               // 2. 下游生成器紧随中间输入卡片之后
               dsGenX = interColX + interColW + 60;
@@ -538,20 +706,28 @@ export function computeSmartDagLayout(
               });
               dsGenY = dsStartY;
             } else {
-              // 无中间输入卡片，下游生成器直接排布在产物网格之后 (如《潜行》画板)
-              dsGenX = arts.length > 0
-                ? (artStartX + 2 * (itemW + colGap) + itemW + 60)
-                : (genColX + genW + 60);
+              // 无中间输入卡片，下游生成器直接排布在产物网格之后 (避开全部 3 列产物，绝不重叠！)
+              dsGenX = upstreamMaxRightX + 60;
+
+              let dsStartY = branchStartY;
+              const srcArtifactEdge = dsInEdges.find((e) => isDirectArtifactNode.has(e.source));
+              if (srcArtifactEdge && resultPositions.has(srcArtifactEdge.source)) {
+                dsStartY = resultPositions.get(srcArtifactEdge.source)!.y;
+              } else {
+                const srcGenEdge = dsInEdges.find((e) => isGeneratorType(blockNodeMap.get(e.source)?.type || ""));
+                if (srcGenEdge && resultPositions.has(srcGenEdge.source)) {
+                  dsStartY = resultPositions.get(srcGenEdge.source)!.y;
+                }
+              }
 
               dsGenY = (gIdx === 0 || prevBranchDownstreamArtifactsBottomY === currentBlockStartY)
-                ? currentBlockStartY
-                : branchStartY;
-              if (gIdx > 0 && prevBranchDownstreamArtifactsBottomY > currentBlockStartY && prevBranchDownstreamArtifactsBottomY > branchStartY) {
+                ? dsStartY
+                : Math.max(dsStartY, branchStartY);
+              if (gIdx > 0 && prevBranchDownstreamArtifactsBottomY > currentBlockStartY && prevBranchDownstreamArtifactsBottomY > dsGenY) {
                 dsGenY = prevBranchDownstreamArtifactsBottomY + 50;
               }
 
               // 对齐主输入 (仅当直连逻辑输入节点时对齐，产物则按分支阶段自然流转)
-              const dsInEdges = inEdgesMap.get(dsGen.id) || [];
               const primaryDsEdge = dsInEdges.find((e) => e.targetHandle === "voice" && !isDirectArtifactNode.has(e.source));
               if (primaryDsEdge && resultPositions.has(primaryDsEdge.source)) {
                 const pSrcPos = resultPositions.get(primaryDsEdge.source)!;
@@ -591,7 +767,7 @@ export function computeSmartDagLayout(
           });
         }
 
-        // 识别连接到当前分支产物、但未被下游生成器消费的末端/聚合节点 (如纯终端导出、试听合并节点)
+        // 识别连接到当前分支生成器或其产物、但未被下游生成器消费的末端/聚合节点 (如纯终端导出、试听合并节点)
         const unconsumedDownstreamInputs = logicNodes.filter((n) => {
           if (isGeneratorType(n.type) || isDirectArtifactNode.has(n.id)) return false;
           if (resultPositions.has(n.id)) return false;
@@ -599,21 +775,27 @@ export function computeSmartDagLayout(
           const outs = outEdgesMap.get(n.id) || [];
           if (outs.some((e) => isGeneratorType(blockNodeMap.get(e.target)?.type || ""))) return false;
           const ins = inEdgesMap.get(n.id) || [];
-          return ins.some((e) => arts.some((a) => a.id === e.source));
+          return ins.some((e) => resultPositions.has(e.source));
         });
 
         if (unconsumedDownstreamInputs.length > 0) {
-          const artGridRight = arts.length > 0
-            ? (artStartX + (Math.min(arts.length, 3) - 1) * (itemW + colGap) + itemW)
-            : (genColX + genW);
-
-          const termColX = artGridRight + 60;
-          let termY = branchStartY;
           unconsumedDownstreamInputs.forEach((inp) => {
-            resultPositions.set(inp.id, { x: termColX, y: termY });
+            const inE = inEdgesMap.get(inp.id) || [];
+            let termX = genColX + genW + 60;
+            let termY = branchStartY;
+            inE.forEach((e) => {
+              const srcNode = blockNodeMap.get(e.source);
+              if (srcNode && resultPositions.has(srcNode.id)) {
+                const sPos = resultPositions.get(srcNode.id)!;
+                const rightX = sPos.x + getNodeW(srcNode) + 60;
+                if (rightX > termX) termX = rightX;
+                termY = sPos.y;
+              }
+            });
+            resultPositions.set(inp.id, { x: termX, y: termY });
             termY += getNodeH(inp) + 50;
+            if (termY - 50 > branchMaxY) branchMaxY = termY - 50;
           });
-          if (termY - 50 > branchMaxY) branchMaxY = termY - 50;
         }
 
         // 下一主生成器分支在纵向错开
@@ -622,7 +804,7 @@ export function computeSmartDagLayout(
         if (branchMaxY > blockMaxY) blockMaxY = branchMaxY;
       });
 
-      // 多个生成器分支共享的输入节点居中对齐
+      // 多个生成器分支共享的输入节点居中对齐 (在不与同列其他节点重叠的前提下)
       logicNodes.forEach((n) => {
         if (isGeneratorType(n.type)) return;
         const outs = outEdgesMap.get(n.id) || [];
@@ -635,7 +817,26 @@ export function computeSmartDagLayout(
             const minGenY = Math.min(...genPositions.map((p) => p!.y));
             const maxGenBottom = Math.max(...targetGens.map((tg) => (resultPositions.get(tg!.id)?.y || 0) + getNodeH(tg!)));
             const centerY = Math.round((minGenY + maxGenBottom) / 2 - getNodeH(n) / 2);
-            resultPositions.set(n.id, { x: resultPositions.get(n.id)?.x || globalColStartX, y: Math.max(currentBlockStartY, centerY) });
+            
+            const currentPos = resultPositions.get(n.id);
+            const myX = currentPos?.x || globalColStartX;
+            const myH = getNodeH(n);
+            const targetY = Math.max(currentBlockStartY, centerY);
+
+            // 检查移动到居中位置是否会与同列其他输入节点重叠
+            const hasCollision = blockNodes.some((other) => {
+              if (other.id === n.id) return false;
+              const oPos = resultPositions.get(other.id);
+              if (!oPos) return false;
+              if (Math.abs(oPos.x - myX) >= 50) return false;
+              const oH = getNodeH(other);
+              const noOverlapY = targetY + myH + 30 <= oPos.y || targetY >= oPos.y + oH + 30;
+              return !noOverlapY;
+            });
+
+            if (!hasCollision) {
+              resultPositions.set(n.id, { x: myX, y: targetY });
+            }
           }
         }
       });

@@ -97,6 +97,12 @@ import {
 import { computeSmartDagLayout, getDownstreamNodeIds, type LayoutNodeInput, type LayoutEdgeInput } from "./utils/layout";
 import { stripHeavyDataForCache } from "./utils/cache";
 import {
+  getAudioDurationFast,
+  getCachedAudioDuration,
+  setCachedAudioDuration,
+  resolveAudioDuration
+} from "./utils/audioDuration";
+import {
   GAME_VOCAL_CATEGORIES,
   getCategoryById,
   getRandomItemsFromSubcategory,
@@ -142,21 +148,39 @@ export function showAppleConfirm(opts: AppleConfirmOptions): Promise<boolean> {
   return Promise.resolve(window.confirm(`${opts.title}\n\n${opts.message || ""}`));
 }
 
-const NODE_COLOR_MAP: Record<string, string> = {
-  referenceAudio: "#0a84ff", // Apple Blue
-  audioMerge: "#fb923c",     // Apple Coral / Rose
-  voiceStyle: "#af52de",     // Apple Purple
-  prompt: "#30d158",         // Apple Mint
-  voiceClone: "#f5a623",     // Warm Amber
-  voiceDesign: "#00c7be",    // Apple Cyan / Teal
-  artifact: "#e5c07b",       // Platinum Gold
-  batchVoiceClone: "#f5a623",// Warm Amber
-  batchVoiceDesign: "#00c7be", // Apple Cyan / Teal
-  batchArtifact: "#e5c07b",   // Platinum Gold
-  integratedStudio: "#e5e5ea",// Titanium Platinum
-  gameVocal: "#bf5af2",      // Apple Indigo / Purple
-  comment: "#8e8e93"         // Apple Slate
+const LIGHT_NODE_COLOR_MAP: Record<string, string> = {
+  referenceAudio: "#0071e3",    // Apple Blue
+  audioMerge: "#ff375f",        // Apple Coral / Pink
+  voiceStyle: "#8b5cf6",        // Apple Purple
+  prompt: "#16a34a",            // Apple Green
+  voiceClone: "#e07a00",        // Apple Deep Amber / Orange (high contrast on light canvas)
+  voiceDesign: "#009688",       // Apple Teal (high contrast on light canvas)
+  artifact: "#5856d6",          // Apple Royal Indigo
+  batchVoiceClone: "#e07a00",   // Apple Deep Amber / Orange
+  batchVoiceDesign: "#009688",  // Apple Teal
+  batchArtifact: "#5856d6",     // Apple Royal Indigo
+  integratedStudio: "#0071e3",  // Apple Blue (clearly visible on light canvas)
+  gameVocal: "#8b5cf6",         // Apple Purple
+  comment: "#6b7280"            // Slate
 };
+
+const DARK_NODE_COLOR_MAP: Record<string, string> = {
+  referenceAudio: "#0a84ff",    // Apple Blue
+  audioMerge: "#ff375f",        // Apple Coral / Pink
+  voiceStyle: "#bf5af2",        // Apple Purple
+  prompt: "#30d158",            // Apple Green
+  voiceClone: "#ff9f0a",        // Apple Orange
+  voiceDesign: "#00c7be",       // Apple Cyan / Teal
+  artifact: "#6366f1",          // Apple Indigo (harmonious, no longer yellow!)
+  batchVoiceClone: "#ff9f0a",   // Apple Orange
+  batchVoiceDesign: "#00c7be",  // Apple Cyan / Teal
+  batchArtifact: "#6366f1",     // Apple Indigo (harmonious, no longer yellow!)
+  integratedStudio: "#0a84ff",  // Apple Blue
+  gameVocal: "#bf5af2",         // Apple Purple
+  comment: "#a1a1a6"            // Slate
+};
+
+const NODE_COLOR_MAP: Record<string, string> = DARK_NODE_COLOR_MAP;
 
 type ApiSettingsResponse = {
   apiKey?: string;
@@ -1216,7 +1240,14 @@ function StudioApp() {
   const lastSavedOrLoadedKeyRef = useRef<string>("");
   const flowWrapRef = useRef<HTMLDivElement | null>(null);
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
-  const rightDragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
+  const rightDragRef = useRef<{
+    startX: number;
+    startY: number;
+    startTime: number;
+    startViewportX: number;
+    startViewportY: number;
+    moved: boolean;
+  } | null>(null);
   const [apiKey, setApiKey] = useState<string>(() => {
     if (initialBootstrap?.settings?.apiKey) return initialBootstrap.settings.apiKey;
     return localStorage.getItem(API_KEY_STORAGE_KEY) || DEFAULT_API_KEY;
@@ -1609,7 +1640,8 @@ function StudioApp() {
     }
     const nodeDataHash = currentNodes.map(getNodeDigest).join("|");
     const edgeDataHash = currentEdges.map((e) => `${e.id}:${e.source}:${e.target}:${e.sourceHandle || ""}:${e.targetHandle || ""}`).join("|");
-    return `${ws.id}:${ws.name}:${currentNodes.length}:${currentEdges.length}:${nodeDataHash}:${edgeDataHash}:${ws.stashItems?.length ?? 0}`;
+    const stashDigest = (ws.stashItems || []).map((s) => `${s.id || ""}_${s.fileName || ""}_${s.audioDataUrl ? s.audioDataUrl.length : 0}`).join(",");
+    return `${ws.id}:${ws.name}:${currentNodes.length}:${currentEdges.length}:${nodeDataHash}:${edgeDataHash}:${stashDigest}`;
   }, [getNodeDigest]);
 
   const autoSaveKey = useMemo(() => {
@@ -1939,10 +1971,9 @@ function StudioApp() {
       }
       const currentNodes = nodesRef.current;
       const targetNode = currentNodes.find((n) => n.id === nodeId);
-
-      setNodes((items) =>
-        items.map((node) => (node.id === nodeId ? { ...node, data: { ...node.data, ...patch } } : node))
-      );
+      const nextNodes = currentNodes.map((node) => (node.id === nodeId ? { ...node, data: { ...node.data, ...patch } } : node));
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
 
       if (!targetNode) return;
 
@@ -2163,12 +2194,20 @@ function StudioApp() {
   );
 
   const deleteNode = useCallback((nodeId: string) => {
-    setNodes((items) => items.filter((node) => node.id !== nodeId));
-    setEdges((items) => items.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+    const nextNodes = nodesRef.current.filter((node) => node.id !== nodeId);
+    const nextEdges = edgesRef.current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    void saveWorkspace(nextNodes, nextEdges);
   }, [setNodes, setEdges]);
 
   const deleteEdge = useCallback((edgeId: string) => {
-    setEdges((items) => items.filter((edge) => edge.id !== edgeId));
+    const nextEdges = edgesRef.current.filter((edge) => edge.id !== edgeId);
+    edgesRef.current = nextEdges;
+    setEdges(nextEdges);
+    void saveWorkspace(undefined, nextEdges);
   }, [setEdges]);
 
   const isArtifactStashed = useCallback((artifact: ArtifactData) => {
@@ -2191,8 +2230,10 @@ function StudioApp() {
         audio: audioAsset
       }
     };
-    setNodes((items) => items.concat(newNode));
-    window.setTimeout(() => void saveWorkspace(), 100);
+    const nextNodes = currentNodes.concat(newNode);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void saveWorkspace(nextNodes);
   }, [setNodes]);
 
   const nodeCallbacks = useMemo(
@@ -2260,7 +2301,7 @@ function StudioApp() {
     });
   }, [nodes, nodeCallbacks]);
 
-  const edgeDataCache = useRef<Map<string, { rawEdge: StudioEdge; onDelete: unknown; resultEdge: StudioEdge }>>(new Map());
+  const edgeDataCache = useRef<Map<string, { rawEdge: StudioEdge; onDelete: unknown; isLight: boolean; resultEdge: StudioEdge }>>(new Map());
 
   const hydratedEdges = useMemo(() => {
     const cache = edgeDataCache.current;
@@ -2269,13 +2310,14 @@ function StudioApp() {
     for (let i = 0; i < currentNodes.length; i++) {
       nodeMap.set(currentNodes[i].id, currentNodes[i]);
     }
+    const colorMap = isLight ? LIGHT_NODE_COLOR_MAP : DARK_NODE_COLOR_MAP;
     return edges.map((edge) => {
       const cached = cache.get(edge.id);
-      if (cached && cached.rawEdge === edge && cached.onDelete === deleteEdge) {
+      if (cached && cached.rawEdge === edge && cached.onDelete === deleteEdge && cached.isLight === isLight) {
         return cached.resultEdge;
       }
       const sourceNode = nodeMap.get(edge.source);
-      const strokeColor = edge.style?.stroke || (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#0a84ff";
+      const strokeColor = (sourceNode?.type && colorMap[sourceNode.type]) || (isLight ? "#0071e3" : "#0a84ff");
       const newResultData = {
         ...edge.data,
         onDeleteEdge: deleteEdge
@@ -2283,13 +2325,13 @@ function StudioApp() {
       const resultEdge: StudioEdge = {
         ...edge,
         type: "deletable",
-        style: { strokeWidth: 2, ...edge.style, stroke: strokeColor },
+        style: { strokeWidth: isLight ? 2.4 : 2, ...edge.style, stroke: strokeColor },
         data: newResultData
       };
-      cache.set(edge.id, { rawEdge: edge, onDelete: deleteEdge, resultEdge });
+      cache.set(edge.id, { rawEdge: edge, onDelete: deleteEdge, isLight, resultEdge });
       return resultEdge;
     });
-  }, [edges, deleteEdge]);
+  }, [edges, deleteEdge, isLight]);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({
@@ -3260,8 +3302,16 @@ function StudioApp() {
     }
   }
 
-  async function saveWorkspace() {
-    const currentWorkspace = activeWorkspaceRef.current;
+  async function saveWorkspace(
+    overrideNodes?: StudioNode[],
+    overrideEdges?: StudioEdge[],
+    overrideWorkspace?: WorkspacePayload
+  ) {
+    if (overrideNodes) nodesRef.current = overrideNodes;
+    if (overrideEdges) edgesRef.current = overrideEdges;
+    if (overrideWorkspace) activeWorkspaceRef.current = overrideWorkspace;
+
+    const currentWorkspace = overrideWorkspace || activeWorkspaceRef.current;
     if (!currentWorkspace) {
       return;
     }
@@ -3290,8 +3340,8 @@ function StudioApp() {
           baseUpdatedAt: currentWorkspace.updatedAt
         };
       } else {
-        cleanNodes = nodesRef.current.map(stripNodeCallbacks);
-        cleanEdges = edgesRef.current;
+        cleanNodes = (overrideNodes || nodesRef.current).map(stripNodeCallbacks);
+        cleanEdges = overrideEdges || edgesRef.current;
         body = {
           name: currentWorkspace.name,
           nodes: cleanNodes,
@@ -3323,7 +3373,11 @@ function StudioApp() {
         };
       });
 
-      lastSavedOrLoadedKeyRef.current = autoSaveKey;
+      lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(
+        currentWorkspace,
+        cleanNodes,
+        cleanEdges
+      );
 
       setWorkspaces((items) =>
         items.map((item) =>
@@ -3354,6 +3408,8 @@ function StudioApp() {
         }
         localStorage.setItem("mimo_last_active_id", currentWorkspace.id);
       } catch {}
+    } catch (saveError) {
+      console.error("[saveWorkspace] 保存失败:", saveError);
     } finally {
       setIsSaving(false);
     }
@@ -3374,7 +3430,7 @@ function StudioApp() {
   }
 
   function stashArtifact(artifact: ArtifactData) {
-    if (!activeWorkspace || isArtifactStashed(artifact)) {
+    if (!activeWorkspace || activeWorkspace.type !== "board" || isArtifactStashed(artifact)) {
       return;
     }
 
@@ -3382,12 +3438,16 @@ function StudioApp() {
       id: createId("stash"),
       ...artifact
     };
-    setActiveWorkspace((workspace) => {
-      if (!workspace || workspace.type !== "board") return workspace;
-      return { ...workspace, stashItems: [item, ...(workspace.stashItems ?? [])] };
-    });
-    setWorkspaces((items) => items.map((w) => (w.id === activeWorkspace.id ? { ...w, stashCount: (w.stashCount ?? 0) + 1 } : w)));
+    const nextStash = [item, ...(activeWorkspace.stashItems ?? [])];
+    const nextWs: WorkspacePayload = {
+      ...activeWorkspace,
+      stashItems: nextStash
+    };
+    activeWorkspaceRef.current = nextWs;
+    setActiveWorkspace(nextWs);
+    setWorkspaces((items) => items.map((w) => (w.id === activeWorkspace.id ? { ...w, stashCount: nextStash.length } : w)));
     setIsStashOpen(true);
+    void saveWorkspace(undefined, undefined, nextWs);
   }
 
 
@@ -3410,15 +3470,19 @@ function StudioApp() {
       return;
     }
 
-    setActiveWorkspace((workspace) => {
-      if (!workspace || workspace.type !== "board") return workspace;
-      return { ...workspace, stashItems: (workspace.stashItems ?? []).filter((item) => item.id !== itemId) };
-    });
+    const nextStash = (activeWorkspace.stashItems ?? []).filter((item) => item.id !== itemId);
+    const nextWs: WorkspacePayload = {
+      ...activeWorkspace,
+      stashItems: nextStash
+    };
+    activeWorkspaceRef.current = nextWs;
+    setActiveWorkspace(nextWs);
     setWorkspaces((items) =>
       items.map((workspace) =>
-        workspace.id === activeWorkspace.id ? { ...workspace, stashCount: Math.max(0, (workspace.stashCount ?? 0) - 1) } : workspace
+        workspace.id === activeWorkspace.id ? { ...workspace, stashCount: nextStash.length } : workspace
       )
     );
+    void saveWorkspace(undefined, undefined, nextWs);
   }
 
   async function openLocalWorkspaceFolder(workspaceId?: string) {
@@ -3842,16 +3906,82 @@ function StudioApp() {
     [flowRef]
   );
 
+  // 全局捕获阶段监听右键拖动与长按：由于 ReactFlow 的 panOnDrag 会在底层阻止事件冒泡，
+  // 必须在 window 的 capture 阶段捕获鼠标位移与按住时长，确保拖动画板时绝不误弹出右键菜单
+  useEffect(() => {
+    const handlePointerDownCapture = (event: globalThis.MouseEvent) => {
+      if (event.button === 2) {
+        if (flowWrapRef.current && event.target && !flowWrapRef.current.contains(event.target as unknown as globalThis.Node)) {
+          return;
+        }
+        const viewport = flowRef.current?.getViewport();
+        rightDragRef.current = {
+          startX: event.clientX,
+          startY: event.clientY,
+          startTime: Date.now(),
+          startViewportX: viewport?.x ?? 0,
+          startViewportY: viewport?.y ?? 0,
+          moved: false
+        };
+      }
+    };
+
+    const handlePointerMoveCapture = (event: globalThis.MouseEvent) => {
+      if (!rightDragRef.current) return;
+      const dx = Math.abs(event.clientX - rightDragRef.current.startX);
+      const dy = Math.abs(event.clientY - rightDragRef.current.startY);
+      if (dx > 4 || dy > 4) {
+        rightDragRef.current.moved = true;
+      }
+    };
+
+    const handlePointerUpCapture = (event: globalThis.MouseEvent) => {
+      if (event.button === 2 && rightDragRef.current) {
+        const dx = Math.abs(event.clientX - rightDragRef.current.startX);
+        const dy = Math.abs(event.clientY - rightDragRef.current.startY);
+        const elapsed = Date.now() - rightDragRef.current.startTime;
+        if (dx > 4 || dy > 4 || elapsed > 350) {
+          rightDragRef.current.moved = true;
+        }
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDownCapture as (e: globalThis.PointerEvent) => void, true);
+    window.addEventListener("pointermove", handlePointerMoveCapture as (e: globalThis.PointerEvent) => void, true);
+    window.addEventListener("pointerup", handlePointerUpCapture as (e: globalThis.PointerEvent) => void, true);
+    window.addEventListener("mousedown", handlePointerDownCapture, true);
+    window.addEventListener("mousemove", handlePointerMoveCapture, true);
+    window.addEventListener("mouseup", handlePointerUpCapture, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDownCapture as (e: globalThis.PointerEvent) => void, true);
+      window.removeEventListener("pointermove", handlePointerMoveCapture as (e: globalThis.PointerEvent) => void, true);
+      window.removeEventListener("pointerup", handlePointerUpCapture as (e: globalThis.PointerEvent) => void, true);
+      window.removeEventListener("mousedown", handlePointerDownCapture, true);
+      window.removeEventListener("mousemove", handlePointerMoveCapture, true);
+      window.removeEventListener("mouseup", handlePointerUpCapture, true);
+    };
+  }, []);
+
   function handleFlowMouseDown(event: MouseEvent<HTMLDivElement>) {
     if (event.button === 2) {
-      rightDragRef.current = { startX: event.clientX, startY: event.clientY, moved: false };
+      const viewport = flowRef.current?.getViewport();
+      rightDragRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        startTime: Date.now(),
+        startViewportX: viewport?.x ?? 0,
+        startViewportY: viewport?.y ?? 0,
+        moved: false
+      };
     }
   }
 
   function handleFlowMouseMove(event: MouseEvent<HTMLDivElement>) {
     if (!rightDragRef.current) return;
-    const dist = Math.hypot(event.clientX - rightDragRef.current.startX, event.clientY - rightDragRef.current.startY);
-    if (dist > 6) {
+    const dx = Math.abs(event.clientX - rightDragRef.current.startX);
+    const dy = Math.abs(event.clientY - rightDragRef.current.startY);
+    if (dx > 4 || dy > 4) {
       rightDragRef.current.moved = true;
     }
   }
@@ -3859,11 +3989,34 @@ function StudioApp() {
   function openContextMenu(event: MouseEvent) {
     event.preventDefault();
 
-    if (rightDragRef.current?.moved) {
-      rightDragRef.current = null;
+    const drag = rightDragRef.current;
+    rightDragRef.current = null;
+
+    if (drag) {
+      const elapsed = Date.now() - drag.startTime;
+      const dist = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      const currentViewport = flowRef.current?.getViewport();
+      const viewportMoved = Boolean(
+        currentViewport &&
+        (Math.abs(currentViewport.x - drag.startViewportX) > 2 ||
+          Math.abs(currentViewport.y - drag.startViewportY) > 2)
+      );
+
+      // 只要满足以下任一条件，即判定为拖动平移或长按，坚决不弹出右键菜单：
+      // 1. 鼠标位移距离超过 4px
+      // 2. 画板 Viewport 实际发生了位移 (ReactFlow panOnDrag)
+      // 3. 标记为已移动 (moved)
+      // 4. 按住时间超过 350ms (长按，非快速单击)
+      if (drag.moved || dist > 4 || viewportMoved || elapsed > 350) {
+        return;
+      }
+    }
+
+    // 若在输入框、文本框等控件上右键，不弹出新建节点菜单
+    const target = event.target as HTMLElement | null;
+    if (target && (target.closest("input, textarea, select, button, a") || target.closest(".nodrag"))) {
       return;
     }
-    rightDragRef.current = null;
 
     const point = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 80, y: 80 };
     setMenu({ x: event.clientX, y: event.clientY, flowX: point.x, flowY: point.y });
@@ -4096,8 +4249,10 @@ function StudioApp() {
       if (audio.size > maxAudioBytes) {
         throw new Error(`整合后的音频超过 ${formatBytes(maxAudioBytes)}，请减少输入音频或缩短时长。`);
       }
-      patchNode(nodeId, { audio, isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, audio, isRunning: false, error: undefined } } : n));
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      void saveWorkspace(nextNodes);
     } catch (error) {
       patchNode(nodeId, { isRunning: false, error: error instanceof Error ? error.message : "参考音频整合失败。" });
     }
@@ -4136,6 +4291,8 @@ function StudioApp() {
 
     try {
       const totalRuns = count > 1 ? count : validTextItems.length;
+      const newArtifactNodes: StudioNode[] = [];
+      const newArtifactEdges: StudioEdge[] = [];
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
         const item = validTextItems[runIdx % validTextItems.length];
@@ -4171,12 +4328,17 @@ function StudioApp() {
           style: { stroke: "#facc15", strokeWidth: 2 }
         };
 
-        setNodes((items) => items.concat(artifactNode));
-        setEdges((items) => items.concat(artifactEdge));
+        newArtifactNodes.push(artifactNode);
+        newArtifactEdges.push(artifactEdge);
       }
 
-      patchNode(nodeId, { isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n)).concat(newArtifactNodes);
+      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      void saveWorkspace(nextNodes, nextEdges);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "请求失败。";
       patchNode(nodeId, {
@@ -4187,44 +4349,46 @@ function StudioApp() {
   }
 
   function deleteBatchArtifactItem(nodeId: string, itemId: string) {
-    setNodes((items) =>
-      items.map((node) => {
-        if (node.id === nodeId && node.data.batchArtifacts) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              batchArtifacts: node.data.batchArtifacts.filter((item) => item.id !== itemId)
-            }
-          };
-        }
-        return node;
-      })
-    );
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id === nodeId && node.data.batchArtifacts) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            batchArtifacts: node.data.batchArtifacts.filter((item) => item.id !== itemId)
+          }
+        };
+      }
+      return node;
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void saveWorkspace(nextNodes);
   }
 
   function deleteIntegratedArtifactItem(nodeId: string, rowId: string, itemId: string) {
-    setNodes((items) =>
-      items.map((node) => {
-        if (node.id === nodeId && node.data.batchRows) {
-          const updatedRows = node.data.batchRows.map((r) => {
-            if (r.id !== rowId) return r;
-            return {
-              ...r,
-              artifacts: (r.artifacts || []).filter((item) => item.id !== itemId)
-            };
-          });
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id === nodeId && node.data.batchRows) {
+        const updatedRows = node.data.batchRows.map((r) => {
+          if (r.id !== rowId) return r;
           return {
-            ...node,
-            data: {
-              ...node.data,
-              batchRows: updatedRows
-            }
+            ...r,
+            artifacts: (r.artifacts || []).filter((item) => item.id !== itemId)
           };
-        }
-        return node;
-      })
-    );
+        });
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            batchRows: updatedRows
+          }
+        };
+      }
+      return node;
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void saveWorkspace(nextNodes);
   }
 
   async function runIntegratedBatch(nodeId: string) {
@@ -4250,6 +4414,8 @@ function StudioApp() {
       let updatedRows = [...rows];
 
       for (const [index, row] of validRows.entries()) {
+        patchNode(nodeId, { singleRunningRowId: row.id });
+
         let refAudioDataUrl = row.refAudioUrl || node.data.refAudioUrl;
         let refAudioFileName = row.refAudioName || node.data.refAudioName || "ref.wav";
         let refAudioMimeType = "audio/wav";
@@ -4264,7 +4430,7 @@ function StudioApp() {
         }
 
         if (!refAudioDataUrl) {
-          patchNode(nodeId, { isRunning: false, error: `行「${row.title || `句段 ${index + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
+          patchNode(nodeId, { isRunning: false, singleRunningRowId: undefined, error: `行「${row.title || `句段 ${index + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
           return;
         }
 
@@ -4284,7 +4450,7 @@ function StudioApp() {
         const payload = (await response.json()) as DebugResponse & { error?: string };
 
         if (!response.ok) {
-          patchNode(nodeId, { isRunning: false, error: payload.error || `行「${row.title || `句段 ${index + 1}`}」生成失败。` });
+          patchNode(nodeId, { isRunning: false, singleRunningRowId: undefined, error: payload.error || `行「${row.title || `句段 ${index + 1}`}」生成失败。` });
           return;
         }
 
@@ -4309,15 +4475,28 @@ function StudioApp() {
             artifacts: nextArtifacts
           };
           updatedRows = newBatchRows;
-          patchNode(nodeId, { batchRows: newBatchRows });
+          const intermediateNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, batchRows: newBatchRows } } : n));
+          nodesRef.current = intermediateNodes;
+          setNodes(intermediateNodes);
         }
       }
 
-      patchNode(nodeId, { isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? {
+        ...n,
+        data: {
+          ...n.data,
+          batchRows: updatedRows,
+          isRunning: false,
+          singleRunningRowId: undefined,
+          error: undefined
+        }
+      } : n));
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      void saveWorkspace(nextNodes);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "请求失败。";
-      patchNode(nodeId, { isRunning: false, error: msg });
+      patchNode(nodeId, { isRunning: false, singleRunningRowId: undefined, error: msg });
     }
   }
 
@@ -4401,10 +4580,19 @@ function StudioApp() {
           ...rowItem,
           artifacts: nextArtifacts
         };
-        patchNode(nodeId, { singleRunningRowId: undefined, batchRows: newBatchRows, error: undefined });
+        const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            singleRunningRowId: undefined,
+            batchRows: newBatchRows,
+            error: undefined
+          }
+        } : n));
+        nodesRef.current = nextNodes;
+        setNodes(nextNodes);
+        void saveWorkspace(nextNodes);
       }
-
-      window.setTimeout(() => void saveWorkspace(), 0);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "单条生成失败。";
       patchNode(nodeId, { singleRunningRowId: undefined, error: msg });
@@ -4480,8 +4668,10 @@ function StudioApp() {
             style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
           };
 
-          setNodes((items) => items.concat(newArtifactNode));
-          setEdges((items) => items.concat(newEdge));
+          nodesRef.current = nodesRef.current.concat(newArtifactNode);
+          edgesRef.current = edgesRef.current.concat(newEdge);
+          setNodes(nodesRef.current);
+          setEdges(edgesRef.current);
           rowArtifactNode = newArtifactNode;
         }
 
@@ -4508,39 +4698,41 @@ function StudioApp() {
           return;
         }
 
-        setNodes((items) =>
-          items.map((n) => {
-            if (n.id === targetArtifactNodeId) {
-              const existing = n.data.batchArtifacts || [];
-              const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
-              const itemSeq = maxSeq + 1;
-              const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
-              const newItem: BatchArtifactItem = {
-                id: createId("bitem"),
-                seqIndex: itemSeq,
-                rowTitle: rowArtifactTitle,
-                fileName: `${itemTitle}.wav`,
-                audioDataUrl: payload.audioDataUrl,
-                elapsedMs: payload.elapsedMs,
-                createdAt: new Date().toISOString()
-              };
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  title: rowArtifactTitle,
-                  batchRowId: row.id,
-                  batchArtifacts: [...existing, newItem]
-                }
-              };
-            }
-            return n;
-          })
-        );
+        const intermediateNodes = nodesRef.current.map((n) => {
+          if (n.id === targetArtifactNodeId) {
+            const existing = n.data.batchArtifacts || [];
+            const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+            const itemSeq = maxSeq + 1;
+            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
+            const newItem: BatchArtifactItem = {
+              id: createId("bitem"),
+              seqIndex: itemSeq,
+              rowTitle: rowArtifactTitle,
+              fileName: `${itemTitle}.wav`,
+              audioDataUrl: payload.audioDataUrl,
+              elapsedMs: payload.elapsedMs,
+              createdAt: new Date().toISOString()
+            };
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                title: rowArtifactTitle,
+                batchRowId: row.id,
+                batchArtifacts: [...existing, newItem]
+              }
+            };
+          }
+          return n;
+        });
+        nodesRef.current = intermediateNodes;
+        setNodes(intermediateNodes);
       }
 
-      patchNode(nodeId, { isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const finalNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
+      nodesRef.current = finalNodes;
+      setNodes(finalNodes);
+      void saveWorkspace(finalNodes, edgesRef.current);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "批量生成请求失败。";
       patchNode(nodeId, {
@@ -4620,8 +4812,10 @@ function StudioApp() {
           style: { stroke: "#facc15", strokeWidth: 2 }
         };
 
-        setNodes((items) => items.concat(newArtifactNode));
-        setEdges((items) => items.concat(newEdge));
+        nodesRef.current = nodesRef.current.concat(newArtifactNode);
+        edgesRef.current = edgesRef.current.concat(newEdge);
+        setNodes(nodesRef.current);
+        setEdges(edgesRef.current);
         rowArtifactNode = newArtifactNode;
       }
 
@@ -4648,38 +4842,46 @@ function StudioApp() {
         return;
       }
 
-      setNodes((items) =>
-        items.map((n) => {
-          if (n.id === targetArtifactNodeId) {
-            const existing = n.data.batchArtifacts || [];
-            const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
-            const itemSeq = maxSeq + 1;
-            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
-            const newItem: BatchArtifactItem = {
-              id: createId("bitem"),
-              seqIndex: itemSeq,
-              rowTitle: rowArtifactTitle,
-              fileName: `${itemTitle}.wav`,
-              audioDataUrl: payload.audioDataUrl,
-              elapsedMs: payload.elapsedMs,
-              createdAt: new Date().toISOString()
-            };
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                title: rowArtifactTitle,
-                batchRowId: row.id,
-                batchArtifacts: [...existing, newItem]
-              }
-            };
-          }
-          return n;
-        })
-      );
-
-      patchNode(nodeId, { singleRunningRowId: undefined, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const finalNodes = nodesRef.current.map((n) => {
+        if (n.id === targetArtifactNodeId) {
+          const existing = n.data.batchArtifacts || [];
+          const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+          const itemSeq = maxSeq + 1;
+          const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
+          const newItem: BatchArtifactItem = {
+            id: createId("bitem"),
+            seqIndex: itemSeq,
+            rowTitle: rowArtifactTitle,
+            fileName: `${itemTitle}.wav`,
+            audioDataUrl: payload.audioDataUrl,
+            elapsedMs: payload.elapsedMs,
+            createdAt: new Date().toISOString()
+          };
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              title: rowArtifactTitle,
+              batchRowId: row.id,
+              batchArtifacts: [...existing, newItem]
+            }
+          };
+        }
+        if (n.id === nodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              singleRunningRowId: undefined,
+              error: undefined
+            }
+          };
+        }
+        return n;
+      });
+      nodesRef.current = finalNodes;
+      setNodes(finalNodes);
+      void saveWorkspace(finalNodes, edgesRef.current);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "单条生成请求失败。";
       patchNode(nodeId, {
@@ -4751,8 +4953,10 @@ function StudioApp() {
             style: { stroke: "#38bdf8", strokeWidth: 2 }
           };
 
-          setNodes((items) => items.concat(newArtifactNode));
-          setEdges((items) => items.concat(newEdge));
+          nodesRef.current = nodesRef.current.concat(newArtifactNode);
+          edgesRef.current = edgesRef.current.concat(newEdge);
+          setNodes(nodesRef.current);
+          setEdges(edgesRef.current);
           rowArtifactNode = newArtifactNode;
         }
 
@@ -4780,39 +4984,41 @@ function StudioApp() {
           return;
         }
 
-        setNodes((items) =>
-          items.map((n) => {
-            if (n.id === targetArtifactNodeId) {
-              const existing = n.data.batchArtifacts || [];
-              const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
-              const itemSeq = maxSeq + 1;
-              const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
-              const newItem: BatchArtifactItem = {
-                id: createId("bitem"),
-                seqIndex: itemSeq,
-                rowTitle: rowArtifactTitle,
-                fileName: `${itemTitle}.wav`,
-                audioDataUrl: payload.audioDataUrl,
-                elapsedMs: payload.elapsedMs,
-                createdAt: new Date().toISOString()
-              };
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  title: rowArtifactTitle,
-                  batchRowId: row.id,
-                  batchArtifacts: [...existing, newItem]
-                }
-              };
-            }
-            return n;
-          })
-        );
+        const intermediateNodes = nodesRef.current.map((n) => {
+          if (n.id === targetArtifactNodeId) {
+            const existing = n.data.batchArtifacts || [];
+            const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+            const itemSeq = maxSeq + 1;
+            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
+            const newItem: BatchArtifactItem = {
+              id: createId("bitem"),
+              seqIndex: itemSeq,
+              rowTitle: rowArtifactTitle,
+              fileName: `${itemTitle}.wav`,
+              audioDataUrl: payload.audioDataUrl,
+              elapsedMs: payload.elapsedMs,
+              createdAt: new Date().toISOString()
+            };
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                title: rowArtifactTitle,
+                batchRowId: row.id,
+                batchArtifacts: [...existing, newItem]
+              }
+            };
+          }
+          return n;
+        });
+        nodesRef.current = intermediateNodes;
+        setNodes(intermediateNodes);
       }
 
-      patchNode(nodeId, { isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const finalNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
+      nodesRef.current = finalNodes;
+      setNodes(finalNodes);
+      void saveWorkspace(finalNodes, edgesRef.current);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "批量音色创造请求失败。";
       patchNode(nodeId, {
@@ -4885,8 +5091,10 @@ function StudioApp() {
           style: { stroke: "#38bdf8", strokeWidth: 2 }
         };
 
-        setNodes((items) => items.concat(newArtifactNode));
-        setEdges((items) => items.concat(newEdge));
+        nodesRef.current = nodesRef.current.concat(newArtifactNode);
+        edgesRef.current = edgesRef.current.concat(newEdge);
+        setNodes(nodesRef.current);
+        setEdges(edgesRef.current);
         rowArtifactNode = newArtifactNode;
       }
 
@@ -4914,38 +5122,46 @@ function StudioApp() {
         return;
       }
 
-      setNodes((items) =>
-        items.map((n) => {
-          if (n.id === targetArtifactNodeId) {
-            const existing = n.data.batchArtifacts || [];
-            const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
-            const itemSeq = maxSeq + 1;
-            const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
-            const newItem: BatchArtifactItem = {
-              id: createId("bitem"),
-              seqIndex: itemSeq,
-              rowTitle: rowArtifactTitle,
-              fileName: `${itemTitle}.wav`,
-              audioDataUrl: payload.audioDataUrl,
-              elapsedMs: payload.elapsedMs,
-              createdAt: new Date().toISOString()
-            };
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                title: rowArtifactTitle,
-                batchRowId: row.id,
-                batchArtifacts: [...existing, newItem]
-              }
-            };
-          }
-          return n;
-        })
-      );
-
-      patchNode(nodeId, { singleRunningRowId: undefined, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const finalNodes = nodesRef.current.map((n) => {
+        if (n.id === targetArtifactNodeId) {
+          const existing = n.data.batchArtifacts || [];
+          const maxSeq = existing.reduce((max, a) => Math.max(max, a.seqIndex ?? 0), 0);
+          const itemSeq = maxSeq + 1;
+          const itemTitle = `${rowArtifactTitle}_${String(itemSeq).padStart(2, "0")}`;
+          const newItem: BatchArtifactItem = {
+            id: createId("bitem"),
+            seqIndex: itemSeq,
+            rowTitle: rowArtifactTitle,
+            fileName: `${itemTitle}.wav`,
+            audioDataUrl: payload.audioDataUrl,
+            elapsedMs: payload.elapsedMs,
+            createdAt: new Date().toISOString()
+          };
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              title: rowArtifactTitle,
+              batchRowId: row.id,
+              batchArtifacts: [...existing, newItem]
+            }
+          };
+        }
+        if (n.id === nodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              singleRunningRowId: undefined,
+              error: undefined
+            }
+          };
+        }
+        return n;
+      });
+      nodesRef.current = finalNodes;
+      setNodes(finalNodes);
+      void saveWorkspace(finalNodes, edgesRef.current);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "单条音色创造请求失败。";
       patchNode(nodeId, {
@@ -4992,6 +5208,8 @@ function StudioApp() {
     try {
       const validTextItems = textItems.filter((entry) => entry.text.trim());
       const totalRuns = count > 1 ? count : validTextItems.length;
+      const newArtifactNodes: StudioNode[] = [];
+      const newArtifactEdges: StudioEdge[] = [];
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
         const item = validTextItems[runIdx % validTextItems.length];
@@ -5025,12 +5243,17 @@ function StudioApp() {
           style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
         };
 
-        setNodes((items) => items.concat(artifactNode));
-        setEdges((items) => items.concat(artifactEdge));
+        newArtifactNodes.push(artifactNode);
+        newArtifactEdges.push(artifactEdge);
       }
 
-      patchNode(nodeId, { isRunning: false, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n)).concat(newArtifactNodes);
+      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      void saveWorkspace(nextNodes, nextEdges);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "请求失败。";
       patchNode(nodeId, {
@@ -5069,6 +5292,8 @@ function StudioApp() {
 
     const initialNodes = nodesRef.current;
     const initialEdges = edgesRef.current;
+    const newArtifactNodes: StudioNode[] = [];
+    const newArtifactEdges: StudioEdge[] = [];
 
     try {
       for (const [index, vocal] of vocals.entries()) {
@@ -5168,12 +5393,17 @@ function StudioApp() {
           style: { stroke: "#8b5cf6", strokeWidth: 2 }
         };
 
-        setNodes((items) => items.concat(artifactNode));
-        setEdges((items) => items.concat(artifactEdge));
+        newArtifactNodes.push(artifactNode);
+        newArtifactEdges.push(artifactEdge);
       }
 
-      patchNode(nodeId, { isRunning: false, vocalProgressText: undefined, error: undefined });
-      window.setTimeout(() => void saveWorkspace(), 0);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, vocalProgressText: undefined, error: undefined } } : n)).concat(newArtifactNodes);
+      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      void saveWorkspace(nextNodes, nextEdges);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "语气词批量生成请求失败。";
       patchNode(nodeId, {
@@ -6273,10 +6503,10 @@ function StudioApp() {
                 multiSelectionKeyCode={["Control", "Meta"]}
                 deleteKeyCode={["Delete", "Backspace"]}
                 onNodesDelete={() => {
-                  saveTimerRef.current = window.setTimeout(() => { void saveWorkspace(); }, 100);
+                  void saveWorkspace();
                 }}
                 onEdgesDelete={() => {
-                  saveTimerRef.current = window.setTimeout(() => { void saveWorkspace(); }, 100);
+                  void saveWorkspace();
                 }}
                 minZoom={0.005}
                 maxZoom={30}
@@ -6291,19 +6521,22 @@ function StudioApp() {
                 <MiniMap pannable zoomable nodeColor={(node) => (node.type && NODE_COLOR_MAP[node.type]) || "#0a84ff"} maskColor={isLight ? "rgba(242, 242, 247, 0.75)" : "rgba(13, 14, 17, 0.78)"} />
               </ReactFlow>
               {menu ? (
-                <ContextMenu
-                  menu={menu}
-                  onAdd={addNode}
-                  onUndo={handleUndo}
-                  onRedo={handleRedo}
-                  canUndo={undoStackRef.current.length > 0}
-                  canRedo={redoStackRef.current.length > 0}
-                  selectedCount={selectedNodesCount}
-                  onTidySelection={() => {
-                    setMenu(null);
-                    tidyWorkspaceNodes(true);
-                  }}
-                />
+                createPortal(
+                  <ContextMenu
+                    menu={menu}
+                    onAdd={addNode}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    canUndo={undoStackRef.current.length > 0}
+                    canRedo={redoStackRef.current.length > 0}
+                    selectedCount={selectedNodesCount}
+                    onTidySelection={() => {
+                      setMenu(null);
+                      tidyWorkspaceNodes(true);
+                    }}
+                  />,
+                  document.body
+                )
               ) : null}
             </div>
           </section>
@@ -7715,61 +7948,7 @@ const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }: NodePr
 });
 
 function CompactAudioPlayer({ src }: { src: string }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-
-  function togglePlay() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      void audio.play();
-    } else {
-      audio.pause();
-    }
-  }
-
-  function seek(value: string) {
-    const nextTime = Number(value);
-    const audio = audioRef.current;
-    if (!audio || Number.isNaN(nextTime)) return;
-    audio.currentTime = nextTime;
-    setCurrentTime(nextTime);
-  }
-
-  return (
-    <div className="compact-audio-player nodrag">
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
-        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
-      />
-      <button className="compact-player-button" type="button" onClick={togglePlay} title={isPlaying ? "暂停" : "播放"}>
-        {isPlaying ? <Pause size={11} /> : <Play size={11} />}
-      </button>
-      <input
-        className="compact-player-range"
-        type="range"
-        min={0}
-        max={duration || 100}
-        step={0.01}
-        value={currentTime}
-        onChange={(e) => seek(e.target.value)}
-        style={{ "--progress": `${progress}%` } as React.CSSProperties}
-      />
-      <span className="compact-player-time">
-        {formatTime(currentTime)} / {formatTime(duration)}
-      </span>
-    </div>
-  );
+  return <StudioAudioPlayer src={src} />;
 }
 
 function getBezierControlPoints(
@@ -7954,7 +8133,7 @@ const AudioMergeNode = memo(function AudioMergeNode({ id, data }: NodeProps<Stud
         </>
       ) : null}
       {data.error ? <p className="node-error">{data.error}</p> : null}
-      <button className="run-button nodrag" type="button" onClick={() => data.onRunAudioMerge?.(id)} disabled={data.isRunning}>
+      <button className={data.isRunning ? "run-button nodrag is-running is-generating" : "run-button nodrag"} type="button" onClick={() => data.onRunAudioMerge?.(id)} disabled={data.isRunning}>
         {data.isRunning ? <Loader2 className="spin" size={16} /> : <AudioLines size={16} />}
         {data.isRunning ? "整合中…" : "整合并输出"}
       </button>
@@ -8091,7 +8270,7 @@ const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<Stud
       {data.error ? <p className="node-error">{data.error}</p> : null}
       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
         <button
-          className="run-button nodrag"
+          className={data.isRunning ? "run-button nodrag is-running is-generating" : "run-button nodrag"}
           type="button"
           onClick={() => data.onRunClone?.(id, 1)}
           disabled={data.isRunning}
@@ -8103,7 +8282,7 @@ const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<Stud
         </button>
 
         <button
-          className="run-button batch-nine-btn nodrag"
+          className={data.isRunning ? "run-button batch-nine-btn nodrag is-running is-generating" : "run-button batch-nine-btn nodrag"}
           type="button"
           onClick={() => data.onRunClone?.(id, 9)}
           disabled={data.isRunning}
@@ -8305,7 +8484,7 @@ const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<St
       {data.error ? <p className="node-error">{data.error}</p> : null}
       <div className="voice-design-bottom-btn-group nodrag" style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button
-          className="run-button nodrag"
+          className={data.isRunning ? "run-button nodrag is-running is-generating" : "run-button nodrag"}
           type="button"
           onClick={() => data.onRunVoiceDesign?.(id, 1)}
           disabled={data.isRunning}
@@ -8317,7 +8496,7 @@ const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<St
         </button>
 
         <button
-          className="run-button batch-nine-btn nodrag"
+          className={data.isRunning ? "run-button batch-nine-btn nodrag is-running is-generating" : "run-button batch-nine-btn nodrag"}
           type="button"
           onClick={() => data.onRunVoiceDesign?.(id, 9)}
           disabled={data.isRunning}
@@ -8362,9 +8541,10 @@ const ArtifactNode = memo(function ArtifactNode({ id, data }: NodeProps<StudioNo
               className="download-link nodrag"
               href={artifact.audioDataUrl}
               download={getArtifactDownloadFileName(data.title, artifact.fileName, data.workspaceName)}
+              style={{ textDecoration: "none" }}
             >
-              <Download size={15} />
-              下载
+              <Download size={15} style={{ flexShrink: 0 }} />
+              <span>下载</span>
             </a>
           </div>
         </>
@@ -8452,6 +8632,93 @@ function parseTableText(text: string): string[][] {
     }
     return grid;
   }
+}
+
+interface NodeConfirmOptions {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  isDestructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function NodeConfirmModal({
+  options
+}: {
+  options: NodeConfirmOptions;
+}) {
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        options.onCancel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [options]);
+
+  return (
+    <div
+      className="node-modal-backdrop nodrag nopan nowheel"
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          options.onCancel();
+        }
+      }}
+    >
+      <div
+        className="apple-confirm-dialog node-confirm-dialog"
+        onClick={(e) => e.stopPropagation()}
+        role="alertdialog"
+        aria-modal="true"
+        style={{ maxWidth: 330, padding: "22px 20px 18px 20px" }}
+      >
+        <div className="apple-confirm-badge-wrap" style={{ marginBottom: 12 }}>
+          <div className="apple-confirm-icon-badge destructive" style={{ width: 48, height: 48 }}>
+            <Trash2 size={22} />
+          </div>
+        </div>
+
+        <div className="apple-confirm-content" style={{ marginBottom: 18 }}>
+          <h3 className="apple-confirm-title" style={{ fontSize: 15, marginBottom: 6 }}>
+            {options.title}
+          </h3>
+          {options.message ? (
+            <p className="apple-confirm-message" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              {options.message}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="apple-confirm-actions" style={{ gap: 8 }}>
+          <button
+            type="button"
+            className="apple-confirm-btn cancel"
+            style={{ height: 34, fontSize: 13 }}
+            onClick={options.onCancel}
+            autoFocus
+          >
+            {options.cancelLabel || "取消"}
+          </button>
+          <button
+            type="button"
+            className="apple-confirm-btn confirm destructive"
+            style={{ height: 34, fontSize: 13 }}
+            onClick={options.onConfirm}
+          >
+            {options.confirmLabel || "清空"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ExcelPasteModal({
@@ -8598,7 +8865,7 @@ function ExcelPasteModal({
 
   return (
     <div
-      className="modal-backdrop"
+      className="node-modal-backdrop nodrag nopan nowheel"
       onMouseDown={(e) => { backdropMouseDownRef.current = e.target; }}
       onClick={(e) => {
         if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
@@ -8607,17 +8874,17 @@ function ExcelPasteModal({
       }}
     >
       <div className="api-key-modal-content excel-paste-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="api-key-modal-header">
-          <h3>
-            <Table size={18} />
+        <div className="api-key-modal-header" style={{ padding: "10px 14px" }}>
+          <h3 style={{ fontSize: 13.5 }}>
+            <Table size={16} />
             从 Excel / 飞书 / 腾讯文档表格一键粘贴导入
           </h3>
-          <button className="api-key-modal-close" type="button" onClick={onClose}>
-            <X size={18} />
+          <button className="api-key-modal-close" type="button" onClick={onClose} style={{ width: 24, height: 24 }}>
+            <X size={16} />
           </button>
         </div>
-        <div className="api-key-modal-body">
-          <p className="api-key-modal-hint">
+        <div className="api-key-modal-body" style={{ padding: "10px 14px", gap: 8 }}>
+          <p className="api-key-modal-hint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.4 }}>
             请在 Excel / WPS / 飞书表格中选中多行多列区域并复制（Ctrl+C），直接在下方输入框内按 <strong>Ctrl + V</strong> 粘贴：
           </p>
           <textarea
@@ -8625,24 +8892,25 @@ function ExcelPasteModal({
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             placeholder={"点击此处直接按 Ctrl + V 粘贴表格内容，例如：\n疑惑而友善，语气自然。\tCan I help you?\n惊讶、错愕又有点无奈\tA pirate?! Me? Hold on..."}
-            rows={5}
+            rows={3}
+            style={{ minHeight: 56, height: 68, fontSize: 11.5, marginTop: 4, padding: "6px 8px" }}
             autoFocus
           />
 
           {parsedGrid.length > 0 ? (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <strong className="excel-preview-heading" style={{ fontSize: 13 }}>
-                  数据预览（智能解析共 {parsedGrid.length} 行 {maxCols} 列，鼠标悬停可滚轮滑动浏览，可自定义列对应字段）：
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <strong className="excel-preview-heading" style={{ fontSize: 12 }}>
+                  数据预览（智能解析共 {parsedGrid.length} 行 {maxCols} 列，可自定义对应列）：
                 </strong>
               </div>
-              <div className="nodrag nopan nowheel excel-preview-scroll-wrap" style={{ overflowX: "auto", overflowY: "auto", maxHeight: 240, borderRadius: 6 }}>
+              <div className="nodrag nopan nowheel excel-preview-scroll-wrap" style={{ overflowX: "auto", overflowY: "auto", maxHeight: 180, borderRadius: 6 }}>
                 <table className="excel-paste-preview-table" style={{ marginTop: 0 }}>
                   <thead>
                     <tr>
-                      <th style={{ width: 40, textAlign: "center" }}>#</th>
+                      <th style={{ width: 40, textAlign: "center", verticalAlign: "top" }}>#</th>
                       {Array.from({ length: maxCols }).map((_, cIdx) => (
-                        <th key={cIdx}>
+                        <th key={cIdx} style={{ verticalAlign: "top" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             <span>第 {cIdx + 1} 列</span>
                             <select
@@ -8665,9 +8933,9 @@ function ExcelPasteModal({
                   <tbody>
                     {parsedGrid.map((gridRow, rIdx) => (
                       <tr key={rIdx}>
-                        <td style={{ textAlign: "center", color: "#9f947b", fontSize: 11 }}>{rIdx + 1}</td>
+                        <td style={{ textAlign: "center", color: "#9f947b", fontSize: 11, verticalAlign: "top", paddingTop: 8 }}>{rIdx + 1}</td>
                         {Array.from({ length: maxCols }).map((_, cIdx) => (
-                          <td key={cIdx} style={{ whiteSpace: "pre-wrap", maxWidth: 220 }}>
+                          <td key={cIdx} style={{ whiteSpace: "pre-wrap", maxWidth: 220, verticalAlign: "top", paddingTop: 8, lineHeight: 1.45 }}>
                             {gridRow[cIdx] || ""}
                           </td>
                         ))}
@@ -8679,8 +8947,8 @@ function ExcelPasteModal({
             </div>
           ) : null}
         </div>
-        <div className="api-key-modal-footer excel-modal-footer" style={{ gap: 10 }}>
-          <button type="button" className="excel-modal-btn cancel" onClick={onClose}>
+        <div className="api-key-modal-footer excel-modal-footer" style={{ padding: "8px 14px", gap: 8 }}>
+          <button type="button" className="excel-modal-btn cancel" onClick={onClose} style={{ height: 28, fontSize: 11.5, padding: "0 10px" }}>
             取消
           </button>
           <button
@@ -8688,6 +8956,7 @@ function ExcelPasteModal({
             className="excel-modal-btn append"
             disabled={parsedGrid.length === 0}
             onClick={() => handleCommit("append")}
+            style={{ height: 28, fontSize: 11.5, padding: "0 10px" }}
           >
             追加到表格末尾 ({parsedGrid.length} 条)
           </button>
@@ -8696,6 +8965,7 @@ function ExcelPasteModal({
             className="excel-modal-btn replace"
             disabled={parsedGrid.length === 0}
             onClick={() => handleCommit("replace")}
+            style={{ height: 28, fontSize: 11.5, padding: "0 10px" }}
           >
             覆盖现有表格 ({parsedGrid.length} 条)
           </button>
@@ -8713,6 +8983,7 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
 
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
   const [pasteToast, setPasteToast] = useState<string | null>(null);
+  const [nodeConfirm, setNodeConfirm] = useState<NodeConfirmOptions | null>(null);
 
   useAutoUpdateNodeInternals(id, [rows.length]);
 
@@ -8758,23 +9029,24 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
     patchRows(nextRows);
   }
 
-  async function handleClearRows() {
-    const confirmed = await showAppleConfirm({
+  function handleClearRows() {
+    setNodeConfirm({
       title: "清空所有行数据",
       message: "确定要清空当前批量音色克隆表格中的所有行吗？表格将重置为单个初始句段。",
       confirmLabel: "清空表格",
       cancelLabel: "取消",
       isDestructive: true,
-      icon: "trash"
+      onConfirm: () => {
+        patchRows([
+          { id: createId("row"), title: "句段 1", instruction: "", text: "" }
+        ]);
+        setNodeConfirm(null);
+      },
+      onCancel: () => setNodeConfirm(null)
     });
-    if (confirmed) {
-      patchRows([
-        { id: createId("row"), title: "句段 1", instruction: "", text: "" }
-      ]);
-    }
   }
 
-  async function handleClearColumn(columnType: "style" | "text") {
+  function handleClearColumn(columnType: "style" | "text") {
     if (columnType === "style") {
       const hasContent = rows.some((r) => Boolean((r.instruction || r.voiceStyle || "").trim()));
       if (!hasContent) {
@@ -8782,24 +9054,25 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         setTimeout(() => setPasteToast(null), 2000);
         return;
       }
-      const confirmed = await showAppleConfirm({
+      setNodeConfirm({
         title: "清空「语音风格」",
         message: "确定要清空所有行的「语音风格」吗？此操作无法撤销。",
         confirmLabel: "清空",
         cancelLabel: "取消",
         isDestructive: true,
-        icon: "trash"
+        onConfirm: () => {
+          const nextRows = rows.map((r) => ({
+            ...r,
+            instruction: "",
+            voiceStyle: ""
+          }));
+          patchRows(nextRows);
+          setPasteToast("✨ 已清空所有行的语音风格！");
+          setTimeout(() => setPasteToast(null), 2500);
+          setNodeConfirm(null);
+        },
+        onCancel: () => setNodeConfirm(null)
       });
-      if (confirmed) {
-        const nextRows = rows.map((r) => ({
-          ...r,
-          instruction: "",
-          voiceStyle: ""
-        }));
-        patchRows(nextRows);
-        setPasteToast("✨ 已清空所有行的语音风格！");
-        setTimeout(() => setPasteToast(null), 2500);
-      }
     } else if (columnType === "text") {
       const hasContent = rows.some((r) => Boolean(r.text?.trim()));
       if (!hasContent) {
@@ -8807,23 +9080,24 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         setTimeout(() => setPasteToast(null), 2000);
         return;
       }
-      const confirmed = await showAppleConfirm({
+      setNodeConfirm({
         title: "清空「音频文本」",
         message: "确定要清空所有行的「音频文本」吗？此操作无法撤销。",
         confirmLabel: "清空",
         cancelLabel: "取消",
         isDestructive: true,
-        icon: "trash"
+        onConfirm: () => {
+          const nextRows = rows.map((r) => ({
+            ...r,
+            text: ""
+          }));
+          patchRows(nextRows);
+          setPasteToast("✨ 已清空所有行的音频文本！");
+          setTimeout(() => setPasteToast(null), 2500);
+          setNodeConfirm(null);
+        },
+        onCancel: () => setNodeConfirm(null)
       });
-      if (confirmed) {
-        const nextRows = rows.map((r) => ({
-          ...r,
-          text: ""
-        }));
-        patchRows(nextRows);
-        setPasteToast("✨ 已清空所有行的音频文本！");
-        setTimeout(() => setPasteToast(null), 2500);
-      }
     }
   }
 
@@ -8947,23 +9221,51 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
   }
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   function handleDragStart(e: React.DragEvent, index: number) {
+    e.stopPropagation();
+    e.dataTransfer.setData("application/x-batch-row-index", String(index));
     e.dataTransfer.setData("text/plain", String(index));
     e.dataTransfer.effectAllowed = "move";
     setDraggedIndex(index);
   }
 
-  function handleDragOver(e: React.DragEvent) {
+  function handleDragOver(e: React.DragEvent, index: number) {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.stopPropagation();
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    e.stopPropagation();
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   }
 
   function handleDropRow(e: React.DragEvent, targetIndex: number) {
     e.preventDefault();
-    const sourceIndexStr = e.dataTransfer.getData("text/plain");
-    const sourceIndex = sourceIndexStr ? parseInt(sourceIndexStr, 10) : draggedIndex;
+    e.stopPropagation();
+    const rawCustom = e.dataTransfer.getData("application/x-batch-row-index");
+    const rawPlain = e.dataTransfer.getData("text/plain");
+    let sourceIndex = draggedIndex;
+    if (rawCustom !== "") {
+      const parsed = parseInt(rawCustom, 10);
+      if (!isNaN(parsed)) sourceIndex = parsed;
+    } else if (rawPlain !== "") {
+      const clean = rawPlain.replace(/[^0-9]/g, "");
+      const parsed = parseInt(clean, 10);
+      if (!isNaN(parsed)) sourceIndex = parsed;
+    }
     setDraggedIndex(null);
+    setDragOverIndex(null);
     if (sourceIndex === null || sourceIndex === undefined || isNaN(sourceIndex) || sourceIndex === targetIndex) return;
 
     const nextRows = [...rows];
@@ -8973,7 +9275,16 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
   }
 
   return (
-    <StudioNodeFrame id={id} data={data} icon={<AudioLines size={17} />} tone="batch-clone">
+    <StudioNodeFrame
+      id={id}
+      data={data}
+      icon={<AudioLines size={17} />}
+      tone="batch-clone"
+      style={{
+        minHeight: isExcelPasteOpen ? 460 : undefined,
+        transition: "min-height 0.22s cubic-bezier(0.16, 1, 0.3, 1)"
+      }}
+    >
       <Handle type="target" position={Position.Left} id="voice" className="node-handle" style={{ top: "50%" }} />
       <span className="input-handle-label" style={{ top: "50%" }}>参考</span>
       <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
@@ -9118,20 +9429,35 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         <div className="batch-col-action">操作</div>
       </div>
 
-      <div className="batch-row-list nodrag">
+      <div className={`batch-row-list nodrag ${draggedIndex !== null ? "is-dragging-active" : ""}`}>
         {rows.map((row, index) => (
           <div
             key={row.id}
-            className={`batch-row-card ${draggedIndex === index ? "is-dragging" : ""}`}
+            className={`batch-row-card ${draggedIndex === index ? "is-dragging" : ""} ${dragOverIndex === index && draggedIndex !== index ? "is-drag-over" : ""}`}
             draggable
             onDragStart={(e) => handleDragStart(e, index)}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDragLeave={handleDragLeave}
+            onDragEnd={handleDragEnd}
             onDrop={(e) => handleDropRow(e, index)}
           >
             <div className="batch-row-meta-col">
               <div className="batch-row-meta-top">
-                <span className="node-muted" style={{ fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, cursor: "grab" }} title="按住拖拽可上下排序">
-                  <GripVertical size={12} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
+                <span
+                  className="batch-row-drag-handle node-muted"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    cursor: "grab",
+                    userSelect: "none",
+                    WebkitUserSelect: "none"
+                  }}
+                  title="按住拖拽可上下排序"
+                >
+                  <GripVertical size={13} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
                 </span>
                 <div style={{ display: "flex", gap: 2, marginLeft: "auto" }}>
                   <button
@@ -9175,6 +9501,8 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
               <input
                 className="batch-row-title-input nodrag nopan nowheel"
                 value={row.title}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "title", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "title", e)}
                 placeholder="标识/名字"
@@ -9186,6 +9514,8 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.instruction}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "instruction", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "instruction", e)}
                 rows={2}
@@ -9197,6 +9527,8 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.text}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "text", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "text", e)}
                 rows={2}
@@ -9207,13 +9539,13 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
             <div className="batch-row-action-col">
               <button
                 type="button"
-                className="batch-row-single-clone-btn"
+                className={data.singleRunningRowId === row.id ? "batch-row-single-clone-btn is-running is-generating" : "batch-row-single-clone-btn"}
                 onClick={() => data.onRunSingleRowBatchVoiceClone?.(id, row.id)}
                 disabled={data.isRunning || data.singleRunningRowId === row.id || !row.text.trim()}
                 title="单条克隆：仅生成此行音频并精准更新至专属产物节点"
               >
                 {data.singleRunningRowId === row.id ? (
-                  <Loader2 size={13} className="spin-icon" />
+                  <Loader2 size={14} className="spin-icon spin" />
                 ) : (
                   <Sparkles size={13} />
                 )}
@@ -9231,7 +9563,7 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
       {data.error ? <p className="node-error">{data.error}</p> : null}
 
       <button
-        className="run-button nodrag"
+        className={data.isRunning ? "run-button nodrag is-running is-generating" : "run-button nodrag"}
         type="button"
         onClick={() => data.onRunBatchVoiceClone?.(id)}
         disabled={data.isRunning}
@@ -9241,6 +9573,7 @@ const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data }: Node
         {data.isRunning ? "正在批量生成音频..." : "运行批量克隆"}
       </button>
 
+      {nodeConfirm ? <NodeConfirmModal options={nodeConfirm} /> : null}
       {isExcelPasteOpen ? (
         <ExcelPasteModal
           onClose={() => setIsExcelPasteOpen(false)}
@@ -9259,6 +9592,7 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
 
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
   const [pasteToast, setPasteToast] = useState<string | null>(null);
+  const [nodeConfirm, setNodeConfirm] = useState<NodeConfirmOptions | null>(null);
 
   useAutoUpdateNodeInternals(id, [rows.length]);
 
@@ -9306,46 +9640,48 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
     patchRows(nextRows);
   }
 
-  async function handleClearRows() {
-    const confirmed = await showAppleConfirm({
+  function handleClearRows() {
+    setNodeConfirm({
       title: "清空所有行数据",
       message: "确定要清空当前批量音色设计表格中的所有行吗？表格将重置为单个初始句段。",
       confirmLabel: "清空表格",
       cancelLabel: "取消",
       isDestructive: true,
-      icon: "trash"
+      onConfirm: () => {
+        patchRows([
+          { id: createId("row"), title: "句段 1", instruction: "", naturalControl: "", voiceStyle: "", text: "" }
+        ]);
+        setNodeConfirm(null);
+      },
+      onCancel: () => setNodeConfirm(null)
     });
-    if (confirmed) {
-      patchRows([
-        { id: createId("row"), title: "句段 1", instruction: "", naturalControl: "", voiceStyle: "", text: "" }
-      ]);
-    }
   }
 
-  async function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
+  function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
     const hasContent = rows.some((r) => Boolean((r[field] || "").trim()));
     if (!hasContent) {
       setPasteToast(`「${label}」列已经是空的`);
       setTimeout(() => setPasteToast(null), 2000);
       return;
     }
-    const confirmed = await showAppleConfirm({
+    setNodeConfirm({
       title: `清空「${label}」`,
       message: `确定要清空所有行的「${label}」内容吗？此操作无法撤销。`,
       confirmLabel: "清空",
       cancelLabel: "取消",
       isDestructive: true,
-      icon: "trash"
+      onConfirm: () => {
+        const nextRows = rows.map((r) => ({
+          ...r,
+          [field]: ""
+        }));
+        patchRows(nextRows);
+        setPasteToast(`✨ 已清空所有行的${label}！`);
+        setTimeout(() => setPasteToast(null), 2500);
+        setNodeConfirm(null);
+      },
+      onCancel: () => setNodeConfirm(null)
     });
-    if (confirmed) {
-      const nextRows = rows.map((r) => ({
-        ...r,
-        [field]: ""
-      }));
-      patchRows(nextRows);
-      setPasteToast(`✨ 已清空所有行的${label}！`);
-      setTimeout(() => setPasteToast(null), 2500);
-    }
   }
 
   function handleUpdateRow(rowId: string, field: keyof BatchVoiceCloneRow, value: string) {
@@ -9455,23 +9791,51 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
   }
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   function handleDragStart(e: React.DragEvent, index: number) {
+    e.stopPropagation();
+    e.dataTransfer.setData("application/x-batch-row-index", String(index));
     e.dataTransfer.setData("text/plain", String(index));
     e.dataTransfer.effectAllowed = "move";
     setDraggedIndex(index);
   }
 
-  function handleDragOver(e: React.DragEvent) {
+  function handleDragOver(e: React.DragEvent, index: number) {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.stopPropagation();
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    e.stopPropagation();
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   }
 
   function handleDropRow(e: React.DragEvent, targetIndex: number) {
     e.preventDefault();
-    const sourceIndexStr = e.dataTransfer.getData("text/plain");
-    const sourceIndex = sourceIndexStr ? parseInt(sourceIndexStr, 10) : draggedIndex;
+    e.stopPropagation();
+    const rawCustom = e.dataTransfer.getData("application/x-batch-row-index");
+    const rawPlain = e.dataTransfer.getData("text/plain");
+    let sourceIndex = draggedIndex;
+    if (rawCustom !== "") {
+      const parsed = parseInt(rawCustom, 10);
+      if (!isNaN(parsed)) sourceIndex = parsed;
+    } else if (rawPlain !== "") {
+      const clean = rawPlain.replace(/[^0-9]/g, "");
+      const parsed = parseInt(clean, 10);
+      if (!isNaN(parsed)) sourceIndex = parsed;
+    }
     setDraggedIndex(null);
+    setDragOverIndex(null);
     if (sourceIndex === null || sourceIndex === undefined || isNaN(sourceIndex) || sourceIndex === targetIndex) return;
 
     const nextRows = [...rows];
@@ -9481,7 +9845,16 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
   }
 
   return (
-    <StudioNodeFrame id={id} data={data} icon={<Wand2 size={17} />} tone="batch-design">
+    <StudioNodeFrame
+      id={id}
+      data={data}
+      icon={<Wand2 size={17} />}
+      tone="batch-design"
+      style={{
+        minHeight: isExcelPasteOpen ? 460 : undefined,
+        transition: "min-height 0.22s cubic-bezier(0.16, 1, 0.3, 1)"
+      }}
+    >
       <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
 
       <div className="batch-toolbar-row nodrag">
@@ -9651,20 +10024,35 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
         <div className="batch-col-action">操作</div>
       </div>
 
-      <div className="batch-row-list nodrag">
+      <div className={`batch-row-list nodrag ${draggedIndex !== null ? "is-dragging-active" : ""}`}>
         {rows.map((row, index) => (
           <div
             key={row.id}
-            className={`batch-row-card design-mode ${draggedIndex === index ? "is-dragging" : ""}`}
+            className={`batch-row-card design-mode ${draggedIndex === index ? "is-dragging" : ""} ${dragOverIndex === index && draggedIndex !== index ? "is-drag-over" : ""}`}
             draggable
             onDragStart={(e) => handleDragStart(e, index)}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDragLeave={handleDragLeave}
+            onDragEnd={handleDragEnd}
             onDrop={(e) => handleDropRow(e, index)}
           >
             <div className="batch-row-meta-col">
               <div className="batch-row-meta-top">
-                <span className="node-muted" style={{ fontSize: 11, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, cursor: "grab" }} title="按住拖拽可上下排序">
-                  <GripVertical size={12} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
+                <span
+                  className="batch-row-drag-handle node-muted"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    cursor: "grab",
+                    userSelect: "none",
+                    WebkitUserSelect: "none"
+                  }}
+                  title="按住拖拽可上下排序"
+                >
+                  <GripVertical size={13} style={{ color: "var(--accent-color, #0a84ff)" }} /> #{index + 1}
                 </span>
                 <div style={{ display: "flex", gap: 2, marginLeft: "auto" }}>
                   <button
@@ -9708,6 +10096,8 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
               <input
                 className="batch-row-title-input nodrag nopan nowheel"
                 value={row.title}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "title", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "title", e)}
                 placeholder="标识/名字"
@@ -9719,6 +10109,8 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.instruction}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "instruction", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "instruction", e)}
                 rows={2}
@@ -9730,6 +10122,8 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.naturalControl || ""}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "naturalControl", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "naturalControl", e)}
                 rows={2}
@@ -9741,6 +10135,8 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.voiceStyle || ""}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "voiceStyle", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "voiceStyle", e)}
                 rows={2}
@@ -9752,6 +10148,8 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.text}
+                draggable={false}
+                onDragStart={(e) => e.stopPropagation()}
                 onChange={(e) => handleUpdateRow(row.id, "text", e.target.value)}
                 onPaste={(e) => handlePasteAtRow(index, "text", e)}
                 rows={2}
@@ -9762,13 +10160,13 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
             <div className="batch-row-action-col">
               <button
                 type="button"
-                className="batch-row-single-clone-btn design-btn"
+                className={data.singleRunningRowId === row.id ? "batch-row-single-clone-btn design-btn is-running is-generating" : "batch-row-single-clone-btn design-btn"}
                 onClick={() => data.onRunSingleRowBatchVoiceDesign?.(id, row.id)}
                 disabled={data.isRunning || data.singleRunningRowId === row.id || !row.text.trim()}
                 title="单条创造：仅生成此行音色音频并精准更新至专属产物节点"
               >
                 {data.singleRunningRowId === row.id ? (
-                  <Loader2 size={13} className="spin-icon" />
+                  <Loader2 size={14} className="spin-icon spin" />
                 ) : (
                   <Sparkles size={13} />
                 )}
@@ -9786,7 +10184,7 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
       {data.error ? <p className="node-error">{data.error}</p> : null}
 
       <button
-        className="run-button design-mode-run nodrag"
+        className={data.isRunning ? "run-button design-mode-run nodrag is-running is-generating" : "run-button design-mode-run nodrag"}
         type="button"
         onClick={() => data.onRunBatchVoiceDesign?.(id)}
         disabled={data.isRunning}
@@ -9796,6 +10194,7 @@ const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, data }: No
         {data.isRunning ? "正在批量生成音色创造..." : "运行批量音色创造"}
       </button>
 
+      {nodeConfirm ? <NodeConfirmModal options={nodeConfirm} /> : null}
       {isExcelPasteOpen ? (
         <ExcelPasteModal
           onClose={() => setIsExcelPasteOpen(false)}
@@ -9934,9 +10333,10 @@ const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProp
                         href={item.audioDataUrl}
                         download={getArtifactDownloadFileName(fullStashName, item.fileName, data.workspaceName)}
                         title="单条下载"
+                        style={{ textDecoration: "none" }}
                       >
-                        <Download size={12} />
-                        下载
+                        <Download size={12} style={{ flexShrink: 0 }} />
+                        <span>下载</span>
                       </a>
                       <button
                         type="button"
@@ -10083,11 +10483,11 @@ function BatchAudioUploadModal({
     if (newFiles.length === 0) return;
 
     setItems((prev) => {
-      const startIdx = prev.length;
-      const added: AudioRowMapping[] = newFiles.map((file, i) => {
-        const targetIdx = Math.min(startIdx + i, Math.max(0, rows.length - 1));
-        return { file, targetRowIndex: targetIdx };
-      });
+      const startIdx = prev.length > 0 ? prev[prev.length - 1].targetRowIndex + 1 : 0;
+      const added: AudioRowMapping[] = newFiles.map((file, i) => ({
+        file,
+        targetRowIndex: startIdx + i
+      }));
       return [...prev, ...added];
     });
   }
@@ -10102,30 +10502,72 @@ function BatchAudioUploadModal({
     if (droppedFiles.length === 0) return;
 
     setItems((prev) => {
-      const startIdx = prev.length;
-      const added: AudioRowMapping[] = droppedFiles.map((file, i) => {
-        const targetIdx = Math.min(startIdx + i, Math.max(0, rows.length - 1));
-        return { file, targetRowIndex: targetIdx };
-      });
+      const startIdx = prev.length > 0 ? prev[prev.length - 1].targetRowIndex + 1 : 0;
+      const added: AudioRowMapping[] = droppedFiles.map((file, i) => ({
+        file,
+        targetRowIndex: startIdx + i
+      }));
       return [...prev, ...added];
     });
   }
 
   function handleRemoveItem(idx: number) {
-    setItems((prev) => prev.filter((_, i) => i !== idx));
+    setItems((prev) => {
+      const removed = prev[idx];
+      if (!removed) return prev;
+      const wasSoleOwner = prev.filter((it, i) => i !== idx && it.targetRowIndex === removed.targetRowIndex).length === 0;
+      const filtered = prev.filter((_, i) => i !== idx);
+      if (wasSoleOwner) {
+        return filtered.map((item, i) => {
+          if (i >= idx && item.targetRowIndex >= removed.targetRowIndex) {
+            return { ...item, targetRowIndex: Math.max(0, item.targetRowIndex - 1) };
+          }
+          return item;
+        });
+      }
+      return filtered;
+    });
   }
 
   function handleUpdateTargetRow(itemIdx: number, newTargetIdx: number) {
-    setItems((prev) =>
-      prev.map((item, i) => (i === itemIdx ? { ...item, targetRowIndex: newTargetIdx } : item))
-    );
+    setItems((prev) => {
+      const oldTargetIdx = prev[itemIdx]?.targetRowIndex ?? 0;
+      if (oldTargetIdx === newTargetIdx) return prev;
+
+      // 检查原行是否仅由当前 itemIdx 独占
+      const wasSoleOwner = prev.filter((it, i) => i !== itemIdx && it.targetRowIndex === oldTargetIdx).length === 0;
+
+      return prev.map((item, i) => {
+        if (i === itemIdx) {
+          return { ...item, targetRowIndex: newTargetIdx };
+        }
+        if (i > itemIdx) {
+          // 场景 A: 往前合并（例如第 6 个文件选择了与第 5 行合并）：
+          // 原第 6 行被腾出，后续所有原本 >= oldTargetIdx 的文件自动全部向前顺延平移 1 行
+          // 这样第 7 个文件就自动顺延变为第 6 行，第 8 个文件自动为第 7 行
+          if (newTargetIdx < oldTargetIdx && wasSoleOwner) {
+            if (item.targetRowIndex >= oldTargetIdx) {
+              return { ...item, targetRowIndex: Math.max(0, item.targetRowIndex - 1) };
+            }
+          }
+          // 场景 B: 往后拆分新行（例如从合并行中解绑独立成新行，或在中间插入新行）：
+          // 后续大于等于新行编号的文件自动向后顺延 1 行
+          else if (newTargetIdx > oldTargetIdx && !wasSoleOwner) {
+            if (item.targetRowIndex >= newTargetIdx) {
+              return { ...item, targetRowIndex: item.targetRowIndex + 1 };
+            }
+          }
+        }
+        return item;
+      });
+    });
   }
 
   function handleAutoSequential() {
     setItems((prev) =>
       prev.map((item, i) => ({
         ...item,
-        targetRowIndex: Math.min(i, Math.max(0, rows.length - 1))
+        targetRowIndex: i
       }))
     );
   }
@@ -10151,21 +10593,42 @@ function BatchAudioUploadModal({
     return counts;
   }, [items]);
 
+  // 计算当前下拉菜单应当提供的所有有效行选项
+  const maxRowIndex = useMemo(() => {
+    let max = Math.max(rows.length, items.length);
+    for (const it of items) {
+      if (it.targetRowIndex + 1 > max) {
+        max = it.targetRowIndex + 1;
+      }
+    }
+    return max;
+  }, [rows.length, items]);
+
+  const getRowOptionLabel = (rIdx: number) => {
+    if (rIdx < rows.length) {
+      return `第 ${rIdx + 1} 行 (${rows[rIdx].title || `句段 ${rIdx + 1}`})`;
+    }
+    const firstItemOnRow = items.find((it) => it.targetRowIndex === rIdx);
+    if (firstItemOnRow) {
+      const cleanName = firstItemOnRow.file.name.replace(/\.[^/.]+$/, "");
+      return `第 ${rIdx + 1} 行 (${cleanName})`;
+    }
+    return `第 ${rIdx + 1} 行 (新增句段)`;
+  };
+
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
+
   return createPortal(
     <div
-      className="batch-upload-portal-backdrop nodrag nopan nowheel"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 99999,
-        background: "rgba(0, 0, 0, 0.82)",
-        backdropFilter: "blur(8px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20
+      className="integrated-audio-modal-backdrop nodrag nopan nowheel"
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target;
       }}
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
         className={`integrated-multi-audio-card ${isDraggingOver ? "dragging-over" : ""} nodrag nopan nowheel`}
@@ -10201,10 +10664,10 @@ function BatchAudioUploadModal({
 
           {items.length > 0 && (
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="integrated-mini-tool" style={{ padding: "5px 10px", fontSize: 12 }} onClick={handleAutoSequential}>
+              <button type="button" className="integrated-mini-tool" style={{ padding: "5px 10px", fontSize: 12 }} onClick={handleAutoSequential} title="按音频文件自上而下1对1依次各占新行">
                 🔄 1对1顺序填入
               </button>
-              <button type="button" className="integrated-mini-tool" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => handleAllToOneRow(0)}>
+              <button type="button" className="integrated-mini-tool" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => handleAllToOneRow(0)} title="所有音频全部并入第1行融合生成">
                 🔀 全部对齐第1行
               </button>
               <button type="button" className="integrated-mini-tool danger" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => setItems([])}>
@@ -10223,9 +10686,9 @@ function BatchAudioUploadModal({
             <table className="integrated-multi-audio-table">
               <thead>
                 <tr>
-                  <th style={{ width: "55%" }}>音频文件名称</th>
-                  <th style={{ width: "35%" }}>目标分配行 (选择对应句段)</th>
-                  <th style={{ width: "10%", textAlign: "center" }}>操作</th>
+                  <th style={{ width: "55%", verticalAlign: "middle" }}>音频文件名称</th>
+                  <th style={{ width: "35%", verticalAlign: "middle" }}>目标分配行 (选择对应句段)</th>
+                  <th style={{ width: "10%", textAlign: "center", verticalAlign: "middle" }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -10235,31 +10698,26 @@ function BatchAudioUploadModal({
 
                   return (
                     <tr key={idx}>
-                      <td style={{ padding: "10px 14px", fontWeight: 600 }}>
+                      <td style={{ padding: "8px 14px", fontWeight: 600, verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ color: "#94a3b8", fontSize: 11, minWidth: 18 }}>#{idx + 1}</span>
-                          <span style={{ wordBreak: "break-all" }}>{item.file.name}</span>
+                          <span style={{ color: "#94a3b8", fontSize: 11, minWidth: 18, flexShrink: 0 }}>#{idx + 1}</span>
+                          <span style={{ wordBreak: "break-all", lineHeight: 1.4 }}>{item.file.name}</span>
                         </div>
                       </td>
-                      <td style={{ padding: "8px 14px" }}>
+                      <td style={{ padding: "8px 14px", verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <select
                             className="nodrag nopan nowheel integrated-multi-audio-select"
                             value={item.targetRowIndex}
                             onChange={(e) => handleUpdateTargetRow(idx, Number(e.target.value))}
                           >
-                            {rows.map((r, rIdx) => (
-                              <option key={r.id} value={rIdx}>
-                                第 {rIdx + 1} 行 ({r.title || `句段 ${rIdx + 1}`})
+                            {Array.from({ length: maxRowIndex }, (_, rIdx) => (
+                              <option key={rIdx} value={rIdx}>
+                                {getRowOptionLabel(rIdx)}
                               </option>
                             ))}
-                            {item.targetRowIndex >= rows.length && (
-                              <option value={item.targetRowIndex}>
-                                第 {item.targetRowIndex + 1} 行 (自动新建句段行)
-                              </option>
-                            )}
-                            <option value={rows.length}>
-                              + 新增第 {rows.length + 1} 行
+                            <option value={maxRowIndex}>
+                              + 新增第 {maxRowIndex + 1} 行
                             </option>
                           </select>
                           {isMerged && (
@@ -10269,9 +10727,14 @@ function BatchAudioUploadModal({
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: "8px", textAlign: "center" }}>
-                        <button type="button" className="integrated-mini-tool danger" onClick={() => handleRemoveItem(idx)} title="移除此项">
-                          &times;
+                      <td style={{ padding: "8px 10px", textAlign: "center", verticalAlign: "middle" }}>
+                        <button
+                          type="button"
+                          className="integrated-multi-audio-del-btn"
+                          onClick={() => handleRemoveItem(idx)}
+                          title="移除此项"
+                        >
+                          <X size={15} />
                         </button>
                       </td>
                     </tr>
@@ -10285,15 +10748,28 @@ function BatchAudioUploadModal({
         {items.length > 0 && (
           <div className="integrated-multi-audio-summary">
             <span style={{ fontWeight: 700 }}>分配概览:</span>
-            {Object.entries(rowCounts).map(([rowIdxStr, count]) => {
-              const rIdx = Number(rowIdxStr);
-              const rowTitle = rows[rIdx]?.title || `句段 ${rIdx + 1}`;
-              return (
-                <span key={rIdx} style={{ color: count > 1 ? "#38bdf8" : undefined, fontWeight: 600 }}>
-                  第 {rIdx + 1} 行 ({rowTitle}): {count} 个文件 {count > 1 ? "(多文件自动融合)" : ""}
-                </span>
-              );
-            })}
+            {(() => {
+              const mergedEntries = Object.entries(rowCounts).filter(([_, count]) => count > 1);
+              if (mergedEntries.length === 0) {
+                return (
+                  <span>
+                    共 {items.length} 个音频文件，已 1 对 1 顺序分配至 {items.length} 个句段行
+                  </span>
+                );
+              }
+              return mergedEntries
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([rowIdxStr, count]) => {
+                  const rIdx = Number(rowIdxStr);
+                  const firstItemOnRow = items.find((it) => it.targetRowIndex === rIdx);
+                  const rowTitle = rows[rIdx]?.title || (firstItemOnRow ? firstItemOnRow.file.name.replace(/\.[^/.]+$/, "") : `句段 ${rIdx + 1}`);
+                  return (
+                    <span key={rIdx} style={{ color: "#38bdf8", fontWeight: 600 }}>
+                      第 {rIdx + 1} 行 ({rowTitle}): {count} 个文件 (多文件自动融合)
+                    </span>
+                  );
+                });
+            })()}
           </div>
         )}
 
@@ -10302,7 +10778,7 @@ function BatchAudioUploadModal({
             取消
           </button>
           <button type="button" className="integrated-modal-confirm-btn" onClick={handleConfirm}>
-            ⚡ 确定导入并整合
+            确定导入并整合
           </button>
         </div>
       </div>
@@ -10320,6 +10796,7 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
   const [isExcelPasteOpen, setIsExcelPasteOpen] = useState(false);
   const [isBatchAudioModalOpen, setIsBatchAudioModalOpen] = useState(false);
   const [pasteToast, setPasteToast] = useState<string | null>(null);
+  const [nodeConfirm, setNodeConfirm] = useState<NodeConfirmOptions | null>(null);
   const [recordingRowId, setRecordingRowId] = useState<string | null>(null);
   const [recordSec, setRecordSec] = useState(0);
   const [isZipping, setIsZipping] = useState(false);
@@ -10353,9 +10830,20 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
   }
 
   function handleClearRows() {
-    patchRows([
-      { id: createId("row"), title: "句段 1", instruction: "", text: "", artifacts: [] }
-    ]);
+    setNodeConfirm({
+      title: "清空所有行数据",
+      message: "确定要清空全能综合工作台中的所有句段吗？表格将重置为单个初始句段。",
+      confirmLabel: "清空表格",
+      cancelLabel: "取消",
+      isDestructive: true,
+      onConfirm: () => {
+        patchRows([
+          { id: createId("row"), title: "句段 1", instruction: "", text: "", artifacts: [] }
+        ]);
+        setNodeConfirm(null);
+      },
+      onCancel: () => setNodeConfirm(null)
+    });
   }
 
   function handleUpdateRow(rowId: string, field: keyof BatchVoiceCloneRow, value: string) {
@@ -10571,10 +11059,12 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
           };
         } else if (files.length > 1) {
           const merged = await mergeAudioFiles(files);
+          const firstClean = files[0].name.replace(/\.[^/.]+$/, "").replace(/[-_]\d+$/, "");
           updatedRows[targetIdx] = {
             ...updatedRows[targetIdx],
             refAudioUrl: merged.dataUrl,
-            refAudioName: merged.fileName
+            refAudioName: merged.fileName,
+            title: updatedRows[targetIdx].title.startsWith("句段") ? (firstClean || updatedRows[targetIdx].title) : updatedRows[targetIdx].title
           };
         }
       }
@@ -10709,16 +11199,24 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
       {/* Top 3 Column Headers */}
       <div className="integrated-top-headers nodrag">
         <div className="integrated-header-cell col-1">
-          <Mic size={15} />
-          <span>参考音频 (上传/录制)</span>
+          <div className="integrated-header-title-block">
+            <Mic size={15} className="integrated-header-icon" />
+            <div className="integrated-header-text-stacked">
+              <span className="integrated-header-title-main">参考音频</span>
+              <span className="integrated-header-title-sub">(上传/录制)</span>
+            </div>
+          </div>
           <button
             type="button"
-            className="integrated-mini-tool"
-            style={{ marginLeft: "auto" }}
+            className="integrated-mini-tool integrated-batch-upload-btn"
             onClick={() => setIsBatchAudioModalOpen(true)}
             title="打开批量上传参考音频设置，可选择目标起始行或多文件合并"
           >
-            <Upload size={12} /> 批量上传(多选)
+            <Upload size={13} />
+            <div className="integrated-btn-text-stacked">
+              <span className="btn-text-main">批量上传</span>
+              <span className="btn-text-sub">(多选)</span>
+            </div>
           </button>
         </div>
 
@@ -10878,16 +11376,16 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
 
               <button
                 type="button"
-                className={data.singleRunningRowId === row.id ? "batch-row-single-clone-btn is-generating" : "batch-row-single-clone-btn"}
+                className={data.singleRunningRowId === row.id ? "batch-row-single-clone-btn is-running is-generating" : "batch-row-single-clone-btn"}
                 onClick={() => data.onRunIntegratedSingleRow?.(id, row.id)}
                 disabled={data.isRunning || data.singleRunningRowId === row.id || !row.text.trim()}
               >
                 {data.singleRunningRowId === row.id ? (
-                  <Loader2 size={13} className="spin-icon spin" />
+                  <Loader2 size={14} className="spin-icon spin" />
                 ) : (
                   <Zap size={13} />
                 )}
-                <span>{data.singleRunningRowId === row.id ? "生成中..." : "⚡ 运行生成"}</span>
+                <span>{data.singleRunningRowId === row.id ? "生成中..." : "运行生成"}</span>
               </button>
             </div>
 
@@ -10904,16 +11402,17 @@ const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, sele
       </div>
 
       <button
-        className={data.isRunning ? "run-button nodrag is-generating" : "run-button nodrag"}
+        className={data.isRunning ? "run-button nodrag is-running is-generating" : "run-button nodrag"}
         type="button"
         onClick={() => data.onRunIntegratedBatch?.(id)}
         disabled={data.isRunning}
         style={{ marginTop: 12 }}
       >
         {data.isRunning ? <Loader2 className="spin" size={16} /> : <Zap size={16} />}
-        {data.isRunning ? "正在批量全员生成中..." : "⚡ 运行批量全部生成"}
+        {data.isRunning ? "正在批量全员生成中..." : "运行批量全部生成"}
       </button>
 
+      {nodeConfirm ? <NodeConfirmModal options={nodeConfirm} /> : null}
       {isExcelPasteOpen ? (
         <ExcelPasteModal
           onClose={() => setIsExcelPasteOpen(false)}
@@ -11028,9 +11527,10 @@ function IntegratedRowArtifactList({
                       href={art.audioDataUrl}
                       download={getArtifactDownloadFileName(fullStashName, art.fileName, data.workspaceName)}
                       title="单条下载"
+                      style={{ textDecoration: "none" }}
                     >
-                      <Download size={12} />
-                      下载
+                      <Download size={12} style={{ flexShrink: 0 }} />
+                      <span>下载</span>
                     </a>
                     <button
                       type="button"
@@ -11058,16 +11558,18 @@ function StudioNodeFrame({
   data,
   icon,
   tone,
+  style,
   children
 }: {
   id: string;
   data: NodeData;
   icon: ReactNode;
   tone: string;
+  style?: React.CSSProperties;
   children: ReactNode;
 }) {
   return (
-    <section className={`studio-node node-${tone}`}>
+    <section className={`studio-node node-${tone}`} style={style}>
       <header className="node-header" title="按住拖拽移动节点">
         <div className="node-title-wrap">
           {icon}
@@ -11679,7 +12181,7 @@ const GameVocalNode = memo(function GameVocalNode({ id, data }: NodeProps<Studio
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
             type="button"
-            className="game-vocal-run-btn nodrag"
+            className={data.isRunning ? "game-vocal-run-btn nodrag is-running is-generating" : "game-vocal-run-btn nodrag"}
             onClick={() => data.onRunGameVocalClone?.(id)}
             disabled={data.isRunning || selectedVocals.length === 0}
           >
@@ -11730,10 +12232,15 @@ function ContextMenu({
   selectedCount?: number;
   onTidySelection?: () => void;
 }) {
+  const menuWidth = 440;
+  const menuHeight = 520;
+  const clampedX = Math.max(12, Math.min(menu.x, window.innerWidth - menuWidth - 12));
+  const clampedY = Math.max(12, Math.min(menu.y, window.innerHeight - menuHeight - 12));
+
   return (
     <div
       className="context-menu nodrag nopan nowheel"
-      style={{ left: menu.x, top: menu.y, maxHeight: "85vh", overflowY: "auto" }}
+      style={{ left: clampedX, top: clampedY, maxHeight: "85vh", overflowY: "auto", zIndex: 999999 }}
       onClick={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >
@@ -11885,11 +12392,31 @@ function StashMiniPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let animId: number;
+    const tick = () => {
+      const audio = audioRef.current;
+      if (audio && audio.duration > 0) {
+        const p = (audio.currentTime / audio.duration) * 100;
+        onProgressChange?.(p, true);
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [isPlaying, onProgressChange]);
+
   function handleTimeUpdate(event: React.SyntheticEvent<HTMLAudioElement>) {
+    if (isPlaying) return;
     const audio = event.currentTarget;
     if (audio.duration > 0) {
       const p = (audio.currentTime / audio.duration) * 100;
-      onProgressChange?.(p, true);
+      onProgressChange?.(p, isPlaying);
     }
   }
 
@@ -11904,18 +12431,23 @@ function StashMiniPlayer({
         activeGlobalAudio.pause();
       }
       activeGlobalAudio = audio;
-      void audio.play();
+      void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     } else {
       audio.pause();
+      setIsPlaying(false);
     }
   }
+
+  useEffect(() => {
+    audioRef.current?.load();
+  }, [src]);
 
   return (
     <>
       <audio
         ref={audioRef}
         src={src}
-        preload="metadata"
+        preload="auto"
         onTimeUpdate={handleTimeUpdate}
         onPlay={() => {
           setIsPlaying(true);
@@ -11993,7 +12525,7 @@ const DeletableEdge = memo(function DeletableEdge({
 
   const edgeStyle = useMemo(
     () => ({
-      strokeWidth: 2,
+      strokeWidth: style?.strokeWidth || 2,
       ...style,
       stroke: strokeColor
     }),
@@ -12035,20 +12567,113 @@ const DeletableEdge = memo(function DeletableEdge({
 
 let activeGlobalAudio: HTMLAudioElement | null = null;
 
-function StudioAudioPlayer({ src }: { src: string }) {
+function StudioAudioPlayer({ src, accentColor }: { src: string; accentColor?: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
+  const isDraggingRef = useRef(false);
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  // 首屏同步获取时长：优先从全局时长缓存或微秒级 WAV 快速解析中同步取得真实时长，彻底告别 0:00 闪烁
+  const [duration, setDuration] = useState<number>(() => {
+    if (!src) return 0;
+    const cached = getCachedAudioDuration(src);
+    if (cached && cached > 0) return cached;
+    const fast = getAudioDurationFast(src);
+    if (fast && fast > 0) return fast;
+    return 0;
+  });
+
+  const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = playbackRate;
     }
   }, [playbackRate]);
+
+  useEffect(() => {
+    setCurrentTime(0);
+    setIsPlaying(false);
+    isDraggingRef.current = false;
+
+    // 优先读取已缓存或快速解析的时长
+    const known = getCachedAudioDuration(src) || getAudioDurationFast(src) || 0;
+    if (known > 0) {
+      setDuration(known);
+    } else {
+      setDuration(0);
+    }
+
+    const audio = audioRef.current;
+    if (audio) {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+        setCachedAudioDuration(src, audio.duration);
+      }
+      // 强制启动多媒体管线解析
+      audio.load();
+    }
+
+    // 若依然未知（如网络音频或非 WAV base64），启动异步探测兜底
+    let isCancelled = false;
+    if (!known && src) {
+      void resolveAudioDuration(src).then((d) => {
+        if (!isCancelled && d && d > 0) {
+          setDuration(d);
+        }
+      });
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [src]);
+
+  // 高帧率 (60fps) 实时同步播放进度，彻底消除 HTML5 onTimeUpdate 250ms 节流导致的卡顿与跳跃
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let animId: number;
+    let lastTime = -1;
+
+    const tick = () => {
+      const audio = audioRef.current;
+      if (audio && !isDraggingRef.current) {
+        const ct = audio.currentTime;
+        if (Math.abs(ct - lastTime) > 0.005) {
+          lastTime = ct;
+          setCurrentTime(ct);
+        }
+        if (audio.duration && Number.isFinite(audio.duration) && audio.duration !== duration) {
+          setDuration(audio.duration);
+          setCachedAudioDuration(src, audio.duration);
+        }
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [isPlaying, duration, src]);
+
+  // 全局 pointerup 监听，防止用户拖动滑块至视口外部释放时卡住拖拽锁
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        if (audioRef.current) {
+          audioRef.current.currentTime = currentTime;
+        }
+      }
+    };
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerUp);
+    };
+  }, [currentTime]);
 
   function togglePlay() {
     const audio = audioRef.current;
@@ -12076,32 +12701,82 @@ function StudioAudioPlayer({ src }: { src: string }) {
     }
   }
 
-  function seek(value: string) {
+  function seek(value: string | number, commitToAudio = true) {
     const nextTime = Number(value);
-    const audio = audioRef.current;
-    if (!audio || Number.isNaN(nextTime)) {
+    if (Number.isNaN(nextTime)) {
       return;
     }
-    audio.currentTime = nextTime;
     setCurrentTime(nextTime);
+    const audio = audioRef.current;
+    if (audio && commitToAudio) {
+      audio.currentTime = nextTime;
+    }
   }
 
+  const handleMetadata = (a: HTMLAudioElement) => {
+    if (Number.isFinite(a.duration) && a.duration > 0) {
+      setDuration(a.duration);
+      setCachedAudioDuration(src, a.duration);
+    } else if (a.duration === Infinity) {
+      // 触发 Chromium seek 探针规避 data URL Infinity 限制
+      try {
+        a.currentTime = 1e10;
+      } catch {}
+    }
+  };
+
   return (
-    <div className="studio-player nodrag">
+    <div
+      className="studio-player nodrag"
+      style={accentColor ? ({ "--player-accent": accentColor } as React.CSSProperties) : undefined}
+    >
       <audio
         ref={audioRef}
         src={src}
-        preload="metadata"
+        preload="auto"
         onLoadedMetadata={(event) => {
-          setDuration(event.currentTarget.duration || 0);
+          handleMetadata(event.currentTarget);
           event.currentTarget.playbackRate = playbackRate;
         }}
         onDurationChange={(event) => {
-          if (event.currentTarget.duration) {
-            setDuration(event.currentTarget.duration);
+          handleMetadata(event.currentTarget);
+        }}
+        onCanPlay={(event) => {
+          handleMetadata(event.currentTarget);
+        }}
+        onLoadedData={(event) => {
+          handleMetadata(event.currentTarget);
+        }}
+        onSeeked={(event) => {
+          const a = event.currentTarget;
+          if (a.currentTime >= 1e9) {
+            const resolvedDur = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : a.currentTime;
+            if (Number.isFinite(resolvedDur) && resolvedDur > 0 && resolvedDur < 1e9) {
+              setDuration(resolvedDur);
+              setCachedAudioDuration(src, resolvedDur);
+            }
+            a.currentTime = 0;
           }
         }}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => {
+          const a = event.currentTarget;
+          if (a.currentTime >= 1e9) {
+            const resolvedDur = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : a.currentTime;
+            if (Number.isFinite(resolvedDur) && resolvedDur > 0 && resolvedDur < 1e9) {
+              setDuration(resolvedDur);
+              setCachedAudioDuration(src, resolvedDur);
+            }
+            a.currentTime = 0;
+            return;
+          }
+          if (!isDraggingRef.current && !isPlaying) {
+            setCurrentTime(a.currentTime);
+          }
+          if (Number.isFinite(a.duration) && a.duration > 0 && a.duration !== duration) {
+            setDuration(a.duration);
+            setCachedAudioDuration(src, a.duration);
+          }
+        }}
         onPlay={(event) => {
           if (activeGlobalAudio && activeGlobalAudio !== event.currentTarget) {
             activeGlobalAudio.pause();
@@ -12113,10 +12788,14 @@ function StudioAudioPlayer({ src }: { src: string }) {
         onEnded={() => {
           setIsPlaying(false);
           setCurrentTime(0);
+          if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+          }
         }}
+        onError={() => setIsPlaying(false)}
       />
       <button className="player-button" type="button" onClick={togglePlay} title={isPlaying ? "暂停" : "播放"}>
-        {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+        {isPlaying ? <Pause size={15} /> : <Play size={15} style={{ margin: 0 }} />}
       </button>
       <span className="player-time">
         {formatTime(currentTime)} / {formatTime(duration)}
@@ -12124,12 +12803,22 @@ function StudioAudioPlayer({ src }: { src: string }) {
       <input
         aria-label="播放进度"
         className="player-range player-progress"
-        max={duration || 0}
+        max={duration > 0 ? duration : 1}
         min={0}
-        onChange={(event) => seek(event.target.value)}
-        style={{ "--progress": `${progress}%` } as React.CSSProperties}
+        step="any"
+        onPointerDown={() => {
+          isDraggingRef.current = true;
+        }}
+        onPointerUp={(event) => {
+          isDraggingRef.current = false;
+          seek(event.currentTarget.value, true);
+        }}
+        onChange={(event) => {
+          seek(event.target.value, !isDraggingRef.current);
+        }}
+        style={{ "--progress": `${progress}%`, "--player-progress-pct": `${progress}%` } as React.CSSProperties}
         type="range"
-        value={currentTime}
+        value={duration > 0 ? Math.min(currentTime, duration) : 0}
       />
       <button
         className="player-speed-btn"

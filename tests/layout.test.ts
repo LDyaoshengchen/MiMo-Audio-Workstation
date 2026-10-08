@@ -424,6 +424,191 @@ describe("Tidy & Pipeline Tree Layout Algorithm (生产算法真实测试)", () 
     expect(mergePos.y).toBe(pos.get("art_4")!.y);
     expect(batchPos.y).toBe(mergePos.y);
   });
+
+  it("should arrange inputs top-to-bottom according to target handles to eliminate wire crossing (解决图一vs图二连线交叉问题)", () => {
+    // 还原用户反馈图一与图二的实际拓扑：
+    // 生成器 1: 批量音色创造 (batchVoiceDesign, y=80)
+    // 生成器 2: 音频克隆 (voiceClone, y=600)
+    // 输入卡片 (注意：故意把 prompt 声明在 referenceAudio 之前或打乱顺序，测试算法的自动纠偏排序能力):
+    const nodes = [
+      { id: "batchDesign", type: "batchVoiceDesign", width: 500, height: 400, originalX: 600, originalY: 80 },
+      { id: "clone", type: "voiceClone", width: 360, height: 450, originalX: 600, originalY: 600 },
+      { id: "prompt", type: "prompt", width: 340, height: 180, originalX: 80, originalY: 200 }, // 故意放上面
+      { id: "merge", type: "audioMerge", width: 340, height: 180, originalX: 80, originalY: 300 },
+      { id: "refAudio", type: "referenceAudio", width: 340, height: 220, originalX: 80, originalY: 600 },
+      { id: "style", type: "voiceStyle", width: 340, height: 180, originalX: 80, originalY: 450 }
+    ];
+
+    const edges = [
+      { source: "merge", target: "batchDesign", targetHandle: "audio" },
+      { source: "style", target: "batchDesign", targetHandle: "instruction" },
+      { source: "style", target: "clone", targetHandle: "instruction" },
+      { source: "refAudio", target: "clone", targetHandle: "voice" },
+      { source: "prompt", target: "clone", targetHandle: "text" }
+    ];
+
+    const pos = computeSmartDagLayout(nodes, edges, 80, 80);
+
+    const mergePos = pos.get("merge")!;
+    const stylePos = pos.get("style")!;
+    const refAudioPos = pos.get("refAudio")!;
+    const promptPos = pos.get("prompt")!;
+
+    // 1. 所有输入节点在 Col 0 (x=80)
+    expect(mergePos.x).toBe(80);
+    expect(stylePos.x).toBe(80);
+    expect(refAudioPos.x).toBe(80);
+    expect(promptPos.x).toBe(80);
+
+    // 2. 纵向顺序必须严格由上到下，与目标 Handle 一致，绝无连线交叉 (图一效果)：
+    // merge (连向顶部 batchDesign) < style (连向两个分支的风格) < refAudio (连向 clone 的顶部 voice) < prompt (连向 clone 的底部 text)
+    expect(mergePos.y).toBeLessThan(stylePos.y);
+    expect(stylePos.y).toBeLessThan(refAudioPos.y);
+    expect(refAudioPos.y).toBeLessThan(promptPos.y);
+  });
+
+  it("should arrange referenceAudio in Col 1, and merge/style/prompt in Col 2 when audioMerge is present (严格符合用户图一与图三规则)", () => {
+    // 还原用户最新要求：
+    // 图一情况 (有音频整合)：
+    // - 参考音频 (refAudio) -> 参考音频整合 (merge)
+    // - 参考音频整合 (merge) -> 音频克隆 (clone)
+    // - 语音风格 (style) -> 音频克隆 (clone)
+    // - 提示词 (prompt) -> 音频克隆 (clone)
+    // - 音频克隆 (clone) -> 音色创造 (design)
+    const nodesWithMerge = [
+      { id: "refAudio", type: "referenceAudio", width: 340, height: 220, originalX: 80, originalY: 80 },
+      { id: "merge", type: "audioMerge", width: 340, height: 180, originalX: 480, originalY: 80 },
+      { id: "style", type: "voiceStyle", width: 340, height: 180, originalX: 480, originalY: 300 },
+      { id: "prompt", type: "prompt", width: 340, height: 180, originalX: 480, originalY: 520 },
+      { id: "clone", type: "voiceClone", width: 360, height: 450, originalX: 900, originalY: 80 },
+      { id: "design", type: "voiceDesign", width: 340, height: 420, originalX: 1300, originalY: 80 }
+    ];
+
+    const edgesWithMerge = [
+      { source: "refAudio", target: "merge" },
+      { source: "merge", target: "clone", targetHandle: "voice" },
+      { source: "style", target: "clone", targetHandle: "instruction" },
+      { source: "prompt", target: "clone", targetHandle: "text" },
+      { source: "clone", target: "design", targetHandle: "text" }
+    ];
+
+    const pos1 = computeSmartDagLayout(nodesWithMerge, edgesWithMerge, 80, 80);
+
+    const pRef = pos1.get("refAudio")!;
+    const pMerge = pos1.get("merge")!;
+    const pStyle = pos1.get("style")!;
+    const pPrompt = pos1.get("prompt")!;
+    const pClone = pos1.get("clone")!;
+    const pDesign = pos1.get("design")!;
+
+    // 1. 第一列仅为参考音频
+    expect(pRef.x).toBe(80);
+
+    // 2. 第二列为音频整合、语音风格、提示词 (平齐且同列)
+    expect(pMerge.x).toBeGreaterThan(pRef.x);
+    expect(pStyle.x).toBe(pMerge.x);
+    expect(pPrompt.x).toBe(pMerge.x);
+
+    // 3. 第三列为音频克隆
+    expect(pClone.x).toBeGreaterThan(pMerge.x);
+
+    // 4. 第四列为下游音色创造
+    expect(pDesign.x).toBeGreaterThan(pClone.x);
+
+    // 5. 第二列纵向次序自顶向下无交叉：merge (voice) < style (instruction) < prompt (text)
+    expect(pMerge.y).toBeLessThan(pStyle.y);
+    expect(pStyle.y).toBeLessThan(pPrompt.y);
+
+    // ───────────────────────────────────────────────
+    // 图三情况 (没有音频整合)：
+    // - 参考音频 (refAudio) -> 音频克隆 (clone)
+    // - 语音风格 (style) -> 音频克隆 (clone)
+    // - 提示词 (prompt) -> 音频克隆 (clone)
+    const nodesNoMerge = [
+      { id: "refAudio", type: "referenceAudio", width: 340, height: 220, originalX: 80, originalY: 80 },
+      { id: "style", type: "voiceStyle", width: 340, height: 180, originalX: 80, originalY: 300 },
+      { id: "prompt", type: "prompt", width: 340, height: 180, originalX: 80, originalY: 520 },
+      { id: "clone", type: "voiceClone", width: 360, height: 450, originalX: 480, originalY: 80 }
+    ];
+
+    const edgesNoMerge = [
+      { source: "refAudio", target: "clone", targetHandle: "voice" },
+      { source: "style", target: "clone", targetHandle: "instruction" },
+      { source: "prompt", target: "clone", targetHandle: "text" }
+    ];
+
+    const pos3 = computeSmartDagLayout(nodesNoMerge, edgesNoMerge, 80, 80);
+
+    const pRef3 = pos3.get("refAudio")!;
+    const pStyle3 = pos3.get("style")!;
+    const pPrompt3 = pos3.get("prompt")!;
+    const pClone3 = pos3.get("clone")!;
+
+    // 没有音频整合时：参考音频、语音风格、提示词全部在第一列 (x=80)
+    expect(pRef3.x).toBe(80);
+    expect(pStyle3.x).toBe(80);
+    expect(pPrompt3.x).toBe(80);
+
+    // 音频克隆紧随第一列为第二列
+    expect(pClone3.x).toBeGreaterThan(pRef3.x);
+    // 纵向自顶向下
+    expect(pRef3.y).toBeLessThan(pStyle3.y);
+    expect(pStyle3.y).toBeLessThan(pPrompt3.y);
+  });
+
+  it("should arrange downstream generator strictly after full 3-column artifact grid without overlap (解决图一产物连线克隆节点重叠问题)", () => {
+    // 还原用户最新反馈图一与图二的完整链路：
+    // clone -> design -> 9个产物(3列网格) -> batchClone (连接产物) -> downstreamMerge
+    const nodes = [
+      { id: "clone", type: "voiceClone", width: 360, height: 450, originalX: 80, originalY: 80 },
+      { id: "design", type: "voiceDesign", width: 340, height: 420, originalX: 500, originalY: 80 },
+      // 9 个音色创造直属产物 (3 列网格，每列 340 + 60 留白)
+      ...Array.from({ length: 9 }, (_, i) => ({
+        id: `art_${i}`,
+        type: "artifact",
+        width: 340,
+        height: 145,
+        originalX: 900 + (i % 3) * 400,
+        originalY: 80 + Math.floor(i / 3) * 200,
+        seqIndex: i + 1
+      })),
+      { id: "batchClone", type: "batchVoiceClone", width: 640, height: 460, originalX: 1800, originalY: 80 },
+      { id: "finalNode", type: "audioMerge", width: 340, height: 220, originalX: 2500, originalY: 80 }
+    ];
+
+    const edges = [
+      { source: "clone", target: "design", targetHandle: "text" },
+      ...Array.from({ length: 9 }, (_, i) => ({
+        source: "design",
+        target: `art_${i}`,
+        targetHandle: "artifact"
+      })),
+      // 产物连线给后续批量克隆节点 (例如连接中间一列的产物 art_4)
+      { source: "art_4", target: "batchClone", targetHandle: "voice" },
+      { source: "batchClone", target: "finalNode", targetHandle: "audio" }
+    ];
+
+    const pos = computeSmartDagLayout(nodes, edges, 80, 80);
+
+    const designPos = pos.get("design")!;
+    const batchClonePos = pos.get("batchClone")!;
+    const finalNodePos = pos.get("finalNode")!;
+
+    // 1. 找出所有 9 个产物的最大右边缘
+    let maxArtRight = 0;
+    for (let i = 0; i < 9; i++) {
+      const aPos = pos.get(`art_${i}`)!;
+      expect(aPos).toBeDefined();
+      const aRight = aPos.x + 340;
+      if (aRight > maxArtRight) maxArtRight = aRight;
+    }
+
+    // 2. 验证批量克隆节点严格排布在全部 3 列产物网格的最右侧之后 (加 60px 间隙)，绝不发生重叠！
+    expect(batchClonePos.x).toBeGreaterThanOrEqual(maxArtRight + 60);
+
+    // 3. 验证后续的 finalNode 排布在批量克隆节点的最右侧之后
+    expect(finalNodePos.x).toBeGreaterThanOrEqual(batchClonePos.x + 640 + 60);
+  });
 });
 
 

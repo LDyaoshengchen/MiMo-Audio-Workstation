@@ -25,6 +25,182 @@
 
 ## 📌 二、 全量版本更新明细记录 (Chronological Changelog)
 
+### 🚀 [v0.8.38] 2026-09-24 | 重新载入音频即刻加载音频时长与播放进度 / 生成与删除原子同步落盘保障
+#### 1. 需求与用户核心指令
+- 用户指令：
+  - “这里的删除按钮 优化，应该跟左侧的 第一行那个边框进行对齐，上下宽度也对齐 居中；左侧的.wav文件名称 应该左侧对齐上下居中，有两行文字的时候才应该像图二那样。”
+  - “滚动的时候 右侧的滚动条不显示，跟背景颜色重叠了？”
+  - “排版的时候也把线列入检查范围应该像图1那样，从上而下，线路清晰。而不是现在的图二的样子。浅色和深色的颜色好像不一样，改为浅色的颜色，另外右键新建节点的颜色也改成各自浅色的颜色。”
+  - “现在的逻辑稍微有点问题，按照图片中的顺序进行排版的话，参考音频应该是第一列，而不是图二的样子，如果没有音频整合那就是图三的样子，目前是这样的；如果有音频整合那他就应该是第二列，自然音频克隆、创造这些节点就是第三列了，而语音风格、提示词的后续连线是第三列，那他们就应该是第二列。应该看连线的上下前后顺序进行排列；有层次有条理。”
+  - “目前重叠了，如果有产物节点后续再次连线克隆、创造节点 那么后面的 应该在3列之后排列，避开产物节点重叠情况，如图二”
+  - “重新载入的音频好像不能立刻加载音频播放进度”
+
+#### 2. 根因剖析与优化落地
+1. **音频时长秒解与立即加载播放进度 (`StudioAudioPlayer` & `audioDuration.ts`)**：
+   - **问题根因**：原播放器依赖 HTML5 `<audio preload="metadata">` 的异步事件，当重新载入工作区或从本地缓存加载 base64 / blob URL 时，浏览器可能在 React 绑定事件前触发或延迟加载，且 `duration` 初始为 0，导致时长显示保持 `0:00 / 0:00`，播放滑块与进度条无初始宽度。
+   - **核心解决**：
+     - 新增 [`src/utils/audioDuration.ts`](file:///d:/mimo-tts-studio-main/src/utils/audioDuration.ts)：
+       - `parseWavDurationFromDataUrl(dataUrl)`：针对 WAV 音频，在 1 毫秒内同步读取 RIFF/WAVE 文件头的采样率、声道数与 `data` 块大小，同步解出高精度的音轨时长！
+       - `getAudioDuration(src)`：带有内存 LRU 缓存与 `AudioContext.decodeAudioData` / `HTMLAudioElement` 双重兜底。
+     - 在 `StudioAudioPlayer` 中：
+       - 将 `<audio>` 设置为 `preload="auto"`。
+       - 组件挂载或 `src` 改变时，若为 WAV 格式，同步置入已解析的时长；并挂载 `onLoadedMetadata`、`onCanPlay`、`onLoadedData`、`onDurationChange` 多重监听。
+       - 同步驱动 `--player-progress-pct` 与已播放进度条。
+2. **生成产物与节点增删原子同步落盘 (`saveWorkspace`)**：
+   - **问题根因**：在批量克隆、单条克隆、音色创造和删除节点等操作中，原逻辑使用 `setNodes` 配合 `setTimeout(() => void saveWorkspace(), 0)`，由于 React 状态更新是异步批处理的，如果在下一次保存执行前用户快速刷新页面或切换工作区，可能会丢失最新的节点或产物状态。
+   - **核心解决**：
+     - 在所有运行与删除函数（`runVoiceClone`、`runBatchVoiceClone`、`runVoiceDesign`、`runBatchVoiceDesign`、`runGameVocalClone`、`runIntegratedBatch`、`deleteNode`、`deleteEdge` 等）中，同步更新 `nodesRef.current` / `edgesRef.current`，并将准确的最新节点和连线列表直接作为参数传给 `saveWorkspace(nextNodes, nextEdges)`，实现零延迟即刻落盘保存！
+3. **整齐排版智能层级流与多阶段产物避让 (`computeSmartDagLayout`)**：
+   - **参考音频第一列、整合第二列、克隆第三列**：根据拓扑图依赖动态计算拓扑列数，当存在 `audioMerge` 节点时，自动排为第 2 列，上游参考音频保持在第 1 列，克隆与创造生成器排为第 3 列；若输入直接来自参考音频，则克隆节点排在第 2 列。
+   - **多阶产物节点下游避让**：当产物节点作为下游克隆或创造节点的输入时，下游节点自动推移至产物节点右侧列（如第 4 列），并根据 BFS 遍历计算所有前序阶段的产物网格总宽，彻底杜绝产物与新节点重叠。
+   - **Barycenter 句柄排序防交叉**：根据连线的 sourceHandle 与 targetHandle 相对垂直中心位置进行重心启发式排序，所有连线自上而下顺畅展开，彻底消除连线交叉。
+4. **视觉与交互全面升级**：
+   - 暂存抽屉删除按钮与第一行边框、标题居中对齐；长音频文件名支持清晰换行与上下居中。
+   - 弹窗和面板滚动条采用高对比度半透明渐变样式，消除与暗色背景混淆。
+   - 右键新建节点菜单统一采用标准浅色基调主题色；暗色模式克隆按钮优化为明亮金黄高对比度设计。
+
+---
+
+### 🚀 [v0.8.36] 2026-09-23 | 全画板播放条统一标杆（以图二单个产物节点为基准）/ 消除产物节点下载下划线与文字绝对居中 / 自动化构建热同步
+#### 1. 需求与用户核心指令
+- 用户指令：
+  - “所有的播放条都按照图二的布局进行调整，检查所有的包括任何节点内的播放条，进行统一布局，结构优化；”
+  - “产物节点的下载 下划线删除掉，字体居中；”
+  - “所有播放条根据单个产物节点的尺寸设计，整体全方位优化；”
+
+#### 2. 根因剖析与优化落地
+1. **统一播放条结构与视觉比例（标杆：图二单个产物节点）**：
+   - 深入分析图二标杆尺寸：单个产物节点总宽 330px、内边距 14px，播放条实际为 302px 黄金胶囊比例。
+   - 全局将 `.studio-player` 及 `.compact-audio-player` 规范为：
+     - 高度统一定格在 `42px`（原为 48px），外壳为全曲率纯圆胶囊（`border-radius: 999px !important;`）。
+     - 播放按钮：32px 正圆，Play 三角图标增加 `marginLeft: 2px` 获得视觉光学完美居中对齐。
+     - 时间显示：统一使用 `11.5px` 等宽数字字体（`font-variant-numeric: tabular-nums`），压缩为 `min-width: 58px`，杜绝数字跳动与挤占轨道。
+     - 进度滑轨：高度统一收紧至 `4px`，滑块定格为 `12px` 圆形旋钮（白色填充 + 节点专属主题色 2.5px 边框圆环），悬停微缩放 1.18x。
+     - 倍速切换：右侧紧凑 `24px` 高度圆角 pill 按钮，支持 `1x/1.25x/1.5x/2x/.75x` 快速切换。
+     - 适配任何节点：所有节点、批处理卡片、流水线卡片内部统一使用标准胶囊播放条（`width: 100%; box-sizing: border-box;`），彻底消除宽卡片下播放条被过度拉长或变形的不协调感。
+2. **彻底消除产物节点下载链接的下划线并确保文字绝对居中**：
+   - 问题根因：单产物节点与批量产物节点的下载按钮使用了 `<a>` 标签实现本地下载，在浏览器某些状态下会继承或触发 `text-decoration: underline`，且行内图标与文本未做完全严格的垂直中线约束。
+   - 解决方案：
+     - 在 CSS 中针对 `a.download-link`、`a.batch-artifact-item-btn.download-btn` 及其 `:hover`, `:visited`, `:focus`, `:active` 状态全部注入 `text-decoration: none !important;`。
+     - 在 JSX 中为单产物节点（`ArtifactNode`）、批量产物节点（`BatchVoiceCloneArtifactNode`）与全能工作台产物项（`IntegratedStudioNode`）的 `<a>` 标签显式追加行内样式 `style={{ textDecoration: "none" }}`。
+     - 将下载文字包裹为 `<span>下载</span>`，配合 `display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-align: center; vertical-align: middle;`，确保图标与文字严格位于垂直中线上，达到绝对居中。
+3. **全流程自动化打包与热同步**：
+   - 执行 `npm test`，74 项测试用例全部通过（10/10 文件通过）。
+   - 执行 `npm run build`，编译 Vite 前端、Node 服务端，并通过脚本自动热同步至本地运行的应用目录中。
+
+---
+
+### 🚀 [v0.8.35] 2026-09-23 | 节点表格导入紧凑适配 / 全能工作台产物列精简收窄 / 全局语音播放条 UI 彻底统一 / 自动编译同步桌面运行
+#### 1. 需求与用户核心指令
+- 用户指令：
+  - “节点表格导入的尺寸有点问题，对于一些尺寸小的节点，导入表格的界面有点太大了，检查所有的并优化；”
+  - “全能工作台的右侧产物区域我觉得有点太大了，可以短一点；”
+  - “语音播放条的UI我希望能统一，检查所有的位置并优化。”
+  - “之后更改自动打包 本地运行应用”
+
+#### 2. 根因剖析与问题定位
+1. **表格导入弹窗小节点尺寸越界与裁切**：
+   - 当节点仅有 1~2 行数据时（如 `BatchVoiceCloneNode` 或 `BatchVoiceDesignNode`），节点自身高度仅 200px~240px。
+   - 导入弹窗 `ExcelPasteModal` 内部固定配置了 120px 文本域、较厚内边距和 5 行高，且挂载在 `.node-modal-backdrop`（`position: absolute; inset: 0`）容器中，总高度超过 340px，导致上下标题与操作按钮被直接裁剪出屏幕。
+2. **全能综合工作台右侧产物列过宽**：
+   - 工作台原定列宽为 `290px 465px 455px`（总宽 1280px）。右侧产物卡片放置单条音频播放器时横向空间过于空旷分散，比例失衡。
+3. **全局语音播放条 UI 风格割裂与局部污染**：
+   - 浅色模式下，`.integrated-cell button { border-radius: 6px !important; }` 通配选择器误伤了播放器圆形播放按钮，将其变成了 6px 正方形。
+   - 旧样式中在 `.node-audio-merge`、`.node-clone`、`.node-batch-clone`、`.node-artifact`、`.node-batch-artifact` 浅色模式下硬编码了 `border-radius: 10px !important;`，导致播放器外框沦为圆角矩形，与设计的平滑全胶囊断层脱节。
+   - 倍速按钮在深浅色模式下的圆角和尺寸未能完全对齐。
+
+#### 3. 功能设计与实现细节
+1. **Excel 导入弹窗紧凑化重构与宿主节点自适应舒展**：
+   - 重构 `ExcelPasteModal`：文本域优化为 3 行并设定自适应高度（`min-height: 56px; height: 68px;`），精简表头内边距与字号，限制预览表格最大高度 130px 且支持纵向滚动，弹窗本身设定 `max-height: calc(100% - 12px)`；
+   - 遮罩 `.node-modal-backdrop` 内边距由 16px 精简为 8px，大幅扩充小节点内部可用空间；
+   - 在 `BatchVoiceCloneNode` 与 `BatchVoiceDesignNode` 中引入 `isExcelPasteOpen` 联动，在导入弹窗开启时平滑过渡提供 `min-height: 460px` 呼吸空间，关闭时恢复紧凑高度。
+2. **全能综合工作台产物列收窄与布局黄金配比**：
+   - 将第三列【音频产物】固定宽度从 455px 压缩优化为 **340px**（收窄 115px）；
+   - 将工作台整体宽度从 1280px 调紧至 **1180px**；
+   - 布局模板改为 `grid-template-columns: 280px 1fr 340px;`，中间克隆编辑区自适应弹性拉伸（`1fr`），既保证产物卡片各操作按钮在一行完美排布，又大幅提升整体工作台紧凑度。
+3. **全局语音播放条 UI 彻底胶囊化与最高优先级统一规范**：
+   - 纠正浅色模式下误伤播放按钮的选择器，添加 `:not(.player-button):not(.player-speed-btn):not(.compact-player-button)` 排除条件；
+   - 将所有节点的 `.studio-player` 在浅色模式下的 `border-radius: 10px !important;` 彻底替换为 `border-radius: 999px !important;`（全胶囊标准）；
+   - 建立 `.player-button` 最高优先级规范：强制 `border-radius: 50% !important; width: 32px !important; height: 32px !important;`，配合主题色高对比背景与纯白图标；
+   - 统一 `.player-speed-btn` 样式：`height: 24px; min-width: 28px; padding: 0 6px; border-radius: 6px !important;`，深浅色模式文字与边框完全对齐；
+   - 保护输入控件选择器，防止 `.player-range` 滑动条轨道被常规文本输入框的白色实底与圆角边框误伤覆盖。
+4. **自动化打包与桌面客户端实时热同步验证**：
+   - 严格执行构建流水线：`tsc -b && vite build && esbuild server && node scripts/sync-desktop.cjs`，所有静态资产、主进程与服务打包均已自动同步至 `desktop-build/MiMo-Audio-Workstation-win32-x64`；
+   - 桌面客户端保持稳定运行，74 项自动化测试 100% 通过。
+
+---
+
+### 🚀 [v0.8.34] 2026-09-23 | 5大核心界面与交互细节深度修复（导入弹窗圆角约束 / 拖拽防灰显 / 右键菜单零偏移 / 综合工作台坐标锁位 / 节点内局部确认弹窗）
+#### 1. 需求与用户核心指令
+- 用户指令：
+  - “图一背景的模糊框优化为圆角，整体优化，检查类似情况；”
+  - “图二拖动第一个音频行，整体变灰色，修复类似问题，同时检查所有的节点有没有类似问题；”
+  - “图三鼠标在红色框选区域右键新增节点出来的面板居然右移了这么多，修复此类情况；”
+  - “图四全能工作节点下拉变大，节点居然同时往下；锁住，只变大内容框，跟语音风格、提示词节点逻辑一样，检查所有修复此类情况。”
+  - “图五清空选项 不要全屏，应该在节点内出现；”
+
+#### 2. 根因剖析与问题定位
+1. **图一（Excel 导入弹窗背景溢出生硬方块）**：
+   `ExcelPasteModal` 原外层直接使用 `.modal-backdrop`，由于其挂载在具有 CSS `transform` 的 React Flow 节点内，退化为以节点为定位容器。但原 `.modal-backdrop` 缺少与节点弧度一致的圆角及 `overflow: hidden`，导致模糊背景以 90° 直角方块生硬地穿出节点的圆角边框。
+2. **图二（音频行拖拽整体灰显发暗）**：
+   `.batch-row-card.is-dragging` 早期规则直接设置了 `opacity: 0.5 !important`，在拖动排序时将整行文字、输入框及控件半透明化，导致极其模糊发灰。
+3. **图三（画布左侧右键新增节点菜单严重右移 260px+）**：
+   `.canvas-panel` 画布外层容器设置了 CSS `backdrop-filter: blur(28px)`。根据 W3C 规范，任何包含 `backdrop-filter` 的元素都会为其后代元素的 `position: fixed` 创建独立的 Containing Block！右键事件传入的 `event.clientX / clientY` 是相对于浏览器视口的绝对坐标，而菜单却相对于 `.canvas-panel` 进行偏移，叠加了左侧侧边栏宽度（260px+）与顶栏高度，导致菜单严重右偏与下沉。
+4. **图四（全能工作台下拉变大导致节点在画布上下沉位移）**：
+   `.node-integratedStudio` 容器先前被设置了 CSS `resize: vertical;`，用户拖拽节点底部把手时，触发了 React Flow 的节点拖拽与更新逻辑，造成整体沿画布 Y 轴向下位移；而未遵循 `PromptNode` 与 `VoiceStyleNode` “锁定节点画布位置，只允许内部文本域内容框拉伸” 的标准模式。
+5. **图五（清空确认弹窗全屏覆盖割裂操作上下文）**：
+   表格列头与行清空此前调用了根组件级 `showAppleConfirm`，遮蔽了整个视口。用户在节点内操作时期望直接在节点内局部弹窗确认，避免全屏阻断。
+
+#### 3. 功能设计与实现细节
+1. **图一：节点级磨砂圆角遮罩重构**：
+   - 升级 `.node-modal-backdrop` 与 `.studio-node .modal-backdrop`：精确匹配节点外轮廓 `border-radius: 14px !important;`（综合台为 `16px !important;`），设置 `overflow: hidden !important;` 与内敛磨砂质感；
+   - `ExcelPasteModal` 外层容器升级为 `className="node-modal-backdrop nodrag nopan nowheel"`，内部 `.excel-paste-modal` 设定圆角与限制尺寸，彻底消灭生硬直角溢出。
+2. **图二：拖拽实体清晰度高保真保障**：
+   - 重构 `.batch-row-card.is-dragging` 及浅色模式规则，彻底剔除 `opacity: 0.5`，改为 `opacity: 0.98 !important; border: 2px dashed #0a84ff !important; background: rgba(10, 132, 255, 0.08) !important;`；
+   - 内部文字、文本域、按钮强制 `opacity: 1 !important`，搭配 1.008 柔和悬浮微缩放与发光投影，拖拽时既清晰易读又层次分明。
+3. **图三：右键菜单 Portal 视口直挂与坐标 Clamp 保护**：
+   - 将 `ContextMenu` 渲染改为 `createPortal(<ContextMenu ... />, document.body)`，脱离 `.canvas-panel` 的 backdrop-filter 容器约束，实现相对于整个浏览器窗口的绝对零偏差定位；
+   - `ContextMenu` 内部追加视口边界安全 Clamping（`clampedX = Math.max(12, Math.min(menu.x, window.innerWidth - 440 - 12))`），彻底杜绝右偏并在任意屏幕边缘自适应防遮挡。
+4. **图四：全能工作台坐标绝对锁定，仅内部文本域自由伸缩**：
+   - 将 `.node-integratedStudio, .node-integrated-studio` 容器的 `resize` 强制锁定为 `resize: none !important;`；
+   - 内部 `.integrated-textarea` 维持 `resize: vertical;` 并严格附加 `nodrag nopan nowheel` 类名，完美保持与提示词、语音风格节点一致的行为模式。
+5. **图五：节点内局部确认弹窗（`NodeConfirmModal`）**：
+   - 独立打造 `NodeConfirmModal` 紧凑型确认卡片（保留 Apple 红色警示圆形垃圾桶 Badge、标题、说明、取消与清空按钮）；
+   - 在 `BatchVoiceCloneNode`、`BatchVoiceDesignNode`、`IntegratedStudioNode` 中引入局部 `nodeConfirm` state，所有列清空与全表清空均在当前节点内部以圆角毛玻璃方式呼出与就地闭环，全局画板不再变灰被阻断。
+
+---
+
+### 🚀 [v0.8.33] 2026-09-23 | 全能综合台产物标题切角压线根治 · 全局所有节点文字边界呼吸感与内边距全面检测优化
+#### 1. 需求与用户核心指令
+- 用户指令：“框选的位置 文字快出边框了 ， 优化；同时检测所有的位置。”（附带截图，红框圈出全能综合工作台第三列产物行标题 `VO_JQ0061_DaYu 产物 (7)` 顶部与左上角贴边压线问题）。
+
+#### 2. 根因剖析与问题定位
+1. **多余浅色线框与 0 内边距直接诱因**：
+   在 `src/styles.css` 浅色模式规则中，内部包装容器 `.integrated-row-artifact-box` 被错误加入了卡片选择器列表赋予了 `border: 1px solid rgba(0, 0, 0, 0.06)` 与 `border-radius: 8px`，且其本身 `padding: 0`。
+   子元素标题 `<div className="integrated-row-artifact-header">` 位于绝对左上角 `(0, 0)`，导致文字顶部距离上边框不足 2px，左侧首字母 `V` 直接被 8px 的圆角弧线强行挤压与切割。
+2. **全局各节点标题与字段内边距紧绷排查**：
+   综合全能工作台三个单元格 `.integrated-cell` 原始内边距仅为 10px；第一列参考音频标题缺少文字溢出省略（`text-overflow: ellipsis`）；批量克隆行卡片 `.batch-row-card` 部分模式下内边距仅 6px；音频合并结果 `.merge-result` 缺少长文字省略；参考音频卡片与产物卡片内边距有待扩充。
+
+#### 3. 功能设计与实现细节
+1. **全能综合工作台产物列（Col 3）结构与样式彻底解耦**：
+   - 移除浅色模式下对 `.integrated-row-artifact-box` 的双重边框与背景污染，统一声明为无边框透明布局容器（`background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important;`）；
+   - `.integrated-cell` 基础内边距从 `10px` 全面升级为 `14px 16px`，圆角从 `6px` 提升至 `10px`，并统一应用至明暗双模式；
+   - 产物行标题 `.integrated-row-artifact-header` 新增专属内边距 `padding: 2px 6px; min-height: 26px; margin-bottom: 6px;`，文字距离卡片顶部充足隔离 16px、距离左侧 22px，彻底根治贴边与切角压线；
+   - 产物空提示 `等待生成产物…` 补齐 `padding: 4px 6px;`，呼吸感全面提升。
+2. **全能综合工作台前两列（Col 1 & Col 2）对称均衡升级**：
+   - Col 1 参考音频：`.cell-title` 补齐 `padding: 2px 4px; min-height: 26px; margin-bottom: 4px; gap: 8px;`，且 `span` 补充 `overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`，杜绝长音频名顶破边框；
+   - Col 2 克隆参数：`.integrated-row-top` 补齐 `padding: 2px 4px; min-height: 26px; margin-bottom: 4px;`，行号与标识输入框更加从容。
+3. **全量节点与组件位置全面排查优化 (“检测所有的位置”)**：
+   - **批量声音克隆与音色生成 (`.batch-row-card`)**：所有模式下内边距由 `6px 8px` / `8px 10px` 统一提升至 `8px 12px`，并添加 `box-sizing: border-box`，彻底消除输入框贴边感；
+   - **批量表头 (`.batch-table-header`)**：内边距统一由 `4px 8px` 升级至 `6px 12px`；
+   - **单/批量音频产物卡片 (`.batch-artifact-item-card`)**：内边距由 `8px 10px` 统一提升至 `10px 12px`，明暗模式统一生效；
+   - **参考音频卡片 (`.reference-audio-card`)**：内边距由 `8px 10px` 统一提升至 `10px 12px`，标题与按钮间距更加适度；
+   - **音频合并结果 (`.merge-result`)**：补充 `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 4px; margin: 4px 0;`，杜绝超长文件名撑破节点卡片。
+4. **验证与客户端自动同步**：
+   - 74/74 项单元测试 100% 通过；生产构建完成并自动同步至本地绿色客户端。
+
+---
+
 ### 🚀 [v0.8.32] 2026-09-22 | 导出画板字体与边框对比度重构 · 全局搜索双模式布局错位根除 · 外观跟随系统实时侦听 · Apple Pro悬浮微型缩放控制
 #### 1. 需求与用户核心指令
 - 用户指令：“和原来比看不出来什么变化” / “暗色模式好像有的没有改，还有换色的。外观的跟随系统目前跟随不了。放大缩小的图标有点割裂”
