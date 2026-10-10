@@ -270,6 +270,7 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
   }
 
   function handleDragOver(e: React.DragEvent, index: number) {
+    if (draggedIndex === null) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
@@ -289,19 +290,10 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
   }
 
   function handleDropRow(e: React.DragEvent, targetIndex: number) {
+    if (draggedIndex === null) return;
     e.preventDefault();
     e.stopPropagation();
-    const rawCustom = e.dataTransfer.getData("application/x-batch-row-index");
-    const rawPlain = e.dataTransfer.getData("text/plain");
-    let sourceIndex = draggedIndex;
-    if (rawCustom !== "") {
-      const parsed = parseInt(rawCustom, 10);
-      if (!isNaN(parsed)) sourceIndex = parsed;
-    } else if (rawPlain !== "") {
-      const clean = rawPlain.replace(/[^0-9]/g, "");
-      const parsed = parseInt(clean, 10);
-      if (!isNaN(parsed)) sourceIndex = parsed;
-    }
+    const sourceIndex = draggedIndex;
     setDraggedIndex(null);
     setDragOverIndex(null);
     if (sourceIndex === null || sourceIndex === undefined || isNaN(sourceIndex) || sourceIndex === targetIndex) return;
@@ -472,8 +464,6 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
           <div
             key={row.id}
             className={`batch-row-card ${draggedIndex === index ? "is-dragging" : ""} ${dragOverIndex === index && draggedIndex !== index ? "is-drag-over" : ""}`}
-            draggable
-            onDragStart={(e) => handleDragStart(e, index)}
             onDragOver={(e) => handleDragOver(e, index)}
             onDragLeave={handleDragLeave}
             onDragEnd={handleDragEnd}
@@ -483,6 +473,8 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
               <div className="batch-row-meta-top">
                 <span
                   className="batch-row-drag-handle node-muted"
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
                   style={{
                     fontSize: 11,
                     fontWeight: 700,
