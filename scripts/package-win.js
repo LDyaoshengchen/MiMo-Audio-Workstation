@@ -8,6 +8,12 @@ export function packageWindows(rootDir = path.resolve(path.dirname(fileURLToPath
   const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
   const electronDistDir = path.join(rootDir, "node_modules", "electron", "dist");
   if (!fs.existsSync(path.join(electronDistDir, "electron.exe"))) throw new Error("Electron 运行时缺失，请先安装依赖");
+  const localeFiles = new Set(["zh-CN.pak", "en-US.pak"]);
+  for (const locale of localeFiles) {
+    if (!fs.existsSync(path.join(electronDistDir, "locales", locale))) {
+      throw new Error(`Electron 语言包缺失: ${locale}`);
+    }
+  }
   console.log("🚀 正在编译代码（不修改现有客户端）...");
   const npmCli = process.env.npm_execpath;
   const options = { cwd: rootDir, stdio: "inherit", env: { ...process.env, MIMO_SKIP_DESKTOP_SYNC: "1" } };
@@ -16,7 +22,15 @@ export function packageWindows(rootDir = path.resolve(path.dirname(fileURLToPath
   else execFileSync("npm", ["run", "build"], options);
   const paths = createReleasePaths(rootDir, pkg.version);
   console.log(`📦 独立发布目录: ${paths.releaseDir}`);
-  fs.cpSync(electronDistDir, paths.appOutDir, { recursive: true });
+  // Filter the copy, not the installed runtime or any previous release.
+  fs.cpSync(electronDistDir, paths.appOutDir, {
+    recursive: true,
+    filter: source => {
+      const relative = path.relative(electronDistDir, source);
+      if (!relative.startsWith(`locales${path.sep}`)) return true;
+      return localeFiles.has(relative.slice(`locales${path.sep}`.length));
+    },
+  });
   fs.renameSync(path.join(paths.appOutDir, "electron.exe"), path.join(paths.appOutDir, "MiMo-Audio-Workstation.exe"));
   const resourcesDir = path.join(paths.appOutDir, "resources");
   const appDir = path.join(resourcesDir, "app");

@@ -205,9 +205,25 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
 
   it("folder paths are passed as arguments without executing a shell", async () => {
     const { execFile, exec } = await import("node:child_process");
+    vi.mocked(execFile).mockClear();
     const target = path.resolve(dataDir, 'folder" & injected-command');
-    expect((await call("/api/workspaces/open-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderPath: target }) })).status).toBe(200);
+    const response = await call("/api/workspaces/open-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderPath: target }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ path: path.normalize(target) });
     expect(execFile).toHaveBeenCalled(); expect(exec).not.toHaveBeenCalled();
+    const [command, args] = vi.mocked(execFile).mock.calls[0];
+    expect(command).toBe(process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open");
+    expect(args).toContain(process.platform === "win32" ? `/select,${target}` : target);
     expect((await call("/api/workspaces/open-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderPath: "relative-folder" }) })).status).toBe(400);
+  });
+  it("returns native absolute paths for default workspace and audio folders", async () => {
+    for (const endpoint of ["/api/workspaces/open-folder", "/api/workspaces/open-audios-folder"]) {
+      const response = await call(endpoint, { method: "POST" });
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(path.isAbsolute(result.path)).toBe(true);
+      expect(result.path).toBe(path.normalize(result.path));
+      if (process.platform !== "win32") expect(result.path).not.toContain("\\");
+    }
   });
 });

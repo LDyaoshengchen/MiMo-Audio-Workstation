@@ -23,6 +23,7 @@
   "build": {
     "appId": "com.mimo.audio-workstation",
     "productName": "MiMo Audio Workstation",
+    "electronLanguages": ["zh-CN", "en-US"],
     "directories": {
       "output": "installer-build"
     },

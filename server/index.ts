@@ -1400,7 +1400,7 @@ app.post("/api/workspaces/open-folder", async (req, res, next) => {
   try {
     const customTarget = req.body?.folderPath || req.body?.filePath || req.body?.targetPath;
     if (customTarget && typeof customTarget === "string") {
-      const normPath = path.win32 ? path.win32.normalize(customTarget) : customTarget;
+      const normPath = path.normalize(customTarget);
       if (process.platform === "win32") {
         if (fs.existsSync(normPath) && fs.statSync(normPath).isDirectory()) {
           openLocalPath(normPath);
@@ -1438,7 +1438,7 @@ app.post("/api/workspaces/open-folder", async (req, res, next) => {
       await writeJsonFile(targetFile, store);
     }
 
-    const normPath = path.win32 ? path.win32.normalize(targetFile) : targetFile;
+    const normPath = path.normalize(targetFile);
 
     if (process.platform === "win32") {
       openLocalPath(normPath, true);
@@ -1457,7 +1457,7 @@ app.post("/api/workspaces/open-audios-folder", async (_req, res, next) => {
   try {
     const curAudiosDir = getAudiosDir();
     await mkdir(curAudiosDir, { recursive: true });
-    const normPath = path.win32 ? path.win32.normalize(curAudiosDir) : curAudiosDir;
+    const normPath = path.normalize(curAudiosDir);
     if (process.platform === "win32") {
       openLocalPath(normPath);
     } else if (process.platform === "darwin") {
