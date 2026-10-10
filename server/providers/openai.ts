@@ -19,16 +19,18 @@ export class OpenAIAdapter implements ProviderAdapter {
     voiceDesign: false,
     instantClone: false,
     trainedClone: false,
-    asr: true
+    asr: false
   };
 
   async synthesizeVoiceClone(params: VoiceCloneParams, ctx: ProviderContext): Promise<TTSResult> {
+    if (params.referenceAudioBuffer) throw Object.assign(new Error("OpenAI 当前适配器不支持参考音频克隆，请选择预置音色合成。"), { status: 400 });
     const startedAt = Date.now();
     const endpoint = ctx.apiEndpoint || this.defaultEndpoint;
     const apiKey = ctx.apiKey;
 
     const validVoices = new Set(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]);
-    const voice = validVoices.has(params.voiceId || "") ? params.voiceId : "alloy";
+    if (params.voiceId && !validVoices.has(params.voiceId)) throw Object.assign(new Error("当前模型不支持此预置音色，请选择 alloy/echo/fable/onyx/nova/shimmer。"), { status: 400 });
+    const voice = params.voiceId || "alloy";
     const responseFormat = params.format === "mp3" ? "mp3" : "wav";
 
     const payload = {
@@ -80,7 +82,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   async optimizePrompt(params: TextOptimizeParams, ctx: ProviderContext): Promise<TextOptimizeResult> {
     const startedAt = Date.now();
-    const chatEndpoint = "https://api.openai.com/v1/chat/completions";
+    const chatEndpoint = (ctx.apiEndpoint || this.defaultEndpoint).replace(/\/audio\/speech(?:\?.*)?$/, "/chat/completions");
     const apiKey = ctx.apiKey;
 
     const payload = {

@@ -19,6 +19,7 @@ export interface VoiceCloneParams {
   referenceAudioBuffer?: Buffer;
   referenceAudioMime?: string;
   referenceAudioName?: string;
+  referenceText?: string;
   model?: string;
   voiceId?: string;
   language?: string;

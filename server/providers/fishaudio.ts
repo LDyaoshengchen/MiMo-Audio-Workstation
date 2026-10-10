@@ -37,10 +37,11 @@ export class FishAudioAdapter implements ProviderAdapter {
     }
 
     if (params.referenceAudioBuffer) {
+      if (!params.referenceText?.trim()) throw Object.assign(new Error("参考音频克隆需要填写参考音频原文。"), { status: 400 });
       payload.references = [
         {
           audio: params.referenceAudioBuffer.toString("base64"),
-          text: params.instruction || ""
+          text: params.referenceText!.trim()
         }
       ];
     }

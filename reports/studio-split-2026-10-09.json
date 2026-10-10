@@ -1,0 +1,50 @@
+{
+  "environment": "Electron 41.10.7, real production build, hidden offscreen renderer, independent temporary profile and loopback mock APIs",
+  "limitations": [
+    "Hidden renderer frame intervals are not foreground desktop FPS and do not guarantee 60 FPS.",
+    "No real user workspaces, credentials or vendor API services were accessed.",
+    "Some hidden-window runs print a GPU shutdown warning after the successful result when the test window is destroyed."
+  ],
+  "structure": {
+    "appEntryLines": 14,
+    "rootControllerLines": 2890,
+    "nodeTypes": 13,
+    "remainingRootResponsibilities": ["state coordination", "workspace loading and saving", "undo and redo", "canvas drag and connection lifecycle", "keyboard shortcuts"]
+  },
+  "automatedTests": { "filesPassed": 32, "testsPassed": 185 },
+  "build": { "success": true, "existingImportMetaCjsWarnings": 3, "desktopResourcesSynced": true },
+  "smoke": {
+    "nodeCount": 13,
+    "mountedTypes": ["artifact", "audioMerge", "batchArtifact", "batchVoiceClone", "batchVoiceDesign", "comment", "gameVocal", "integratedStudio", "prompt", "referenceAudio", "voiceClone", "voiceDesign", "voiceStyle"],
+    "appearanceSettingsOpened": true,
+    "storageSettingsOpened": true,
+    "apiSettingsOpened": true,
+    "providerCount": 7,
+    "canvasStillMountedAfterSettings": true
+  },
+  "zoom": {
+    "nodeCount": 100,
+    "mountedNodes": 90,
+    "hiddenEdgeButtons": 0,
+    "viewportChanged": true,
+    "overview": true,
+    "transformUpdates": 90,
+    "frames": 85,
+    "meanFrameMs": 38.82235294117647,
+    "p95FrameMs": 66.60000000000036,
+    "framesOver33ms": 33,
+    "longTasks": 2,
+    "longTaskMs": 203,
+    "geometryPreserved": true,
+    "idleQualityRestored": true,
+    "detailRestored": true
+  },
+  "saveLayout": {
+    "nodeCount": 100,
+    "before": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625, "transform": "translate(321.057px, 68px) scale(0.139341)" },
+    "during": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625, "transform": "translate(321.057px, 68px) scale(0.139341)" },
+    "after": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625, "transform": "translate(321.057px, 68px) scale(0.139341)" },
+    "noticePosition": "fixed",
+    "geometryStable": true
+  }
+}

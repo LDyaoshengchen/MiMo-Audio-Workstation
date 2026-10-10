@@ -1,4 +1,4 @@
-import type { WorkspacePayload, StudioNode } from "../App";
+import type { WorkspacePayload, StudioNode } from "../types/studio";
 
 /**
  * 过滤音频 URL：保留轻量的后端缓存路由路径 (/api/...)，剔除大体积 base64 与超长字符

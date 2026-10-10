@@ -8,6 +8,8 @@ import {
   VoiceCloneParams,
   VoiceDesignParams
 } from "./types.js";
+import { pcm16ToWav } from "../utils/wav.js";
+import { assertAudioFormat } from "../../shared/audioValidation.js";
 
 export class ElevenLabsAdapter implements ProviderAdapter {
   readonly id = "elevenlabs";
@@ -23,10 +25,13 @@ export class ElevenLabsAdapter implements ProviderAdapter {
   };
 
   async synthesizeVoiceClone(params: VoiceCloneParams, ctx: ProviderContext): Promise<TTSResult> {
+    if (params.referenceAudioBuffer) throw Object.assign(new Error("当前适配器不支持即时克隆，请填写已创建的 Voice ID。"), { status: 400 });
     const startedAt = Date.now();
     const voiceId = params.voiceId || "21m00Tcm4TlvDq8ikWAM"; // Default Rachel
-    const baseEndpoint = (ctx.apiEndpoint || this.defaultEndpoint).replace(/\/$/, "");
-    const requestUrl = baseEndpoint.includes(voiceId) ? baseEndpoint : `${baseEndpoint}/${voiceId}`;
+    const requestUrl = new URL(ctx.apiEndpoint || this.defaultEndpoint);
+    const basePath = requestUrl.pathname.replace(/\/$/, "");
+    requestUrl.pathname = basePath.endsWith(`/${voiceId}`) ? basePath : `${basePath}/${encodeURIComponent(voiceId)}`;
+    requestUrl.searchParams.set("output_format", "pcm_24000");
     const apiKey = ctx.apiKey;
 
     const payload = {
@@ -38,12 +43,12 @@ export class ElevenLabsAdapter implements ProviderAdapter {
       }
     };
 
-    const res = await fetch(requestUrl, {
+    const res = await fetch(requestUrl.toString(), {
       method: "POST",
       headers: {
         "xi-api-key": apiKey,
         "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
+        "Accept": "application/octet-stream"
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(120000)
@@ -62,12 +67,24 @@ export class ElevenLabsAdapter implements ProviderAdapter {
     }
 
     const arrayBuf = await res.arrayBuffer();
-    const audioBuffer = Buffer.from(arrayBuf);
+    const pcm = Buffer.from(arrayBuf);
+    const contentType = res.headers.get("content-type") || "";
+    if (/mpeg|mp3|json|text\/|xml/i.test(contentType) || pcm.subarray(0, 3).toString() === "ID3") {
+      throw new Error("ElevenLabs 未返回所请求的 PCM 音频，无法生成合法 WAV 文件。");
+    }
+    let audioBuffer: Buffer;
+    if (pcm.subarray(0, 4).toString() === "RIFF") {
+      assertAudioFormat(pcm, "wav");
+      audioBuffer = pcm;
+    } else {
+      if (!/audio\/(?:pcm|raw)|application\/octet-stream/i.test(contentType)) throw new Error("ElevenLabs 返回类型不是 PCM，已拒绝将未知内容转换为音频。");
+      audioBuffer = pcm16ToWav(pcm, 24000);
+    }
 
     return {
       audioBuffer,
-      mimeType: "audio/mpeg",
-      format: "mp3",
+      mimeType: "audio/wav",
+      format: "wav",
       elapsedMs,
       redactedRequest: {
         voiceId,
@@ -78,7 +95,7 @@ export class ElevenLabsAdapter implements ProviderAdapter {
   }
 
   async synthesizeVoiceDesign(params: VoiceDesignParams, ctx: ProviderContext): Promise<TTSResult> {
-    throw new Error("ElevenLabs 暂不支持基于自然语言提示词的零样本音色设计，请使用 Voice Library 或克隆声音 ID。");
+    throw new Error("ElevenLabs 音色设计暂未接入本项目，请使用 Voice Library 或克隆声音 ID。");
   }
 
   async optimizePrompt(params: TextOptimizeParams, ctx: ProviderContext): Promise<TextOptimizeResult> {

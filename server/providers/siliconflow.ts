@@ -30,27 +30,27 @@ export class SiliconFlowAdapter implements ProviderAdapter {
     const model = params.model || "FunAudioLLM/CosyVoice2-0.5B";
     const responseFormat = params.format === "mp3" ? "mp3" : "wav";
 
-    let voiceParam = params.voiceId || "FunAudioLLM/CosyVoice2-0.5B:alex";
+    const voiceParam = params.voiceId || "FunAudioLLM/CosyVoice2-0.5B:alex";
     let references: any[] | undefined;
 
     if (params.referenceAudioBuffer) {
       const mime = (params.referenceAudioMime || "audio/wav").toLowerCase();
       const audioB64 = params.referenceAudioBuffer.toString("base64");
       const audioUri = `data:${mime};base64,${audioB64}`;
+      if (!params.referenceText?.trim()) throw Object.assign(new Error("参考音频克隆需要填写参考音频原文。"), { status: 400 });
       references = [
         {
           audio: audioUri,
-          text: params.instruction || params.text
+          text: params.referenceText.trim()
         }
       ];
-      // For models accepting custom voice data
-      voiceParam = audioUri;
+
     }
 
     const payload: any = {
       model,
       input: params.text,
-      voice: voiceParam,
+      ...(references ? {} : { voice: voiceParam }),
       response_format: responseFormat,
       speed: params.speed || 1.0
     };
@@ -119,7 +119,7 @@ export class SiliconFlowAdapter implements ProviderAdapter {
 
   async optimizePrompt(params: TextOptimizeParams, ctx: ProviderContext): Promise<TextOptimizeResult> {
     const startedAt = Date.now();
-    const chatEndpoint = "https://api.siliconflow.cn/v1/chat/completions";
+    const chatEndpoint = (ctx.apiEndpoint || this.defaultEndpoint).replace(/\/audio\/speech(?:\?.*)?$/, "/chat/completions");
     const apiKey = ctx.apiKey;
 
     const payload = {

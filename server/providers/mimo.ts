@@ -177,7 +177,7 @@ export class MimoAdapter implements ProviderAdapter {
     const apiKey = ctx.apiKey;
 
     const payload = {
-      model: params.model || "mimo-v2-flash",
+      model: params.model || "mimo-v2.5-pro",
       messages: [
         { role: "system", content: params.systemPrompt || "你是一个专业的音频语音导演与提示词润色专家。" },
         { role: "user", content: params.prompt }

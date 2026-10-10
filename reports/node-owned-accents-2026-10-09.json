@@ -1,0 +1,14 @@
+{
+  "scenario": "action-audit",
+  "paletteCount": 15,
+  "modes": 2,
+  "nodeTypes": 13,
+  "textAndIconChecks": 2430,
+  "contrastChecks": 1110,
+  "nodeAccentChecks": 2760,
+  "failures": 0,
+  "testsPassed": 195,
+  "buildPassed": true,
+  "desktopResourcesSynced": true,
+  "isolatedFixture": true
+}

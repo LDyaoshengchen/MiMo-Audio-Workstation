@@ -40,26 +40,27 @@ export function buildCleanAudioCacheFileName(
  */
 export function validateAndSanitizeEndpoint(endpoint: string): string {
   if (!endpoint || typeof endpoint !== "string") {
-    throw new Error("API Endpoint 不能为空");
+    throw Object.assign(new Error("API Endpoint 不能为空"), { status: 400 });
   }
   const trimmed = endpoint.trim();
   let url: URL;
   try {
     url = new URL(trimmed);
   } catch {
-    throw new Error(`非法的 API Endpoint 格式: ${trimmed}`);
+    throw Object.assign(new Error(`非法的 API Endpoint 格式: ${trimmed}`), { status: 400 });
   }
 
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error(`API Endpoint 协议仅支持 http: 或 https:，不支持 ${url.protocol}`);
+    throw Object.assign(new Error(`API Endpoint 协议仅支持 http: 或 https:，不支持 ${url.protocol}`), { status: 400 });
   }
 
+  if (url.username || url.password) throw Object.assign(new Error("Endpoint 不允许包含用户名或密码。"), { status: 400 });
   const hostname = url.hostname.toLowerCase();
-  const isLoopback = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const isLoopback = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 
   // If remote (non-loopback), enforce HTTPS to ensure API Key is encrypted in transit
   if (!isLoopback && url.protocol !== "https:") {
-    throw new Error("远程 API Endpoint 必须使用安全的 HTTPS 加密连接");
+    throw Object.assign(new Error("远程 API Endpoint 必须使用安全的 HTTPS 加密连接"), { status: 400 });
   }
 
   return trimmed;

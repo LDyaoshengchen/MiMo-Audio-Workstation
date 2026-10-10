@@ -18,16 +18,17 @@ export class CustomAdapter implements ProviderAdapter {
   readonly name = "自定义 API 接口";
   readonly defaultEndpoint = "https://api.xiaomimimo.com/v1/chat/completions";
   readonly capabilities: ProviderCapabilities = {
-    textOptimization: true,
-    presetTTS: true,
-    voiceDesign: true,
-    instantClone: true,
-    trainedClone: true,
+    textOptimization: false,
+    presetTTS: false,
+    voiceDesign: false,
+    instantClone: false,
+    trainedClone: false,
     asr: false
   };
 
   private getDelegatedAdapter(ctx: ProviderContext): ProviderAdapter {
-    const protocol = ctx.customProtocol || "mimo-chat";
+    const protocol = ctx.customProtocol;
+    if (!protocol) throw Object.assign(new Error("自定义 API 必须显式选择协议。"), { status: 400 });
     switch (protocol) {
       case "mimo-chat":
         return new MimoAdapter();

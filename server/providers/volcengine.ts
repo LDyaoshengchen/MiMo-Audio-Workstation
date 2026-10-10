@@ -19,14 +19,16 @@ export class VolcengineAdapter implements ProviderAdapter {
     voiceDesign: false,
     instantClone: false,
     trainedClone: true,
-    asr: true
+    asr: false
   };
 
   async synthesizeVoiceClone(params: VoiceCloneParams, ctx: ProviderContext): Promise<TTSResult> {
     const startedAt = Date.now();
     const endpoint = ctx.apiEndpoint || this.defaultEndpoint;
     const token = ctx.accessToken || ctx.apiKey;
-    const appId = ctx.appId || "default_appid";
+    const appId = ctx.appId;
+    if (!appId || !token) throw Object.assign(new Error("火山引擎需要配置 AppID 与 AccessToken。"), { status: 400 });
+    if (params.referenceAudioBuffer) throw Object.assign(new Error("当前适配器不支持即时克隆，请填写已授权的 Voice ID。"), { status: 400 });
 
     const voiceType = params.voiceId || "BV001_streaming";
     const encoding = params.format === "mp3" ? "mp3" : "wav";

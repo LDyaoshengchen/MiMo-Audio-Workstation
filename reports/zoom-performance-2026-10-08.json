@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-08",
+  "environment": "Electron 41.10.7 hidden offscreen renderer, 1600x1000, isolated profile and loopback fixture API",
+  "scenario": "100 voiceClone nodes, 99 valid edges, 90 animation ticks, 6 synthetic wheel events per tick; first 5 frame intervals excluded",
+  "limitations": "Single baseline sample and two optimized samples, not foreground-monitor FPS or a guarantee for every user board. Closing the offscreen renderer emitted a GPU context shutdown warning.",
+  "baseline": {
+    "mountedNodes": 90,
+    "hiddenEdgeButtons": 90,
+    "viewportChanged": true,
+    "transformUpdates": 540,
+    "measuredFrames": 85,
+    "meanFrameMs": 241.36235294117645,
+    "p95FrameMs": 333.3000000000002,
+    "framesOver33ms": 83,
+    "longTasks": 81,
+    "longTaskMs": 9522
+  },
+  "optimizedSamples": [
+    { "meanFrameMs": 38.23411764705882, "p95FrameMs": 66.6, "framesOver33ms": 38, "transformUpdates": 90, "longTasks": 2, "longTaskMs": 195 },
+    {
+      "mountedNodes": 90,
+      "hiddenEdgeButtons": 0,
+      "viewportChanged": true,
+      "overview": true,
+      "transformUpdates": 90,
+      "measuredFrames": 85,
+      "meanFrameMs": 39.017647058823535,
+      "p95FrameMs": 66.69999999999982,
+      "framesOver33ms": 29,
+      "longTasks": 2,
+      "longTaskMs": 187,
+      "geometryPreserved": true,
+      "idleQualityRestored": true,
+      "detailRestored": true
+    }
+  ]
+}

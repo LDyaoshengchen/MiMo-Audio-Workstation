@@ -1,0 +1,18 @@
+{
+  "environment": "Electron 41.10.7 hidden renderer, real production application, isolated 25-node board and delayed loopback PUT response",
+  "baseline": {
+    "before": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625 },
+    "during": { "x": 317, "y": 186.234375, "width": 1258, "height": 788.765625 },
+    "after": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625 },
+    "noticePosition": "static",
+    "geometryStable": false
+  },
+  "fixed": {
+    "before": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625 },
+    "during": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625 },
+    "after": { "x": 317, "y": 154.234375, "width": 1258, "height": 820.765625 },
+    "viewportTransformAcrossAllPhases": "translate(104px, 242.31px) scale(0.237557)",
+    "noticePosition": "fixed",
+    "geometryStable": true
+  }
+}

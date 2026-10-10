@@ -5773,6 +5773,104 @@ a.stash-round-action:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.download-naming-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-family: inherit;
+}
+
+.workspace-save-notice {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-main);
+  background: var(--bg-main);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+}
+.workspace-save-notice[role="status"] { pointer-events: none; }
+.workspace-save-notice[role="alert"] { color: #dc2626; }
+
+.provider-workflow-notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 16px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+.provider-workflow-notice svg { flex-shrink: 0; margin-top: 2px; }
+
+.zip-export-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.zip-export-progress progress { flex: 1; min-width: 0; accent-color: #0088cc; }
+
+.download-naming-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.download-naming-label > svg,
+.download-naming-preview > svg {
+  flex-shrink: 0;
+  color: var(--text-muted, #94a3b8);
+}
+
+.download-naming-label > div,
+.download-naming-preview > div {
+  min-width: 0;
+}
+
+.download-naming-settings .capsule-switch:focus-visible {
+  outline: 2px solid var(--accent, #0088cc);
+  outline-offset: 3px;
+}
+
+.download-naming-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.download-naming-filename {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main, #ffffff);
+  overflow-wrap: anywhere;
+}
+
+.download-naming-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted, #94a3b8);
+}
+
 [data-theme="light"] .storage-path-card {
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
@@ -9460,7 +9558,6 @@ a.batch-artifact-item-btn.download-btn:hover {
   background: #f5f5f7 !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   color: #1d1d1f !important;
-  font-weight: 500 !important;
   border-radius: 6px !important;
 }
 
@@ -11364,3 +11461,38 @@ button:disabled.is-generating * {
 
 
 
+/* Keep normal styling at rest; avoid expensive backdrop/filter repaint during canvas transforms. */
+.flow-wrap.is-viewport-moving .studio-node,
+.flow-wrap.is-viewport-moving .studio-node * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+  animation-play-state: paused !important;
+}
+
+.flow-wrap.is-viewport-moving .react-flow__edge-path {
+  filter: none !important;
+}
+
+.flow-wrap.is-viewport-moving .edge-delete {
+  display: none !important;
+}
+
+/* Semantic zoom: preserve measured node geometry; skip unreadable form painting in overview. */
+.flow-wrap.is-canvas-overview .react-flow__node:not(.selected)
+  .studio-node:not(:focus-within):not(.has-audio-playing):not(:has(.recording)) > .node-body-container {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.flow-wrap.is-canvas-overview .react-flow__node:not(.selected)
+  .studio-node:not(:focus-within):not(.has-audio-playing):not(:has(.recording))::after {
+  content: "";
+  position: absolute;
+  inset: 64px 20px 20px;
+  pointer-events: none;
+  border-radius: 8px;
+  background: linear-gradient(180deg, transparent 10%, rgba(128, 128, 140, 0.12) 10% 13%, transparent 13% 42%, rgba(128, 128, 140, 0.12) 42% 45%, transparent 45%);
+}

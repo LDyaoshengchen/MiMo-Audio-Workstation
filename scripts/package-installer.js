@@ -1,29 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { packageWindows } from "./package-win.js";
 
-const rootDir = process.cwd();
-const installerDir = path.join(rootDir, "installer-build");
-const desktopBuildDir = path.join(rootDir, "desktop-build");
-const appOutDir = path.join(desktopBuildDir, "MiMo-Audio-Workstation-win32-x64");
-
-console.log("🚀 [1/3] 正在构建本地绿色运行环境与便携包...");
-execSync("node scripts/package-win.js", { stdio: "inherit" });
-
-console.log("\n📦 [2/3] 正在使用 electron-builder 构建 Windows Setup 安装包 (NSIS)...");
-fs.mkdirSync(installerDir, { recursive: true });
-execSync(`npx electron-builder --prepackaged "${appOutDir}" --win nsis`, { stdio: "inherit" });
-
-const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf-8"));
-const sourceInstaller = path.join(installerDir, `MiMo Audio Workstation Setup ${pkg.version}.exe`);
-const targetInstaller = path.join(desktopBuildDir, `MiMo-Audio-Workstation-Setup-v${pkg.version}-win64.exe`);
-
-console.log("\n✨ [3/3] 整理安装包产物...");
-if (fs.existsSync(sourceInstaller)) {
-  fs.copyFileSync(sourceInstaller, targetInstaller);
-  console.log("\n🎉 Windows Setup 安装包构建成功！");
-  console.log(`📍 安装包输出路径: ${targetInstaller}`);
-  console.log(`📍 便携压缩包路径: ${path.join(desktopBuildDir, `MiMo-Audio-Workstation-v${pkg.version}-win64-portable.zip`)}`);
-} else {
-  console.log("\n🎉 electron-builder 构建完成，安装程序位于:", installerDir);
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+try {
+  const paths = packageWindows(rootDir);
+  const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  console.log("📦 正在生成 NSIS 安装包...");
+  execFileSync(process.execPath, [require.resolve("electron-builder/cli.js"), "--prepackaged", paths.appOutDir,
+    "--win", "nsis", `--config.directories.output=${paths.installerDir}`], { cwd: rootDir, stdio: "inherit" });
+  const sourceInstaller = path.join(paths.installerDir, `MiMo Audio Workstation Setup ${pkg.version}.exe`);
+  if (!fs.existsSync(sourceInstaller) || !fs.statSync(sourceInstaller).size) throw new Error("没有找到本次构建的有效安装包");
+  fs.copyFileSync(sourceInstaller, paths.installerPath, fs.constants.COPYFILE_EXCL);
+  console.log(`✅ 安装包: ${paths.installerPath}`);
+  console.log(`✅ 便携包: ${paths.zipPath}`);
+} catch (error) {
+  console.error("安装包构建失败，原客户端与历史安装包保持不变:", error);
+  process.exitCode = 1;
 }

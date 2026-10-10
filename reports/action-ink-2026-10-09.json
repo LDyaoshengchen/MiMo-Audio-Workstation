@@ -1,0 +1,18 @@
+{
+  "scenario": "action-audit",
+  "renderer": "isolated-hidden-electron",
+  "paletteCount": 15,
+  "modes": ["light", "dark"],
+  "nodeTypesMounted": 13,
+  "states": ["idle", "running"],
+  "textAndIconChecks": 2430,
+  "contrastChecks": 1110,
+  "failures": 0,
+  "ink": { "light": "#ffffff", "dark": "#000000" },
+  "minimumFilledButtonContrast": 4.5,
+  "testsPassed": 195,
+  "testFilesPassed": 34,
+  "productionBuild": "passed",
+  "desktopResourcesSynced": true,
+  "realUserDataOrVendorCalls": false
+}

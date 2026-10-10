@@ -1,110 +1,42 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createReleasePaths } from "./release-paths.js";
 
-const rootDir = process.cwd();
-const outputDir = path.join(rootDir, "desktop-build");
-const appOutDir = path.join(outputDir, "MiMo-Audio-Workstation-win32-x64");
-const electronDistDir = path.join(rootDir, "node_modules", "electron", "dist");
-
-console.log("🚀 正在编译前端与服务端代码...");
-execSync("npm run build", { stdio: "inherit" });
-
-console.log("🧹 清理旧打包目录...");
-try {
-  execSync("taskkill /F /IM MiMo-Audio-Workstation.exe /T", { stdio: "ignore" });
-} catch {}
-
-function safeRmDir(dir) {
-  for (let i = 0; i < 5; i++) {
-    try {
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-      }
-      return;
-    } catch {
-      execSync("node -e \"setTimeout(() => {}, 400)\"");
-    }
-  }
+export function packageWindows(rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  const electronDistDir = path.join(rootDir, "node_modules", "electron", "dist");
+  if (!fs.existsSync(path.join(electronDistDir, "electron.exe"))) throw new Error("Electron 运行时缺失，请先安装依赖");
+  console.log("🚀 正在编译代码（不修改现有客户端）...");
+  const npmCli = process.env.npm_execpath;
+  const options = { cwd: rootDir, stdio: "inherit", env: { ...process.env, MIMO_SKIP_DESKTOP_SYNC: "1" } };
+  if (npmCli) execFileSync(process.execPath, [npmCli, "run", "build"], options);
+  else if (process.platform === "win32") execFileSync("cmd.exe", ["/d", "/c", "npm run build"], options);
+  else execFileSync("npm", ["run", "build"], options);
+  const paths = createReleasePaths(rootDir, pkg.version);
+  console.log(`📦 独立发布目录: ${paths.releaseDir}`);
+  fs.cpSync(electronDistDir, paths.appOutDir, { recursive: true });
+  fs.renameSync(path.join(paths.appOutDir, "electron.exe"), path.join(paths.appOutDir, "MiMo-Audio-Workstation.exe"));
+  const resourcesDir = path.join(paths.appOutDir, "resources");
+  const appDir = path.join(resourcesDir, "app");
+  fs.mkdirSync(appDir, { recursive: true });
+  fs.copyFileSync(path.join(rootDir, "package.json"), path.join(appDir, "package.json"));
+  fs.cpSync(path.join(rootDir, "electron"), path.join(appDir, "electron"), { recursive: true });
+  fs.cpSync(path.join(rootDir, "build", "server"), path.join(resourcesDir, "server"), { recursive: true });
+  fs.cpSync(path.join(rootDir, "dist"), path.join(resourcesDir, "dist"), { recursive: true });
+  // Deliberately exclude .env, saved credentials, and user workspaces.
+  console.log("🗜️ 正在生成便携 ZIP...");
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:MIMO_RELEASE_APP, $env:MIMO_RELEASE_ZIP)"],
+    { cwd: rootDir, stdio: "inherit", env: { ...process.env, MIMO_RELEASE_APP: paths.appOutDir, MIMO_RELEASE_ZIP: paths.zipPath } });
+  if (!fs.statSync(paths.zipPath).size) throw new Error("便携 ZIP 为空");
+  console.log(`✅ 便携包: ${paths.zipPath}`);
+  return paths;
 }
 
-safeRmDir(appOutDir);
-fs.mkdirSync(appOutDir, { recursive: true });
-
-console.log("📦 正在复制 Electron 运行环境...");
-fs.cpSync(electronDistDir, appOutDir, { recursive: true });
-
-// 重命名 electron.exe -> MiMo-Audio-Workstation.exe
-const defaultExe = path.join(appOutDir, "electron.exe");
-const targetExe = path.join(appOutDir, "MiMo-Audio-Workstation.exe");
-if (fs.existsSync(defaultExe)) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      if (fs.existsSync(targetExe)) {
-        fs.rmSync(targetExe, { force: true });
-      }
-      fs.renameSync(defaultExe, targetExe);
-      break;
-    } catch (err) {
-      if (attempt === 9) throw err;
-      execSync("node -e \"setTimeout(() => {}, 500)\"");
-    }
-  }
-}
-
-console.log("📁 正在打包应用资产...");
-const resourcesDir = path.join(appOutDir, "resources");
-const appDir = path.join(resourcesDir, "app");
-const serverTargetDir = path.join(resourcesDir, "server");
-const distTargetDir = path.join(resourcesDir, "dist");
-
-fs.mkdirSync(appDir, { recursive: true });
-
-// 复制 package.json 与 electron/ 目录
-fs.copyFileSync(path.join(rootDir, "package.json"), path.join(appDir, "package.json"));
-fs.mkdirSync(path.join(appDir, "electron"), { recursive: true });
-fs.cpSync(path.join(rootDir, "electron"), path.join(appDir, "electron"), { recursive: true });
-
-// 复制 build/server -> resources/server
-fs.cpSync(path.join(rootDir, "build", "server"), serverTargetDir, { recursive: true });
-
-// 复制 dist -> resources/dist
-fs.cpSync(path.join(rootDir, "dist"), distTargetDir, { recursive: true });
-
-// 复制 .env 环境变量配置文件（如果存在）
-const envSource = path.join(rootDir, ".env");
-if (fs.existsSync(envSource)) {
-  fs.copyFileSync(envSource, path.join(appOutDir, ".env"));
-  fs.copyFileSync(envSource, path.join(resourcesDir, ".env"));
-  fs.copyFileSync(envSource, path.join(appDir, ".env"));
-}
-
-console.log("✨ 本地绿色客户端打包完成！");
-console.log(`📍 目录绝对路径: ${appOutDir}`);
-console.log(`📍 可执行文件绝对路径: ${targetExe}`);
-
-// 自动生成免解压/便携 ZIP 包
-const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf-8"));
-const zipName = `MiMo-Audio-Workstation-v${pkg.version}-win64-portable.zip`;
-const zipPath = path.join(outputDir, zipName);
-
-console.log("\n🗜️  正在生成免解压便携 ZIP 压缩包...");
-for (let i = 0; i < 5; i++) {
-  try {
-    if (fs.existsSync(zipPath)) {
-      fs.rmSync(zipPath, { force: true });
-    }
-    break;
-  } catch {
-    execSync("node -e \"setTimeout(() => {}, 500)\"");
-  }
-}
-
-try {
-  execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${appOutDir}\\*' -DestinationPath '${zipPath}' -Force"`, { stdio: "inherit" });
-  console.log(`🎁 免解压便携包打包成功！`);
-  console.log(`📍 ZIP 绝对路径: ${zipPath}`);
-} catch (err) {
-  console.error("⚠️ 生成 ZIP 包失败:", err.message);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { packageWindows(); }
+  catch (error) { console.error("打包失败，原客户端与历史发布包保持不变:", error); process.exitCode = 1; }
 }
 

@@ -6,9 +6,29 @@ export function sanitizeFileName(name: string): string {
   return (name || "").replace(/[\\/:*?"<>|\r\n\t]/g, "_").trim();
 }
 
+/** 画板产物统一基础名：自定义节点名 + 行名 + 序号，默认标题不参与命名。 */
+export function formatHierarchyName(parentTitle?: string, nodeTitle?: string, seqIndex?: number): string {
+  const normalize = (value?: string) => (value || "").trim().replace(/[:：\s]+/g, "_");
+  const placeholders = new Set(["节点名称", "批量节点", "音频克隆", "音色创造", "全能综合工作台", "全能综合台", "全能工作台"]);
+  let parent = normalize(parentTitle);
+  let row = normalize(nodeTitle);
+  if (placeholders.has(parent)) parent = "";
+  if (row === "节点名称" || row === "产物节点") row = "";
+  const base = parent && row ? mergeWorkspaceTitle(parent, row) : parent || row || "产物";
+  return seqIndex === undefined ? base : `${base}_${String(seqIndex).padStart(2, "0")}`;
+}
+
 export function getFileExtension(fileName: string): string {
   const match = sanitizeFileName(fileName).match(/(\.[a-z0-9]{1,8})$/i);
   return match?.[1] ?? ".wav";
+}
+
+export function getAudioFileExtension(source: string, fileName?: string): string {
+  const mime = source.match(/^data:([^;,]+)/i)?.[1]?.toLowerCase();
+  if (mime === "audio/mpeg" || mime === "audio/mp3") return ".mp3";
+  if (mime && ["audio/wav", "audio/x-wav", "audio/wave"].includes(mime)) return ".wav";
+  const sourceExt = source.split(/[?#]/)[0].match(/\.(mp3|wav)$/i)?.[0];
+  return sourceExt?.toLowerCase() || getFileExtension(fileName || "");
 }
 
 export function buildCleanAudioCacheFileName(
@@ -44,13 +64,32 @@ export function getArtifactDownloadFileName(title: string, originalFileName: str
   const safeTitle = sanitizeFileName(title).replace(/\.[a-z0-9]{1,8}$/i, "") || "audio";
   const ext = getFileExtension(originalFileName);
   if (workspaceName && workspaceName.trim()) {
-    const safeWsName = sanitizeFileName(workspaceName.trim());
-    if (safeTitle.startsWith(safeWsName)) {
-      return `${safeTitle}${ext}`;
-    }
-    return `${safeWsName}_${safeTitle}${ext}`;
+    return `${mergeWorkspaceTitle(workspaceName, safeTitle)}${ext}`;
   }
   return `${safeTitle}${ext}`;
+}
+
+/** 按完整名称片段合并：包含的名称只保留一次，末尾与开头重合的部分也只保留一次。 */
+export function mergeWorkspaceTitle(workspaceName: string, title: string): string {
+  const normalize = (value: string) => sanitizeFileName(value).replace(/[:：\s]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  const workspace = normalize(workspaceName);
+  const file = normalize(title);
+  if (!workspace) return file;
+  if (!file) return workspace;
+  const w = workspace.split("_");
+  const f = file.split("_");
+  const contains = (whole: string[], part: string[]) => whole.some((_, i) => whole.slice(i, i + part.length).join("_") === part.join("_"));
+  if (contains(f, w)) return file;
+  if (contains(w, f)) return workspace;
+  for (let count = Math.min(w.length, f.length); count > 0; count--) {
+    if (w.slice(-count).join("_") === f.slice(0, count).join("_")) return [...w, ...f.slice(count)].join("_");
+  }
+  // 中文名称可能没有分隔符，例如“酒馆对白”与“对白_01”。
+  for (let count = Math.min(workspace.length, file.length); count >= 2; count--) {
+    const overlap = workspace.slice(-count);
+    if (/[\u3400-\u9fff]/.test(overlap) && file.startsWith(overlap)) return workspace + file.slice(count);
+  }
+  return `${workspace}_${file}`;
 }
 
 export async function audioSourceToFile(source: string, fileName: string, mimeType?: string): Promise<File> {

@@ -1,6 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+if (process.env.MIMO_SKIP_DESKTOP_SYNC === "1") {
+  console.log("独立发布构建：跳过现有客户端同步。");
+  process.exit(0);
+}
+
 const rootDir = path.resolve(__dirname, "..");
 const appOutDir = path.join(rootDir, "desktop-build", "MiMo-Audio-Workstation-win32-x64");
 const resourcesDir = path.join(appOutDir, "resources");
@@ -33,7 +38,7 @@ try {
     console.log("  ✅ electron 主进程代码已同步");
   }
 
-  console.log("✨ 客户端资源实时同步完成！在客户端按 Ctrl + R 即可体验最新效果。");
+  console.log("✨ 客户端资源同步完成。仅界面修改可按 Ctrl + R；服务端或主进程修改请完全退出并重新启动客户端。");
 } catch (err) {
   console.error("同步至 desktop-build 失败:", err);
 }

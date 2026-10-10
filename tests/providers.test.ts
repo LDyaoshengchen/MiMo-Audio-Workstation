@@ -35,7 +35,7 @@ describe("Provider Adapters & Capabilities", () => {
     expect(caps.openai.capabilities.presetTTS).toBe(true);
     expect(caps.openai.capabilities.voiceDesign).toBe(false);
     expect(caps.openai.capabilities.instantClone).toBe(false);
-    expect(caps.openai.capabilities.asr).toBe(true);
+    expect(caps.openai.capabilities.asr).toBe(false);
 
     expect(caps.volcengine.capabilities.presetTTS).toBe(true);
     expect(caps.volcengine.capabilities.trainedClone).toBe(true);
@@ -51,7 +51,7 @@ describe("Provider Adapters & Capabilities", () => {
     expect(getProviderAdapter("openai")).toBeInstanceOf(OpenAIAdapter);
     expect(getProviderAdapter("volcengine")).toBeInstanceOf(VolcengineAdapter);
     expect(getProviderAdapter("custom")).toBeInstanceOf(CustomAdapter);
-    expect(getProviderAdapter("non_existent_provider")).toBeInstanceOf(MimoAdapter);
+    expect(() => getProviderAdapter("non_existent_provider")).toThrow("未知服务商");
   });
 });
 
@@ -99,7 +99,7 @@ describe("Explicit Unsupported Features Handling", () => {
 
     await expect(silicon.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂未提供基于自然语言提示词的音色设计能力");
     await expect(fish.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂不支持自然语言提示词音色设计");
-    await expect(eleven.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂不支持基于自然语言提示词");
+    await expect(eleven.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂未接入本项目");
     await expect(openai.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("仅支持 6 种预置声音");
     await expect(volc.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂不支持自然语言提示词音色设计");
   });
@@ -149,8 +149,8 @@ describe("Integration Mock Server Protocol Verification", () => {
             res.writeHead(200, { "Content-Type": "audio/wav" });
             res.end(Buffer.from("RIFF....WAVEfmt ....data...."));
           } else if (req.url?.includes("/v1/text-to-speech")) {
-            res.writeHead(200, { "Content-Type": "audio/mpeg" });
-            res.end(Buffer.from("ID3...."));
+            res.writeHead(200, { "Content-Type": "audio/pcm" });
+            res.end(Buffer.from([0, 0, 1, 0]));
           } else if (req.url?.includes("/chat/completions")) {
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(
@@ -226,7 +226,10 @@ describe("Integration Mock Server Protocol Verification", () => {
     expect(receivedRequests.length).toBe(1);
     const req = receivedRequests[0];
 
-    expect(req.url).toBe("/v1/text-to-speech/custom-voice-123");
+    expect(req.url).toBe("/v1/text-to-speech/custom-voice-123?output_format=pcm_24000");
+    expect(result.format).toBe("wav");
+    expect(result.audioBuffer.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(result.audioBuffer.readUInt32LE(24)).toBe(24000);
     expect(req.headers["xi-api-key"]).toBe("eleven-secret-key");
     expect(req.body.text).toBe("Hello ElevenLabs");
     expect(req.body.model_id).toBe("eleven_multilingual_v2");
@@ -294,20 +297,15 @@ describe("Integration Mock Server Protocol Verification", () => {
     expect(req.body.voice).toBe("alloy");
   });
 
-  it("OpenAI Adapter should fallback to preset voice when cloning with voiceBuffer", async () => {
+  it("OpenAI Adapter should reject reference audio instead of silently using preset voice", async () => {
     const openai = new OpenAIAdapter();
     const endpoint = `http://127.0.0.1:${serverPort}/v1/audio/speech`;
     const fakeBuffer = Buffer.from("RIFF....WAVE");
 
-    const result = await openai.synthesizeVoiceClone(
-      { text: "Audiobook narrator segment", voiceBuffer: fakeBuffer, format: "wav" },
+    await expect(openai.synthesizeVoiceClone(
+      { text: "Audiobook narrator segment", referenceAudioBuffer: fakeBuffer, format: "wav" },
       { apiKey: "sk-openai-test", apiEndpoint: endpoint }
-    );
-
-    expect(result.audioBuffer).toBeDefined();
-    expect(receivedRequests.length).toBe(1);
-    const req = receivedRequests[0];
-    expect(req.headers.authorization).toBe("Bearer sk-openai-test");
-    expect(req.body.input).toBe("Audiobook narrator segment");
+    )).rejects.toThrow("不支持参考音频克隆");
+    expect(receivedRequests).toHaveLength(0);
   });
 });

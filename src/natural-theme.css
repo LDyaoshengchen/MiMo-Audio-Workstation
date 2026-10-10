@@ -1,0 +1,451 @@
+/* Canonical palette layer. Only colors/surfaces change; geometry and motion remain intact.
+   Scoped specificity overrides historical fixed neon colors in styles.css. */
+.minimap-overlap-badge circle { fill: var(--text-main); stroke: var(--bg-node); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.minimap-overlap-badge text { fill: var(--bg-node); font-family: system-ui, sans-serif; font-weight: 700; }
+:root[data-theme] .studio-shell {
+  --node-accent: var(--accent-color);
+  --node-ink: var(--accent-ink);
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+:root[data-theme] .studio-shell :is(.studio-topbar, .board-sidebar, .canvas-titlebar, .studio-node,
+  .api-key-modal-content, .appearance-modal-card, .apple-confirm-dialog, .excel-modal-content,
+  .context-menu, .apple-canvas-controls, .audiobook-console, .react-flow__minimap) {
+  background: var(--bg-panel) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+:root[data-theme] .studio-shell :is(.appearance-card, .storage-path-card, .board-item,
+  .board-square-btn, .stash-item, .stash-header, .integrated-cell, .integrated-ref-item,
+  .batch-row-card, .batch-artifact-item-card, .api-provider-card, .product-card,
+  .studio-player, .compact-audio-player) {
+  background: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+:root[data-theme] .studio-shell :is(input:not([type="range"]):not([type="color"]):not([type="checkbox"]), textarea, select) {
+  background: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+  accent-color: var(--accent-color);
+}
+:root[data-theme] .studio-shell :is(input, textarea)::placeholder { color: var(--text-muted) !important; }
+:root[data-theme] .studio-shell :is(input:not([type="range"]), textarea, select):focus {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 16%, transparent) !important;
+}
+:root[data-theme] .studio-shell select option { background: var(--bg-node); color: var(--text-main); }
+
+:root[data-theme] .studio-shell :is(.board-item strong, .batch-artifact-item-title, .integrated-row-artifact-title,
+  .integrated-section-title, .appearance-card-title, .appearance-item-label, .storage-path-card-title,
+  .api-key-modal-header h3, .appearance-group-heading) { color: var(--text-main) !important; }
+:root[data-theme] .studio-shell :is(.node-muted, .node-field-label, .artifact-meta, .player-time,
+  .board-item span, .section-hint, .appearance-card-sub, .download-naming-help, .api-provider-description,
+  .canvas-titlebar-left > span) { color: var(--text-muted) !important; }
+
+:root[data-theme] .studio-shell :is(.board-item.active, .api-provider-card.active) {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent-color) !important;
+  color: var(--text-main) !important;
+}
+:root[data-theme] .studio-shell :is(.board-item.active strong, .api-provider-card.active .api-provider-name) {
+  color: var(--accent-color) !important;
+}
+
+:root[data-theme] .studio-shell :is(.node-audio) { --node-accent: var(--tone-audio); --node-ink: var(--tone-audio-ink); }
+:root[data-theme] .studio-shell .node-audio-merge { --node-accent: var(--tone-merge); --node-ink: var(--tone-merge-ink); }
+:root[data-theme] .studio-shell .node-style { --node-accent: var(--tone-style); --node-ink: var(--tone-style-ink); }
+:root[data-theme] .studio-shell .node-prompt { --node-accent: var(--tone-prompt); --node-ink: var(--tone-prompt-ink); }
+:root[data-theme] .studio-shell :is(.node-clone, .node-batch-clone) { --node-accent: var(--tone-clone); --node-ink: var(--tone-clone-ink); }
+:root[data-theme] .studio-shell :is(.node-design, .node-batch-design) { --node-accent: var(--tone-design); --node-ink: var(--tone-design-ink); }
+:root[data-theme] .studio-shell :is(.node-artifact, .node-batch-artifact) { --node-accent: var(--tone-artifact); --node-ink: var(--tone-artifact-ink); }
+:root[data-theme] .studio-shell :is(.node-integrated-studio, .node-integratedStudio) { --node-accent: var(--tone-integrated); --node-ink: var(--tone-integrated-ink); }
+:root[data-theme] .studio-shell .node-game-vocal { --node-accent: var(--tone-game); --node-ink: var(--tone-game-ink); }
+:root[data-theme] .studio-shell .node-comment { --node-accent: var(--tone-comment); --node-ink: var(--tone-comment-ink); }
+
+:root[data-theme] .studio-shell .studio-node {
+  --player-accent: var(--node-accent);
+  --player-ink: var(--node-ink);
+}
+:root[data-theme] .studio-shell .studio-node .node-title-wrap {
+  background: color-mix(in srgb, var(--node-accent) 7%, var(--bg-node)) !important;
+  border-color: color-mix(in srgb, var(--node-accent) 24%, var(--bg-node)) !important;
+  color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .studio-node .node-title-input {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.node-title-wrap > svg, .input-handle-label, .output-handle-label) {
+  color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .studio-node .node-handle { background: var(--node-accent) !important; border-color: var(--bg-node) !important; }
+:root[data-theme] .studio-shell :is(.studio-node.selected, .react-flow__node.selected .studio-node) {
+  border-color: var(--node-accent) !important;
+  box-shadow: 0 0 0 2px var(--node-accent), 0 8px 24px color-mix(in srgb, var(--node-accent) 16%, transparent) !important;
+}
+:root[data-theme] .studio-shell .react-flow__node.selected .comment-node {
+  border-color: var(--tone-comment) !important;
+  box-shadow: 0 0 0 2px var(--tone-comment) !important;
+}
+
+:root[data-theme] .studio-shell :is(.integrated-cell.cell-ref) {
+  --player-accent: var(--tone-audio); --player-ink: var(--tone-audio-ink);
+}
+:root[data-theme] .studio-shell :is(.integrated-cell.cell-artifact, .batch-artifact-item-card) {
+  --player-accent: var(--tone-artifact); --player-ink: var(--tone-artifact-ink);
+}
+:root[data-theme] .studio-shell :is(.studio-player, .compact-audio-player) .player-button {
+  background: var(--player-accent, var(--accent-color)) !important;
+  color: var(--player-ink, var(--accent-ink)) !important;
+  border-color: transparent !important;
+}
+:root[data-theme] .studio-shell :is(.studio-player, .compact-audio-player) .player-range,
+:root[data-theme] .studio-shell :is(.studio-player, .compact-audio-player) .player-range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--player-accent, var(--accent-color)) 0%, var(--player-accent, var(--accent-color)) var(--progress, 0%), var(--border-color) var(--progress, 0%), var(--border-color) 100%) !important;
+}
+:root[data-theme] .studio-shell :is(.studio-player, .compact-audio-player) .player-speed-btn {
+  background: var(--bg-node) !important; color: var(--text-main) !important; border-color: var(--border-color) !important;
+}
+
+:root[data-theme] .studio-shell :is(.studio-topbar button, .sidebar-actions button, .board-square-btn, .sidebar-toggle,
+  .canvas-titlebar-btn, .icon-button, .batch-artifact-item-btn, .integrated-cell button,
+  .appearance-icon-btn, .api-key-btn-cancel, .apple-confirm-btn.cancel, .storage-path-btn-secondary,
+  .stash-download-all, .stash-item button, .excel-modal-content button, .appearance-modal-card button) {
+  background: var(--bg-button) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+:root[data-theme] .studio-shell :is(.studio-topbar button, .sidebar-actions button, .board-square-btn,
+  .canvas-titlebar-btn, .icon-button, .batch-artifact-item-btn, .integrated-cell button,
+  .appearance-icon-btn, .stash-download-all):hover:not(:disabled) { background: var(--bg-button-hover) !important; }
+
+:root[data-theme] .studio-shell :is(.new-board, .new-board-button, .api-key-btn-save, .storage-path-btn-primary,
+  .batch-download-all-btn, .segmented-control button.active, .capsule-switch.checked,
+  .apple-confirm-btn.confirm.primary) {
+  background: var(--accent-color) !important; color: var(--accent-ink) !important; border-color: var(--accent-color) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn) {
+  background: var(--node-accent) !important; color: var(--node-ink) !important; border-color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--node-accent) 90%, var(--text-main)) !important;
+}
+:root[data-theme] .studio-shell :is(a.download-link, .download-btn, .product-download-button) {
+  background: var(--tone-artifact) !important; color: var(--tone-artifact-ink) !important; border-color: var(--tone-artifact) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button.is-running, .run-button.is-generating,
+  .batch-row-single-clone-btn.is-running, .batch-row-single-clone-btn.is-generating, .game-vocal-run-btn.is-running) {
+  background: var(--node-accent) !important; border-color: var(--node-accent) !important; color: var(--node-ink) !important;
+  box-shadow: none !important; animation: none !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .batch-row-single-clone-btn, .game-vocal-run-btn).is-running * {
+  color: inherit !important;
+}
+:root[data-theme] .studio-shell :is(.batch-row-card.is-row-generating, .integrated-cell.is-generating) {
+  background: var(--accent-soft) !important; border-color: var(--accent-color) !important; box-shadow: none !important;
+}
+:root[data-theme] .studio-shell :is(.batch-artifact-item-card.is-latest, .batch-artifact-item-card.latest) {
+  background: color-mix(in srgb, var(--tone-clone) 7%, var(--bg-node)) !important;
+  border-color: color-mix(in srgb, var(--tone-clone) 35%, var(--bg-node)) !important;
+}
+:root[data-theme] .studio-shell :is(.latest-badge, .batch-artifact-latest-badge, .batch-artifact-latest-tag) {
+  background: var(--tone-clone) !important; color: var(--tone-clone-ink) !important;
+}
+:root[data-theme] .studio-shell .status-pill.good {
+  background: color-mix(in srgb, var(--status-good) 9%, var(--bg-node)) !important;
+  color: var(--status-good) !important; border-color: color-mix(in srgb, var(--status-good) 28%, var(--bg-node)) !important;
+}
+:root[data-theme] .studio-shell :is(.apple-confirm-btn.confirm.destructive) {
+  background: var(--tone-danger) !important; color: var(--bg-node) !important; box-shadow: none !important;
+}
+:root[data-theme] .studio-shell :is(.node-error, .api-settings-error) { color: var(--tone-danger) !important; }
+:root[data-theme] .studio-shell :is(.api-warning, .workspace-save-notice[role="alert"]) {
+  color: var(--tone-danger) !important; background: var(--danger-soft) !important; border-color: var(--tone-danger) !important;
+}
+
+.theme-palette-preview { width: 100%; padding: 2px 0 12px; }
+.theme-palette-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.theme-palette-sample { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--text-muted); }
+.theme-palette-chip { height: 25px; border-radius: 5px; border: 1px solid var(--border-color); }
+.theme-palette-preview p { margin: 9px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); }
+
+:root[data-theme] .studio-shell :is(.canvas-panel, .flow-wrap) { background: var(--bg-main) !important; }
+:root[data-theme] .studio-shell :is(.run-button, .download-link, .download-btn, .player-button,
+  .new-board, .batch-download-all-btn) { box-shadow: none !important; }
+/* Portals live outside .studio-shell. */
+:root[data-theme] :is(.context-menu, .excel-modal-content) {
+  background: var(--bg-panel) !important; color: var(--text-main) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .context-menu .context-menu-item {
+  background: var(--bg-input) !important; color: var(--text-main) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .context-menu .context-menu-item:hover { background: var(--accent-soft) !important; border-color: var(--accent-color) !important; }
+
+/* Context menu is a portal: use root palette variables, not the shell's accent. */
+:root[data-theme] .context-menu .tone-integratedStudio { --menu-accent: var(--tone-integrated); }
+:root[data-theme] .context-menu .tone-gameVocal { --menu-accent: var(--tone-game); }
+:root[data-theme] .context-menu .tone-referenceAudio { --menu-accent: var(--tone-audio); }
+:root[data-theme] .context-menu .tone-audioMerge { --menu-accent: var(--tone-merge); }
+:root[data-theme] .context-menu .tone-voiceClone { --menu-accent: var(--tone-clone); }
+:root[data-theme] .context-menu .tone-batchVoiceClone { --menu-accent: var(--tone-batchClone); }
+:root[data-theme] .context-menu .tone-voiceDesign { --menu-accent: var(--tone-design); }
+:root[data-theme] .context-menu .tone-batchVoiceDesign { --menu-accent: var(--tone-batchDesign); }
+:root[data-theme] .context-menu .tone-voiceStyle { --menu-accent: var(--tone-style); }
+:root[data-theme] .context-menu .tone-prompt { --menu-accent: var(--tone-prompt); }
+:root[data-theme] .context-menu .tone-comment { --menu-accent: var(--tone-comment); }
+:root[data-theme] .context-menu .context-menu-node-grid .context-menu-item::before {
+  background: var(--menu-accent) !important; box-shadow: none !important;
+}
+:root[data-theme] .context-menu .context-menu-node-grid .context-menu-item span {
+  color: var(--menu-accent) !important; transition: none !important;
+}
+:root[data-theme] .context-menu .context-menu-node-grid .context-menu-item:hover {
+  background: color-mix(in srgb, var(--menu-accent) 8%, var(--bg-input)) !important;
+  border-color: var(--menu-accent) !important;
+}
+
+:root[data-theme] .studio-shell .studio-node :is(.design-action-btn, .icon-button) {
+  background: var(--bg-button) !important; color: var(--node-accent) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.design-action-btn, .icon-button) svg { color: var(--node-accent) !important; }
+:root[data-theme] .studio-shell .studio-node .tag-pill {
+  background: var(--bg-button) !important; color: var(--text-muted) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .studio-shell .react-flow__minimap-mask { fill: var(--canvas-mask) !important; }
+:root[data-theme] .studio-shell .react-flow__minimap-node { stroke: var(--border-color) !important; }
+:root[data-theme] .studio-shell :is(.minimap-tone-referenceAudio, .minimap-tone-default) { fill: var(--tone-audio) !important; }
+:root[data-theme] .studio-shell .minimap-tone-integratedStudio { fill: var(--tone-integrated) !important; }
+:root[data-theme] .studio-shell .minimap-tone-audioMerge { fill: var(--tone-merge) !important; }
+:root[data-theme] .studio-shell .minimap-tone-voiceStyle { fill: var(--tone-style) !important; }
+:root[data-theme] .studio-shell .minimap-tone-prompt { fill: var(--tone-prompt) !important; }
+:root[data-theme] .studio-shell :is(.minimap-tone-voiceClone, .minimap-tone-batchVoiceClone) { fill: var(--tone-clone) !important; }
+:root[data-theme] .studio-shell :is(.minimap-tone-voiceDesign, .minimap-tone-batchVoiceDesign) { fill: var(--tone-design) !important; }
+:root[data-theme] .studio-shell :is(.minimap-tone-artifact, .minimap-tone-batchArtifact) { fill: var(--tone-artifact) !important; }
+:root[data-theme] .studio-shell .minimap-tone-gameVocal { fill: var(--tone-game) !important; }
+:root[data-theme] .studio-shell .minimap-tone-comment { fill: var(--tone-comment) !important; }
+
+/* Color identifies type; neutral text carries content. No layout-changing borders. */
+:root[data-theme] .studio-shell .studio-node .node-title-wrap {
+  background: color-mix(in srgb, var(--node-accent) 18%, var(--bg-node)) !important;
+  border-color: color-mix(in srgb, var(--node-accent) 48%, var(--bg-node)) !important;
+  gap: 12px !important;
+  padding-left: 12px !important;
+}
+:root[data-theme] .studio-shell .studio-node input.node-title-input {
+  background: transparent !important; color: var(--text-main) !important; font-weight: 650;
+  padding-left: 4px !important;
+}
+:root[data-theme] .studio-shell .studio-node .node-title-wrap > svg { flex-shrink: 0; }
+:root[data-theme] .studio-shell .studio-node .node-header .node-type-label {
+  color: var(--node-accent) !important; font-size: 11px; font-weight: 650; white-space: nowrap;
+}
+:root[data-theme] .studio-shell .studio-node :is(.node-field-label, .integrated-section-title) { color: var(--text-main) !important; }
+:root[data-theme] .studio-shell .comment-node { background: var(--bg-panel) !important; border-color: var(--border-color) !important; color: var(--text-main) !important; }
+:root[data-theme] .studio-shell .node-game-vocal :is(button, [class$="-title"], [class$="-label"], [class$="-sub"], [class$="-hint"], [class$="-meta"], [class$="-tip"]) { color: var(--text-main) !important; }
+:root[data-theme] .studio-shell .node-game-vocal :is(button, .game-vocal-ref-card, .game-vocal-design-summary-box, .game-vocal-precision-panel, .game-vocal-selected-bar, .game-vocal-selected-pill) {
+  background: var(--bg-input) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal :is(button.is-active, button.is-selected, .game-vocal-selected-pill) {
+  background: color-mix(in srgb, var(--node-accent) 18%, var(--bg-node)) !important;
+  border-color: var(--node-accent) !important; color: var(--text-main) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal svg { color: inherit !important; }
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container :is(span, p, small) { color: var(--text-main) !important; }
+:root[data-theme] .studio-shell .studio-node input[type="checkbox"] { accent-color: var(--node-accent) !important; }
+:root[data-theme] .studio-shell .studio-node .node-body-container label { color: var(--text-main) !important; }
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn {
+  background: var(--node-accent) !important; color: var(--node-ink) !important;
+}
+:root[data-theme] .studio-shell .node-audio :is(.record-button, .record-stop-button, .file-picker),
+:root[data-theme] .studio-shell .studio-node :is(.batch-add-row-btn, .batch-import-btn, .batch-row-single-clone-btn) {
+  color: var(--text-main) !important; background: var(--bg-button) !important; border-color: var(--border-color) !important;
+}
+:root[data-theme] .studio-shell .node-audio .record-button { background: var(--tone-audio) !important; color: var(--tone-audio-ink) !important; }
+
+/* Keep type colors on accents only; cards and borders remain neutral. */
+:root[data-theme] .studio-shell .node-batch-clone { --node-accent: var(--tone-batchClone); --node-ink: var(--tone-batchClone-ink); }
+:root[data-theme] .studio-shell .node-batch-design { --node-accent: var(--tone-batchDesign); --node-ink: var(--tone-batchDesign-ink); }
+:root[data-theme] .studio-shell .node-batch-artifact { --node-accent: var(--tone-batchArtifact); --node-ink: var(--tone-batchArtifact-ink); }
+:root[data-theme] .studio-shell .minimap-tone-batchVoiceClone { fill: var(--tone-batchClone) !important; }
+:root[data-theme] .studio-shell .minimap-tone-batchVoiceDesign { fill: var(--tone-batchDesign) !important; }
+:root[data-theme] .studio-shell .minimap-tone-batchArtifact { fill: var(--tone-batchArtifact) !important; }
+:root[data-theme] .studio-shell .node-batch-artifact :is(a.download-link, .batch-download-all-btn) { background: var(--node-accent) !important; color: var(--node-ink) !important; }
+:root[data-theme] .studio-shell .node-batch-artifact .batch-artifact-item-card { --player-accent: var(--tone-batchArtifact); --player-ink: var(--tone-batchArtifact-ink); }
+
+/* The generation label must not inherit neutral text from game option spans. */
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn,
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn:is(.is-running, .is-generating) {
+  background: var(--tone-game-button) !important; border-color: var(--tone-game-button) !important;
+  color: var(--tone-game-ink) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn :is(span, svg) { color: var(--tone-game-ink) !important; }
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tone-game-button) 90%, var(--text-main)) !important;
+}
+
+.node-palette-swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.node-palette-settings .appearance-card { padding: 10px 12px; }
+.node-palette-settings .appearance-item-row { gap: 8px; padding: 0; min-height: 30px; border-bottom: none; }
+.node-palette-settings .appearance-item-label { white-space: nowrap; flex-shrink: 0; }
+.node-palette-settings .appearance-select-control { min-width: 0; width: auto; flex: 1; }
+.node-palette-chip { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; border: 1px solid var(--border-color); }
+.node-palette-preview-label { font-size: 11px; color: var(--text-muted); margin-right: 2px; }
+.node-palette-help { display: inline-flex; color: var(--text-muted); cursor: help; border-radius: 3px; }
+.node-palette-help:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+
+.appearance-theme-group .theme-preset-row { padding: 8px 12px; min-height: 30px; gap: 8px; border-bottom: none; }
+.appearance-theme-group .theme-preset-row .appearance-item-label { white-space: nowrap; }
+.appearance-theme-group .theme-preset-row .appearance-item-controls { flex: 1; min-width: 0; }
+.appearance-theme-group .theme-preset-row select { flex: 1; min-width: 0; }
+.appearance-theme-group .theme-palette-preview { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; }
+.appearance-theme-group .theme-preview-caption { color: var(--text-muted); font-size: 11px; }
+.appearance-theme-group .theme-palette-swatches { display: flex; flex: 1; align-items: center; flex-wrap: wrap; gap: 10px; }
+.appearance-theme-group .theme-palette-sample { flex-direction: row; align-items: center; gap: 4px; }
+.appearance-theme-group .theme-palette-chip { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; }
+.appearance-theme-group .appearance-collapse-toggle-btn { padding: 6px 12px; min-height: 28px; font-size: 12px; border-top: 1px solid var(--border-color); }
+
+/* All filled actions follow mode, never individual palette luminance. */
+:root[data-theme] .studio-shell { --node-fill: var(--accent-button); --player-fill: var(--accent-button); }
+:root[data-theme] .studio-shell .node-audio { --node-fill: var(--tone-audio-button); }
+:root[data-theme] .studio-shell .node-audio-merge { --node-fill: var(--tone-merge-button); }
+:root[data-theme] .studio-shell .node-style { --node-fill: var(--tone-style-button); }
+:root[data-theme] .studio-shell .node-prompt { --node-fill: var(--tone-prompt-button); }
+:root[data-theme] .studio-shell .node-clone { --node-fill: var(--tone-clone-button); }
+:root[data-theme] .studio-shell .node-design { --node-fill: var(--tone-design-button); }
+:root[data-theme] .studio-shell .node-artifact { --node-fill: var(--tone-artifact-button); }
+:root[data-theme] .studio-shell .node-batch-clone { --node-fill: var(--tone-batchClone-button); }
+:root[data-theme] .studio-shell .node-batch-design { --node-fill: var(--tone-batchDesign-button); }
+:root[data-theme] .studio-shell .node-batch-artifact { --node-fill: var(--tone-batchArtifact-button); }
+:root[data-theme] .studio-shell .node-integrated-studio { --node-fill: var(--tone-integrated-button); }
+:root[data-theme] .studio-shell .node-game-vocal { --node-fill: var(--tone-game-button); }
+:root[data-theme] .studio-shell .studio-node { --player-fill: var(--node-fill); }
+:root[data-theme] .studio-shell .integrated-cell.cell-ref { --player-fill: var(--node-fill); --player-accent: var(--node-accent); }
+:root[data-theme] .studio-shell :is(.integrated-cell.cell-artifact, .batch-artifact-item-card) { --player-fill: var(--node-fill); --player-accent: var(--node-accent); }
+:root[data-theme] .studio-shell .node-batch-artifact .batch-artifact-item-card { --player-fill: var(--tone-batchArtifact-button); }
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn),
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn, .batch-row-single-clone-btn):is(.is-running, .is-generating) {
+  background: var(--node-fill) !important; border-color: var(--node-fill) !important; color: var(--action-ink) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--node-fill) 90%, var(--text-main)) !important;
+}
+:root[data-theme] .studio-shell :is(.new-board, .new-board-button, .api-key-btn-save, .storage-path-btn-primary,
+  .batch-download-all-btn, .segmented-control button.active, .capsule-switch.checked, .apple-confirm-btn.confirm.primary) {
+  background: var(--accent-button) !important; border-color: var(--accent-button) !important; color: var(--action-ink) !important;
+}
+:root[data-theme] .studio-shell :is(a.download-link, .download-btn, .product-download-button) {
+  background: var(--tone-artifact-button) !important; border-color: var(--tone-artifact-button) !important; color: var(--action-ink) !important;
+}
+:root[data-theme] .studio-shell .node-batch-artifact :is(a.download-link, .batch-download-all-btn) { background: var(--node-fill) !important; color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell :is(.studio-player, .compact-audio-player) .player-button { background: var(--player-fill) !important; color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell .node-audio .record-button { background: var(--node-fill) !important; color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell :is(.latest-badge, .batch-artifact-latest-badge, .batch-artifact-latest-tag) { background: var(--tone-clone-button) !important; color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell .apple-confirm-btn.confirm.destructive { background: var(--tone-danger-button) !important; color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell :is(.run-button, .game-vocal-run-btn, .record-button, a.download-link, .download-btn,
+  .player-button, .new-board, .api-key-btn-save, .storage-path-btn-primary, .batch-download-all-btn,
+  .segmented-control button.active, .apple-confirm-btn.confirm) :is(span, svg) { color: var(--action-ink) !important; }
+/* Specificity beats the game-option span rule without touching ordinary options. */
+:root[data-theme] .studio-shell .node-game-vocal button.game-vocal-run-btn :is(span, svg) { color: var(--action-ink) !important; }
+
+:root[data-theme] .studio-shell .studio-node :is(button.run-button, button.game-vocal-run-btn,
+  button.record-button, a.download-link, button.player-button, button.batch-download-all-btn) {
+  color: var(--action-ink) !important; transition: none !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.run-button, .game-vocal-run-btn,
+  .record-button, a.download-link, .player-button, .batch-download-all-btn) :is(span, svg) { transition: none !important; }
+:root[data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) {
+  background: var(--node-fill) !important; color: var(--action-ink) !important; transition: none !important;
+}
+:root[data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) :is(span, svg) { color: var(--action-ink) !important; transition: none !important; }
+
+/* Node-owned accents, including embedded tools; clearing is deliberately neutral. */
+:root[data-theme] .studio-shell .studio-node svg { color: var(--node-accent) !important; transition: none !important; }
+:root[data-theme] .studio-shell .studio-node .node-header svg { color: var(--node-accent) !important; }
+:root[data-theme] .studio-shell .studio-node :is(.batch-add-row-btn, .batch-import-btn, .batch-row-single-clone-btn,
+  .file-picker, .icon-button, .batch-artifact-item-btn, .game-vocal-quick-btn, .game-vocal-sub-btn,
+  .game-vocal-cat-btn, .game-vocal-mode-tab, .game-vocal-duration-pill) {
+  background: color-mix(in srgb, var(--node-accent) 5%, var(--bg-button)) !important;
+  border-color: color-mix(in srgb, var(--node-accent) 22%, var(--border-color)) !important;
+}
+:root[data-theme] .studio-shell .studio-node .integrated-cell button:not(.player-button):not(.player-speed-btn):not(.run-button):not(.batch-row-single-clone-btn) {
+  background: color-mix(in srgb, var(--node-accent) 5%, var(--bg-button)) !important;
+  border-color: color-mix(in srgb, var(--node-accent) 22%, var(--border-color)) !important;
+}
+:root[data-theme] .studio-shell .studio-node button:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--node-accent) 45%, var(--border-color)) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(a.download-link, .download-btn, .product-download-button, .batch-download-all-btn) {
+  background: var(--node-fill) !important; border-color: var(--node-fill) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal :is(.game-vocal-sub-bar, .game-vocal-mode-tabs) {
+  background: color-mix(in srgb, var(--node-accent) 8%, var(--bg-node)) !important;
+  border-color: var(--border-color) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-item-chip {
+  background: var(--bg-input) !important; border-color: var(--border-color) !important; color: var(--text-main) !important;
+  box-shadow: none !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal :is(button.is-active, button.is-selected, .game-vocal-item-chip.is-selected, .game-vocal-selected-pill) {
+  background: color-mix(in srgb, var(--node-accent) 18%, var(--bg-node)) !important;
+  border-color: var(--node-accent) !important; color: var(--text-main) !important; box-shadow: none !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-item-chip:hover {
+  background: color-mix(in srgb, var(--node-accent) 12%, var(--bg-node)) !important;
+  border-color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-item-chip.is-selected {
+  background: color-mix(in srgb, var(--node-accent) 18%, var(--bg-node)) !important;
+  border-color: var(--node-accent) !important; transition: none !important;
+}
+/* Filled controls retain mode-specific ink, not accent-on-accent icons. */
+:root[data-theme] .studio-shell .studio-node :is(button.run-button, button.game-vocal-run-btn, button.record-button,
+  a.download-link, button.player-button, button.batch-download-all-btn, .download-btn, .product-download-button) svg {
+  color: var(--action-ink) !important;
+}
+:root[data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) svg { color: var(--action-ink) !important; }
+:root[data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) { background: var(--node-fill) !important; }
+:root[data-theme] .studio-shell .studio-node :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn),
+:root[data-theme] .studio-shell .studio-node :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn):hover:not(:disabled) {
+  background: var(--bg-button) !important; border-color: var(--border-color) !important; color: var(--text-muted) !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn) :is(svg, span) {
+  color: var(--text-muted) !important;
+}
+
+/* One control type scale across node tools and paired single/batch actions. */
+:root[data-theme] .studio-shell .studio-node :is(button, a.download-link) {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  letter-spacing: normal !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(button, a.download-link) span {
+  font-family: inherit !important; font-size: inherit !important;
+  font-weight: inherit !important; line-height: inherit !important; letter-spacing: inherit !important;
+}
+
+/* Game tools share the same accent and shadow rules as other node tools. */
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container .game-vocal-precision-badge {
+  color: var(--node-accent) !important;
+  background: color-mix(in srgb, var(--node-accent) 10%, var(--bg-node)) !important;
+  border-color: color-mix(in srgb, var(--node-accent) 30%, var(--border-color)) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container :is(button, .game-vocal-precision-panel,
+  .game-vocal-selected-bar, .game-vocal-selected-pill, .game-vocal-item-chip),
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container button:hover:not(:disabled) {
+  box-shadow: none !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container button:hover:not(:disabled):not(:is(.game-vocal-run-btn, .game-vocal-clear-btn, .run-button, .player-button, .record-button, .download-btn, .batch-download-all-btn)) {
+  background: color-mix(in srgb, var(--node-accent) 12%, var(--bg-node)) !important;
+  border-color: var(--node-accent) !important;
+}
+:root[data-theme] .studio-shell .node-game-vocal .game-vocal-container :is(input, textarea):focus {
+  border-color: var(--node-accent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--node-accent) 16%, transparent) !important;
+}
