@@ -11,6 +11,7 @@ const smoke = process.argv.includes("--studio-smoke");
 const actionAudit = process.argv.includes("--action-audit");
 const overlapSmoke = process.argv.includes("--overlap-smoke");
 const themePreview = process.argv.includes("--theme-preview");
+const desktopSmoke = process.argv.includes("--desktop-controls-smoke");
 const themeSettings = process.argv.includes("--theme-settings");
 const themeGame = process.argv.includes("--theme-game");
 const themeCustom = process.argv.includes("--theme-custom");
@@ -84,8 +85,8 @@ const server = http.createServer((req, res) => {
   if (file !== dist && !file.startsWith(dist + path.sep)) { res.writeHead(403); res.end(); return; }
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
   res.setHeader("Content-Type", file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html");
-  if ((saveLayout || themePreview) && file.endsWith("index.html")) {
-    const theme = { mode: themePreview ? appearance : "light", nodePalette, autoHideTopbar: false, lightTheme: { preset: palette }, darkTheme: { preset: palette } };
+  if ((saveLayout || themePreview || desktopSmoke) && file.endsWith("index.html")) {
+    const theme = { mode: (themePreview || desktopSmoke) ? appearance : "light", nodePalette, autoHideTopbar: false, lightTheme: { preset: palette }, darkTheme: { preset: palette } };
     const html = fs.readFileSync(file, "utf8").replace("<head>", `<head><script>localStorage.setItem("mimo_theme_settings",JSON.stringify(${JSON.stringify(theme)}));</script>`);
     res.end(html); return;
   }
@@ -95,9 +96,16 @@ let window;
 let fatalTimer;
 async function main() {
   await app.whenReady();
+  if (desktopSmoke) {
+    // Stub public release lookup: this diagnostic never contacts GitHub or user APIs.
+    global.fetch = async () => ({ ok: true, json: async () => ({ tag_name: "v9.9.9" }) });
+    require("../electron/desktop-controls.cjs").setupDesktopControls(require("../package.json").version);
+  }
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   window = new BrowserWindow({ show: false, width: 1600, height: 1000,
-    webPreferences: { offscreen: true, backgroundThrottling: false, nodeIntegration: false, contextIsolation: true } });
+    webPreferences: { offscreen: true, backgroundThrottling: false, nodeIntegration: false, contextIsolation: true,
+      ...(desktopSmoke ? { preload: path.resolve("electron/preload.cjs") } : {}) } });
+  if (desktopSmoke) { window.removeMenu(); require("../electron/desktop-controls.cjs").attachWindowShortcuts(window); }
   window.webContents.on("console-message", details => {
     if (details.level === "error") console.error("renderer:", details.message);
   });
@@ -106,6 +114,53 @@ async function main() {
     callback({ cancel: !details.url.startsWith("http://127.0.0.1:") && !details.url.startsWith("data:") && !details.url.startsWith("blob:") });
   });
   await window.loadURL(`http://127.0.0.1:${server.address().port}`);
+  if (desktopSmoke) {
+    await window.webContents.executeJavaScript(`(async()=>{for(let i=0;i<100&&!document.querySelector('.studio-more-button');i++)await new Promise(r=>setTimeout(r,50)); await new Promise(r=>setTimeout(r,2200));})()`);
+    window.webContents.send("desktop-menu-event", "about");
+    const result = await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<50&&!document.querySelector('.studio-about-dialog');i++)await new Promise(r=>setTimeout(r,50));
+      const dialog=document.querySelector('.studio-about-dialog'); if(!dialog)throw new Error('About did not open through IPC');
+      if(document.documentElement.dataset.theme!==${JSON.stringify(appearance)})throw new Error('Incorrect preview theme');
+      const info=await window.electronApi.getAppInfo();const update=await window.electronApi.checkForUpdates();
+      const topbar=document.querySelector('.studio-topbar');const height=parseFloat(getComputedStyle(topbar).height);
+      if(height>48)throw new Error('Topbar too tall: '+height);
+      if(!document.querySelector('.studio-update-dot'))throw new Error('Missing update dot');
+      if(!dialog.textContent.includes('v'+info.version)||update.status!=='available')throw new Error('Incorrect version/update');
+      const updateButton=dialog.querySelector('.studio-about-actions button'),link=dialog.querySelector('.studio-repository-link');
+      if(getComputedStyle(updateButton).fontSize!=='12px'||getComputedStyle(link).fontSize!=='12px')throw new Error('Inconsistent About button type');
+      for(const button of [updateButton,link,document.querySelector('.studio-more-button'),document.querySelector('.run-button')].filter(Boolean)) {
+        const style=getComputedStyle(button);
+        if(style.transitionDuration!=='0.06s'||style.transitionDelay!=='0s')throw new Error('Slow button feedback: '+button.className+' '+style.transitionDuration);
+      }
+      return {scenario:'desktop-controls-smoke',version:info.version,updateStatus:update.status,topbarHeight:height,buttonFont:getComputedStyle(document.querySelector('.studio-more-button')).fontSize,dialogText:dialog.textContent};
+    })()`);
+    const output=path.resolve('reports', 'desktop-about-'+appearance+'.png'); fs.mkdirSync(path.dirname(output),{recursive:true});
+    fs.writeFileSync(output,(await window.webContents.capturePage()).toPNG());
+    const menuResult=await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelector('[aria-label="关闭关于"]').click();
+      window.dispatchEvent(new MouseEvent('mousemove',{clientY:1}));await new Promise(r=>setTimeout(r,350));
+      document.querySelector('.studio-more-button').click();await new Promise(r=>setTimeout(r,50));
+      document.querySelector('.studio-compact-root button').click();await new Promise(r=>setTimeout(r,50));
+      const button=document.querySelector('.studio-compact-submenu button');if(!button)throw new Error('Compact submenu missing');
+      const style=getComputedStyle(button);if(style.fontSize!=='12px'||button.getBoundingClientRect().height>30)throw new Error('Submenu not compact');
+      if(style.transitionDuration!=='0.06s'||style.transitionDelay!=='0s')throw new Error('Slow menu feedback');
+      return {menuFont:style.fontSize,menuRowHeight:button.getBoundingClientRect().height};
+    })()`);
+    const menuOutput=path.resolve('reports','desktop-more-'+appearance+'.png');
+    fs.writeFileSync(menuOutput,(await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+      document.querySelector('[title="设置音频播放起点"]').click();await new Promise(r=>setTimeout(r,50));
+      const checkbox=document.querySelector('.studio-playback-option input');
+      if(!checkbox||checkbox.checked)throw new Error('Incorrect default playback setting');
+      checkbox.click();await new Promise(r=>setTimeout(r,50));
+      if(!checkbox.checked||localStorage.getItem('mimo_playback_restart_from_beginning')!=='true')throw new Error('Playback setting was not saved');
+    })()`);
+    const playbackOutput=path.resolve('reports','desktop-playback-'+appearance+'.png');
+    fs.writeFileSync(playbackOutput,(await window.webContents.capturePage()).toPNG());
+    console.log(JSON.stringify({...result,...menuResult, nativeMenuVisible:window.isMenuBarVisible(), screenshot:output,menuScreenshot:menuOutput}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
   const result = await window.webContents.executeJavaScript(`(async () => {
     for (let i=0; i<100 && !document.querySelector('.react-flow__node'); i++) await new Promise(r=>setTimeout(r,100));
     await new Promise(r=>setTimeout(r,2000));

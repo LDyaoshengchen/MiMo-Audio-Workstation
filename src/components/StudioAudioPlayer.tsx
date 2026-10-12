@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { getAudioDurationFast, getCachedAudioDuration, setCachedAudioDuration, resolveAudioDuration } from "../utils/audioDuration";
 import { activateAudio, releaseAudio, formatAudioTime as formatTime } from "../utils/audioPlayback";
+import { prepareAudioPlayback } from "../utils/playbackSettings";
 
 function clearNodePlayback(audio: HTMLAudioElement) {
   const node = audio.closest(".studio-node");
@@ -126,6 +127,7 @@ export const StudioAudioPlayer = memo(function StudioAudioPlayer({ src, accentCo
     if (!audio) return;
 
     if (audio.paused) {
+      if (prepareAudioPlayback(audio)) { currentTimeRef.current = 0; setCurrentTime(0); }
       activateAudio(audio);
       audio.playbackRate = playbackRate;
       void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));

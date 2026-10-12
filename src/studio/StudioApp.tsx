@@ -817,16 +817,15 @@ export function StudioApp() {
     void loadBootstrap();
     void loadStoragePathInfo();
 
-    let collapseTimer: number | undefined;
     if (themeConfig.autoHideTopbar ?? true) {
-      collapseTimer = window.setTimeout(() => {
+      topbarHoverTimerRef.current = window.setTimeout(() => {
         setTopbarCollapsed(true);
-      }, 5000);
+      }, 1500);
     }
 
     return () => {
-      if (collapseTimer) {
-        window.clearTimeout(collapseTimer);
+      if (topbarHoverTimerRef.current) {
+        window.clearTimeout(topbarHoverTimerRef.current);
       }
     };
   }, []);
@@ -1706,7 +1705,7 @@ export function StudioApp() {
   function closeApiKeyModal() {
     setShowApiKeyModal(false);
     if (themeConfig.autoHideTopbar ?? true) {
-      topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 3000);
+      topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 1500);
     }
   }
 

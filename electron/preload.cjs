@@ -1,6 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronApi", {
+  getAppInfo: () => ipcRenderer.invoke("desktop-info"),
+  checkForUpdates: () => ipcRenderer.invoke("desktop-check-update"),
+  showMoreMenu: () => ipcRenderer.invoke("desktop-more"),
+  runMenuCommand: command => ipcRenderer.invoke("desktop-menu-command", command),
+  openAppLink: destination => ipcRenderer.invoke("desktop-open-link", destination),
+  editNative: command => ipcRenderer.invoke("desktop-edit-native", command),
+  onMenuEvent: callback => {
+    const listener = (_event, command) => callback(command);
+    ipcRenderer.on("desktop-menu-event", listener);
+    return () => ipcRenderer.removeListener("desktop-menu-event", listener);
+  },
   notifyReady: (themeData) => {
     try {
       ipcRenderer.send("app-first-paint", themeData);

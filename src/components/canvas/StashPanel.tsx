@@ -2,6 +2,7 @@ import type { AudioAsset } from "../../types/studioAudio";
 import type { StashItem } from "../../types/studio";
 import { ChevronDown, Download, Trash2, Pause, Play } from "lucide-react";
 import { activateAudio, releaseAudio } from "../../utils/audioPlayback";
+import { prepareAudioPlayback } from "../../utils/playbackSettings";
 import { useState, useRef, useEffect } from "react";
 
 export function StashPanel({
@@ -133,6 +134,7 @@ export function StashMiniPlayer({
     }
 
     if (audio.paused) {
+      prepareAudioPlayback(audio);
       activateAudio(audio);
       void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     } else {

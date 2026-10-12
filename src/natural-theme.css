@@ -1,4 +1,4 @@
-/* Canonical palette layer. Only colors/surfaces change; geometry and motion remain intact.
+/* Canonical palette layer, compact chrome, and shared interaction timing.
    Scoped specificity overrides historical fixed neon colors in styles.css. */
 .minimap-overlap-badge circle { fill: var(--text-main); stroke: var(--bg-node); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .minimap-overlap-badge text { fill: var(--bg-node); font-family: system-ui, sans-serif; font-weight: 700; }
@@ -448,4 +448,50 @@
 :root[data-theme] .studio-shell .node-game-vocal .game-vocal-container :is(input, textarea):focus {
   border-color: var(--node-accent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--node-accent) 16%, transparent) !important;
+}
+:root[data-theme] .studio-topbar:not(.collapsed) { height: 48px; min-height: 48px; padding: 6px 16px; gap: 12px; box-sizing: border-box; }
+:root[data-theme] .studio-topbar .topbar-actions { gap: 6px; }
+:root[data-theme] .studio-topbar .topbar-actions button { min-height: 30px; padding: 5px 10px; font-size: 12px; gap: 5px; border-radius: 8px; }
+:root[data-theme] .studio-topbar .brand-block h1 { font-size: 16px; margin: 0; }
+:root[data-theme] .studio-topbar .brand-kicker { font-size: 9px; }
+.studio-more-button { position: relative; }
+.studio-update-dot { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #e54545; box-shadow: 0 0 0 2px var(--bg-panel); }
+.studio-about-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,.35); display: grid; place-items: center; }
+.studio-about-dialog { width: min(400px, calc(100vw - 40px)); padding: 22px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-panel); color: var(--text-main); box-shadow: 0 12px 48px rgba(0,0,0,.2); }
+.studio-about-dialog header { display: flex; justify-content: space-between; align-items: center; }
+.studio-about-dialog h3 { margin: 0; font-size: 14px; }
+.studio-about-dialog h2 { margin: 20px 0 8px; font-size: 21px; }
+.studio-about-dialog p { font-size: 12px; color: var(--text-muted); }
+.studio-about-version { margin-top: 20px; display: flex; justify-content: space-between; font-size: 13px; }
+.studio-update-status { padding: 12px 0; font-size: 12px; }
+.studio-about-actions { display: flex; gap: 8px; }
+.studio-repository-link { margin-top: 18px; font-size: 12px; }
+.studio-about-dialog :is(.studio-about-actions button, .studio-repository-link) { font-family: inherit; font-size: 12px; font-weight: 500; line-height: 18px; min-height: 30px; padding: 5px 10px; gap: 6px; border-radius: 7px; }
+.studio-repository-link { margin-top: 12px; }
+.studio-compact-menu { position: fixed; z-index: 10001; display: flex; align-items: flex-start; gap: 4px; max-width: calc(100vw - 16px); color: var(--text-main); }
+.studio-compact-root, .studio-compact-submenu { padding: 4px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-panel); box-shadow: 0 5px 20px rgba(0,0,0,.15); }
+.studio-compact-root { width: 94px; }
+.studio-compact-submenu { width: 218px; }
+.studio-compact-menu button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 26px; padding: 4px 8px; gap: 12px; border: 0; border-radius: 5px; box-shadow: none; background: transparent; color: inherit; font-family: inherit; font-size: 12px; font-weight: 400; line-height: 18px; }
+.studio-compact-menu button:is(:hover, :focus-visible, [aria-expanded="true"]) { background: var(--bg-input); color: var(--text-main); outline: none; }
+.studio-compact-menu kbd { font-family: inherit; font-size: 11px; white-space: nowrap; color: var(--text-muted); }
+.studio-menu-separator { height: 1px; margin: 4px; background: var(--border-color); }
+.studio-playback-option { display: flex; align-items: center; gap: 8px; margin: 20px 0 12px; font-size: 13px; cursor: pointer; }
+.studio-playback-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent-color); }
+.studio-playback-dialog p { line-height: 1.7; }
+
+/* Fast pointer feedback; keep existing transition properties and loading animations.
+   Repeated theme attribute intentionally outranks historical button shorthands. */
+:root[data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-dialog, .studio-compact-menu) :is(button, [role="button"], a.download-link) {
+  transition-duration: 60ms !important;
+  transition-delay: 0ms !important;
+  transition-timing-function: ease-out !important;
+}
+:root[data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-dialog, .studio-compact-menu) :is(button, [role="button"], a.download-link):active {
+  transition-duration: 40ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-dialog, .studio-compact-menu) :is(button, [role="button"], a.download-link) {
+    transition-duration: 0ms !important;
+  }
 }

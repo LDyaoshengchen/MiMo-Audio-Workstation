@@ -2,6 +2,8 @@ import type { Dispatch, SetStateAction, RefObject } from "react";
 import type { ThemeConfig } from "../../studio/theme";
 import { Palette, FolderOpen } from "lucide-react";
 import { StatusPill } from "../canvas/StatusPill";
+import { StudioMoreMenu } from "./StudioMoreMenu";
+import { PlaybackSettings } from "./PlaybackSettings";
 
 export interface StudioTopbarProps {
   themeConfig: ThemeConfig;
@@ -37,7 +39,7 @@ export function StudioTopbar({
     }}
     onMouseLeave={() => {
       if ((themeConfig.autoHideTopbar ?? true) && !showApiKeyModal) {
-        topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 2000);
+        topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 1500);
       }
     }}
   >
@@ -55,6 +57,8 @@ export function StudioTopbar({
         <FolderOpen size={16} />
         存储设置
       </button>
+      <PlaybackSettings />
+      <StudioMoreMenu />
     </div>
   </header>);
 }

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, Menu, ipcMain, nativeTheme } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const { setupDesktopControls, attachWindowShortcuts } = require("./desktop-controls.cjs");
 
 // 开启 Chromium 渲染硬件加速与极致秒开运行优化
 app.commandLine.appendSwitch("enable-gpu-rasterization");
@@ -27,79 +28,6 @@ function getPackageMeta() {
 const pkgMeta = getPackageMeta();
 const APP_VERSION = pkgMeta.version || "0.8.17";
 
-function setupChineseMenu() {
-  const isMac = process.platform === "darwin";
-
-  const template = [
-    ...(isMac ? [{ role: "appMenu" }] : []),
-    {
-      label: "文件",
-      submenu: [
-        isMac ? { role: "close", label: "关闭窗口" } : { role: "quit", label: "退出" }
-      ]
-    },
-    {
-      label: "编辑",
-      submenu: [
-        { role: "undo", label: "撤销" },
-        { role: "redo", label: "重做" },
-        { type: "separator" },
-        { role: "cut", label: "剪切" },
-        { role: "copy", label: "复制" },
-        { role: "paste", label: "粘贴" },
-        { role: "selectAll", label: "全选" }
-      ]
-    },
-    {
-      label: "视图",
-      submenu: [
-        { role: "reload", label: "重新加载" },
-        { role: "forceReload", label: "强制重新加载" },
-        { role: "toggleDevTools", label: "切换开发者工具" },
-        { type: "separator" },
-        { role: "resetZoom", label: "重置缩放 (实际大小)" },
-        { role: "zoomIn", label: "放大" },
-        { role: "zoomOut", label: "缩小" },
-        { type: "separator" },
-        { role: "togglefullscreen", label: "切换全屏" }
-      ]
-    },
-    {
-      label: "窗口",
-      submenu: [
-        { role: "minimize", label: "最小化" },
-        { role: "zoom", label: "缩放" },
-        ...(isMac
-          ? [
-              { type: "separator" },
-              { role: "front", label: "前置所有窗口" },
-              { type: "separator" },
-              { role: "window", label: "窗口" }
-            ]
-          : [{ role: "close", label: "关闭" }])
-      ]
-    },
-    {
-      label: "帮助",
-      submenu: [
-        {
-          label: "关于 MiMo 音色复刻调试台",
-          click: async () => {
-            dialog.showMessageBox({
-              type: "info",
-              title: "关于 MiMo 音色复刻调试台",
-              message: "MiMo 音色复刻调试台 (MiMo Audio Workstation)",
-              detail: `基于大模型的高性能音频设计、语音克隆与智能有声书制作工作流工作站\n版本: v${APP_VERSION}`
-            });
-          }
-        }
-      ]
-    }
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-}
 
 function loadEnvFiles(appRoot) {
   const envCandidates = [
@@ -253,6 +181,8 @@ async function createWindow(serverUrlPromise) {
       spellcheck: false // 禁用富文本拼写检查，提升大画板长文本渲染性能
     }
   });
+  window.removeMenu();
+  attachWindowShortcuts(window);
 
   const handleNativeThemeUpdated = () => {
     if (!window.isDestroyed()) {
@@ -341,7 +271,8 @@ async function createWindow(serverUrlPromise) {
 
 app.whenReady().then(async () => {
   try {
-    setupChineseMenu();
+    Menu.setApplicationMenu(null);
+    setupDesktopControls(APP_VERSION);
     // 并行启动服务端与渲染窗口
     const serverUrlPromise = startApiServer();
     await createWindow(serverUrlPromise);
