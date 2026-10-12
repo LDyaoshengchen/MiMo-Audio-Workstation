@@ -15,13 +15,16 @@ describe("transactional data-directory migration", () => {
     await writeFile(path.join(source, "audios", "voice.wav"), "audio-fixture");
     await writeFile(path.join(source, "workspaces", "board.json"), '{"id":"board"}');
     await writeFile(path.join(source, "templates.json"), '[]');
+    await writeFile(path.join(source, "voice-library.json"), '[{"name":"角色","voiceId":"voice-1"}]');
+    await mkdir(path.join(source, "role-voice-library"));
+    await writeFile(path.join(source, "role-voice-library", "assets.json"), '[{"name":"收藏","favorite":true}]');
     await writeFile(path.join(source, "settings.json"), '{"apiKey":"not-for-migration"}');
     return { source, target };
   }
   it("copies audios, workspace files and templates while retaining originals and leaving credentials fixed", async () => {
     const { source, target } = await fixture();
     await prepareStorageMigration(source, target);
-    for (const file of ["audios/voice.wav", "workspaces/board.json", "templates.json"]) {
+    for (const file of ["audios/voice.wav", "workspaces/board.json", "templates.json", "voice-library.json", "role-voice-library/assets.json"]) {
       expect(await readFile(path.join(target, file))).toEqual(await readFile(path.join(source, file)));
     }
     await expect(lstat(path.join(target, "settings.json"))).rejects.toMatchObject({ code: "ENOENT" });

@@ -4,6 +4,8 @@ import { GAME_CHARACTER_PRESETS } from "../../utils/gamePresets";
 import { Handle, Position } from "@xyflow/react";
 import { Mic2, Loader2, AudioLines, Grid } from "lucide-react";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { GenerationButtonText } from "../GenerationButtonText";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
 import { memo, useRef, useState, useLayoutEffect, Fragment } from "react";
 import { useAutoUpdateNodeInternals, getElementTopInNode } from "../../studio/nodeInternals";
 
@@ -64,7 +66,7 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
             }
           }}
         >
-          <option value="" disabled>🎮 角色预设…</option>
+          <option value="" disabled>🎮 角色预设</option>
           <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
             {GAME_CHARACTER_PRESETS.map((p) => (
               <Fragment key={p.id}>
@@ -78,6 +80,7 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
             ))}
           </optgroup>
         </select>
+        <RoleVoiceLibrary nodeId={id} data={data} />
       </div>
 
       <label className="node-field nodrag">
@@ -99,7 +102,7 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
           title="生成 1 条音频克隆产物"
         >
           {data.isRunning ? <Loader2 className="spin" size={15} /> : <AudioLines size={15} />}
-          {data.isRunning ? "生成中..." : "运行克隆"}
+          <GenerationButtonText data={data} idle="运行克隆" batch={false} />
         </button>
 
         <button
@@ -111,7 +114,7 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
           title="一次性批量克隆 9 个音频产物"
         >
           {data.isRunning ? <Loader2 className="spin" size={15} /> : <Grid size={15} />}
-          {data.isRunning ? "批量克隆中..." : "批量克隆 9个"}
+          <GenerationButtonText data={data} idle="批量克隆 9个" running="批量克隆中..." batch />
         </button>
       </div>
     </StudioNodeFrame>

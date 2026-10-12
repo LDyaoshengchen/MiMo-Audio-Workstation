@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import vm from "node:vm";
+import path from "node:path";
 
 function fixture(response: any = { tag_name: "v0.8.39" }) {
   const handlers: Record<string, any> = {};
@@ -9,17 +10,39 @@ function fixture(response: any = { tag_name: "v0.8.39" }) {
   const popup = vi.fn();
   const build = vi.fn(() => ({ popup }));
   const external = vi.fn();
+  const openPath = vi.fn(async () => "");
   const fetch = vi.fn(async () => ({ ok: true, json: async () => response }));
   const module = { exports: {} as any };
   vm.runInNewContext(fs.readFileSync("electron/desktop-controls.cjs", "utf8"), {
-    require: () => ({ BrowserWindow: { fromWebContents: () => window }, ipcMain: { handle: (key: string, handler: any) => { handlers[key] = handler; } }, Menu: { buildFromTemplate: build }, shell: { openExternal: external } }),
+    require: (name: string) => name === "node:path" ? path : name === "node:fs/promises" ? fs.promises : ({ BrowserWindow: { fromWebContents: () => window }, ipcMain: { handle: (key: string, handler: any) => { handlers[key] = handler; } }, Menu: { buildFromTemplate: build }, shell: { openExternal: external, openPath } }),
     module, URL, fetch, AbortSignal,
   });
   module.exports.setupDesktopControls("0.8.38");
   const event = { sender: contents, senderFrame: contents.mainFrame };
-  return { handlers, contents, window, build, external, fetch, event, exports: module.exports };
+  return { handlers, contents, window, build, external, openPath, fetch, event, exports: module.exports };
 }
 describe("desktop controls", () => {
+  it("opens storage folders through the native shell after resolving the active directory", async () => {
+    const f = fixture({ path: path.resolve("package.json") });
+    await f.handlers["desktop-open-storage"](f.event, "workspace", "board-1");
+    expect(f.openPath).toHaveBeenCalledWith(path.resolve("."));
+    expect(String(f.fetch.mock.calls[0][0])).toBe("http://127.0.0.1:38210/api/workspaces/open-folder");
+    expect(JSON.parse((f.fetch.mock.calls as any)[0][1].body)).toEqual({ resolveOnly:true, workspaceId:"board-1" });
+    const audio = fixture({ path:path.resolve(".") });
+    await audio.handlers["desktop-open-storage"](audio.event, "audios");
+    expect(audio.openPath).toHaveBeenCalledWith(path.resolve("."));
+  });
+  it("rejects unsafe storage requests and reports native shell failures", async () => {
+    const f = fixture({ path:path.resolve(".") });
+    for (const [kind,id] of [["other",undefined],["workspace","../escape"]]) await expect(f.handlers["desktop-open-storage"](f.event, kind, id)).rejects.toThrow();
+    await expect(f.handlers["desktop-open-storage"]({ ...f.event, senderFrame:{} }, "audios")).rejects.toThrow();
+    expect(f.openPath).not.toHaveBeenCalled();
+    f.openPath.mockResolvedValueOnce("Access denied");
+    await expect(f.handlers["desktop-open-storage"](f.event, "audios")).rejects.toThrow("Access denied");
+    const relative = fixture({ path:"relative-folder" });
+    await expect(relative.handlers["desktop-open-storage"](relative.event, "audios")).rejects.toThrow();
+    expect(relative.openPath).not.toHaveBeenCalled();
+  });
   it("compares stable versions numerically, not lexically", () => {
     const { exports: { newerVersion } } = fixture();
     expect(newerVersion("v0.8.100", "0.8.38")).toBe(true);

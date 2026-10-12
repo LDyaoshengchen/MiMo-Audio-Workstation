@@ -1,4 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
+import { useRef } from "react";
+import { useSettingsPopover } from "./useSettingsPopover";
 import type { ProviderOptions } from "../../utils/providerConfig";
 import { API_PROVIDERS } from "../../studio/config";
 import { X, Key, Sparkles } from "lucide-react";
@@ -40,19 +42,21 @@ export function ApiSettingsDialog({
   settingsError,
   saveApiKey,
 }: ApiSettingsDialogProps) {
+  const panel=useRef<HTMLDivElement>(null);
+  const popover=useSettingsPopover(showApiKeyModal,'.topbar-actions .status-pill',panel);
   return (<>{showApiKeyModal && (
     <div
-      className="api-key-modal"
+      className={`api-key-modal${popover.overlayClass}`}
       onMouseDown={handleBackdropMouseDown}
       onClick={(e) => handleBackdropClick(e, closeApiKeyModal)}
     >
-      <div className="api-key-modal-content" onClick={(e) => e.stopPropagation()}>
+      <div ref={panel} className={`api-key-modal-content${popover.panelClass}`} style={popover.style} onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
             <Key size={18} />
             配置 AI 语音/文本 API 密钥与服务入口
           </h3>
-          <button className="api-key-modal-close" type="button" onClick={closeApiKeyModal}>
+          <button className="api-key-modal-close settings-close-button" type="button" aria-label="关闭 API 设置" title="关闭" onClick={closeApiKeyModal}>
             <X size={18} />
           </button>
         </div>

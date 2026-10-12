@@ -6,6 +6,8 @@ import { formatHierarchyName } from "../utils/audioNaming";
 import { WindowedList } from "./WindowedList";
 import { SingleArtifactDownloadLink } from "./SingleArtifactDownloadLink";
 import { StudioAudioPlayer } from "./StudioAudioPlayer";
+import { ArtifactReview } from "./ArtifactReview";
+import type { ProductReview } from "../types/studioAudio";
 
 export type IntegratedArtifactContext = {
   nodeId: string;
@@ -15,6 +17,7 @@ export type IntegratedArtifactContext = {
   stashedKeys?: ReadonlySet<string>;
   onToggleStash?: (artifact: ArtifactData) => void;
   onDeleteArtifact?: (rowId: string, artifactId: string) => void;
+  onReview?: (rowId: string, artifactId: string, review: ProductReview) => void;
 };
 
 const EMPTY_ARTIFACTS: IntegratedRowArtifact[] = [];
@@ -73,6 +76,7 @@ export const IntegratedRowArtifactList = memo(function IntegratedRowArtifactList
                     )}
                   </div>
                   <div className="batch-artifact-item-actions">
+                    <ArtifactReview title={itemSubTitle} src={art.audioDataUrl} review={art.review} onChange={review => context.onReview?.(rowId, art.id, review)} />
                     <button
                       type="button"
                       className={isStashed ? "batch-artifact-item-btn stashed" : "batch-artifact-item-btn"}

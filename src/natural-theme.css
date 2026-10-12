@@ -1,5 +1,39 @@
 /* Canonical palette layer, compact chrome, and shared interaction timing.
    Scoped specificity overrides historical fixed neon colors in styles.css. */
+:root[data-theme][data-theme] .settings-popover-overlay {
+  background:transparent !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
+}
+:root[data-theme][data-theme] .settings-popover-panel {
+  position:fixed !important; display:flex; flex-direction:column; margin:0 !important; transform:none !important; animation:none !important;
+  width:min(var(--popover-width), calc(100vw - 16px)) !important; max-height:var(--popover-max-height) !important;
+  box-shadow:0 8px 28px #00000024 !important; border-radius:12px !important; overflow-y:auto;
+}
+:root[data-theme] .settings-popover-panel :is(.api-key-modal-body, .appearance-modal-content, .voice-library-body) { min-height:0; overflow-y:auto; max-height:none; flex:1; }
+:root[data-theme] .settings-popover-panel :is(.api-key-modal-header, .api-key-modal-footer, .voice-library-header, .appearance-modal-header, .appearance-modal-footer) { flex-shrink:0; }
+.studio-node .clone-toolbar, .studio-node .design-toolbar, .studio-node .batch-toolbar-row { display:flex; align-items:center; flex-wrap:nowrap; gap:6px; }
+.studio-node .clone-toolbar > select, .studio-node .design-toolbar > select { flex:0 0 118px !important; width:118px !important; min-width:118px !important; max-width:118px !important; height:30px !important; border-radius:6px; padding:4px 20px 4px 7px !important; font-size:12px !important; font-weight:600; background-color:var(--bg-node); box-shadow:0 1px 2px #00000012; cursor:pointer; }
+.studio-node .role-library-button { flex-shrink:0; height:30px; min-height:30px; padding:4px 9px; font-size:12px; font-weight:600; white-space:nowrap; }
+.studio-node .batch-toolbar-row > .clone-toolbar { flex:0 0 auto; }
+.reference-tools-row { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-bottom:8px; }
+.reference-tools-row > span { font-size:11px; opacity:.7; }
+.node-library-toolbar { display:flex; justify-content:flex-end; gap:6px; margin-bottom:6px; }
+.voice-library-location { font-size:11px; opacity:.7; overflow-wrap:anywhere; }
+.studio-node.node-audio .recording-panel { grid-template-columns:minmax(0,1fr) 70px; gap:6px; }
+.studio-node .design-action-btn { margin-left:auto; }
+.studio-node button.favorite-icon-button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 30px; width:30px; min-width:30px; height:30px; min-height:30px; padding:0; }
+.studio-node .batch-artifact-item-actions .favorite-icon-button { flex-basis:26px; width:26px; min-width:26px; height:26px; min-height:26px; }
+.studio-node .artifact-actions { display:grid; grid-template-columns:30px minmax(0,1fr) minmax(0,1fr); align-items:center; gap:6px; }
+.studio-node.node-audio .file-picker { padding:10px 12px; }
+.studio-node.node-audio .file-picker > span { font-size:13px; }
+:root[data-theme] .studio-shell .studio-node :is(.clone-preset-select, .design-preset-select, .role-library-button) { background:var(--bg-button) !important; border:1px solid var(--border-color) !important; color:var(--text-main) !important; box-shadow:0 1px 2px #00000012 !important; transition:background-color 60ms linear, border-color 60ms linear !important; }
+:root[data-theme] .studio-shell .studio-node :is(.clone-toolbar, .design-toolbar, .batch-toolbar-row, .integrated-col-tools, .reference-tools-row, .game-vocal-mode-tabs) :is(button, select) {
+  box-sizing:border-box !important; height:30px !important; min-height:30px !important; max-height:30px !important;
+  padding:4px 9px !important; border-radius:6px !important; font-family:inherit !important; font-size:12px !important;
+  font-weight:600 !important; line-height:20px !important; vertical-align:middle; margin-top:0 !important; margin-bottom:0 !important;
+}
+:root[data-theme] .studio-shell .studio-node :is(.clone-toolbar, .design-toolbar) > select { padding-left:7px !important; padding-right:20px !important; }
+:root[data-theme] .studio-shell .studio-node :is(.clone-toolbar, .design-toolbar, .batch-toolbar-row, .integrated-col-tools, .game-vocal-mode-tabs) button svg { width:14px !important; height:14px !important; flex-shrink:0; }
+:root[data-theme] .studio-shell .studio-node .game-vocal-mode-tabs { align-items:center; gap:6px; padding:6px; }
 .minimap-overlap-badge circle { fill: var(--text-main); stroke: var(--bg-node); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .minimap-overlap-badge text { fill: var(--bg-node); font-family: system-ui, sans-serif; font-weight: 700; }
 :root[data-theme] .studio-shell {
@@ -454,6 +488,17 @@
 :root[data-theme] .studio-topbar .topbar-actions button { min-height: 30px; padding: 5px 10px; font-size: 12px; gap: 5px; border-radius: 8px; }
 :root[data-theme] .studio-topbar .brand-block h1 { font-size: 16px; margin: 0; }
 :root[data-theme] .studio-topbar .brand-kicker { font-size: 9px; }
+:root[data-theme] .studio-topbar .brand-block > :is(h1, .brand-kicker) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-theme] .studio-topbar .topbar-actions > button { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 1100px) {
+  :root[data-theme] .studio-topbar:not(.collapsed) { padding-inline: 12px; gap: 8px; }
+}
+@media (max-width: 700px) {
+  :root[data-theme] .studio-topbar:not(.collapsed) { height: auto; flex-wrap: wrap; }
+  :root[data-theme] .studio-topbar .brand-block { flex-basis: 100%; }
+  :root[data-theme] .studio-topbar .brand-block:empty { display: none; }
+  :root[data-theme] .studio-topbar .topbar-actions { flex: 1 1 100%; flex-wrap: wrap; }
+}
 .studio-more-button { position: relative; }
 .studio-update-dot { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #e54545; box-shadow: 0 0 0 2px var(--bg-panel); }
 .studio-about-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,.35); display: grid; place-items: center; }
@@ -479,6 +524,112 @@
 .studio-playback-option { display: flex; align-items: center; gap: 8px; margin: 20px 0 12px; font-size: 13px; cursor: pointer; }
 .studio-playback-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent-color); }
 .studio-playback-dialog p { line-height: 1.7; }
+.studio-playback-options { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px; margin-top:18px; padding:5px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-input); }
+.studio-playback-options button { min-height:36px; padding:6px 8px; gap:6px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--text-muted); font:inherit; font-size:12px; white-space:nowrap; box-shadow:none; }
+.studio-playback-options button[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent-color); color:var(--text-main); font-weight:600; }
+@media (max-width:360px) { .studio-playback-options { grid-template-columns:1fr; } }
+.generation-progress { font-size: 12px; color: var(--node-accent); padding: 4px 0 8px; font-weight: 600; }
+.artifact-review { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 6px 0; font-size: 11px; }
+.artifact-review :is(button, select) { font-size: 11px; min-height: 24px; padding: 3px 6px; }
+.artifact-review label { display: flex; align-items: center; gap: 4px; }
+.artifact-review input { margin: 0; accent-color: var(--node-accent); }
+.artifact-review button[aria-pressed="true"] { border-color: var(--node-accent); color: var(--node-accent); }
+.audio-comparison-dialog, .voice-library-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+.comparison-clip { padding: 12px 0; border-bottom: 1px solid var(--border-color); }
+.comparison-clip strong { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
+.voice-library-form { display: grid; gap: 8px; margin-bottom: 18px; }
+.voice-library-form label { display: grid; gap: 4px; font-size: 12px; }
+.voice-library-dialog :is(input:not([type="checkbox"]), textarea) { width: 100%; box-sizing: border-box; background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12px; }
+.voice-library-list { display: grid; gap: 10px; margin-top: 10px; }
+.voice-library-list article { padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; }
+.voice-library-dialog :is(button, small), .audio-comparison-dialog button { font-size: 12px; }
+.voice-library-dialog button, .audio-comparison-dialog button { padding: 5px 9px; margin-right: 5px; }
+
+/* Role asset library shares the settings-dialog card and control language. */
+:root[data-theme] .studio-shell .api-key-modal-body .api-form-fields > label {
+  display:grid; gap:3px; font-size:12px; font-weight:600; line-height:1.5;
+  font-family:inherit; color:var(--text-main);
+}
+:root[data-theme] .studio-shell .api-key-modal-body .api-form-fields .api-key-input { font-weight:400; font-size:13px; }
+:root[data-theme] .studio-shell .api-key-modal-body .api-form-fields > p { font-size:12px; font-weight:400; line-height:1.6; color:var(--text-muted); }
+:root[data-theme] .api-key-modal-body .api-form-fields > p.api-capability-note {
+  font-family:inherit; font-size:12px !important; font-weight:400 !important;
+  line-height:1.6; letter-spacing:normal; color:var(--text-muted) !important; margin:10px 0 0;
+}
+.studio-about-dialog.voice-library-dialog { width:min(660px, calc(100vw - 32px)); padding:0; overflow:hidden; }
+.voice-library-dialog .voice-library-header { padding:16px 20px; border-bottom:1px solid var(--border-color); }
+.voice-library-header h3 { display:flex; align-items:center; gap:8px; }
+.voice-library-editor { border:1px solid var(--border-color); border-radius:12px; background:var(--bg-input); margin-bottom:20px; overflow:hidden; }
+.voice-library-dialog button.voice-library-editor-toggle { display:flex; width:100%; box-sizing:border-box; gap:8px; padding:11px 14px; margin:0; border:0; border-radius:11px; background:transparent; box-shadow:none; color:var(--text-main); text-align:left; font-weight:600; }
+.voice-library-dialog button.voice-library-editor-toggle[aria-expanded="true"] { border-radius:11px 11px 0 0; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-about-overlay button.voice-library-editor-toggle { transform:none !important; filter:none !important; box-shadow:none !important; }
+.voice-library-editor-toggle > span { flex:1; }
+.voice-library-editor-toggle > svg:last-child { transition:rotate 60ms ease-out; }
+.voice-library-editor-toggle[aria-expanded="true"] > svg:last-child { rotate:180deg; }
+.voice-library-dialog .voice-library-editor .voice-library-form { border:0; border-radius:0; margin-bottom:0; padding-top:0; }
+.voice-library-dialog .voice-library-form[hidden] { display:none; }
+.voice-library-body { max-height:calc(100vh - 112px); overflow-y:auto; padding:16px 20px 20px; }
+.voice-library-dialog .voice-library-intro { margin:0 0 14px; line-height:1.6; }
+.voice-library-dialog .voice-library-form { grid-template-columns:minmax(0, 1.5fr) minmax(0, 1fr); gap:12px; padding:14px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-input); margin-bottom:20px; }
+.voice-library-form label, .voice-library-field-label { font-weight:600; font-size:12px; }
+.voice-library-dialog .voice-library-form label { gap:6px; min-width:0; }
+.voice-library-wide { grid-column:1 / -1; }
+.voice-library-dialog :is(input:not([type="file"]), textarea) { min-height:32px; background:var(--bg-panel); border-radius:7px; box-shadow:none; line-height:1.5; }
+.voice-library-dialog textarea { min-height:62px; resize:vertical; }
+.voice-library-dialog :is(input, textarea):focus-visible { outline:2px solid var(--accent-color); outline-offset:1px; }
+.voice-library-dialog button { gap:6px; margin:0; min-height:32px; padding:6px 10px; border-radius:7px; background:var(--bg-button); border:1px solid var(--border-color); color:var(--text-main); box-shadow:0 1px 2px #00000012; font-family:inherit; font-size:12px; }
+.voice-library-audio-field { display:grid; gap:7px; }
+.voice-library-dialog .voice-library-native-file { display:none; }
+.voice-library-upload-row { display:flex; align-items:center; gap:8px; padding:8px; border:1px dashed var(--border-color); border-radius:8px; background:var(--bg-panel); min-width:0; }
+.voice-library-upload-row > button { flex-shrink:0; }
+.voice-library-upload-row > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--text-muted); }
+.voice-library-audio-field > small, .voice-library-list small { font-size:11px; color:var(--text-muted); }
+.voice-library-dialog button.voice-library-save { background:var(--accent-color); border-color:var(--accent-color); color:var(--accent-ink); box-shadow:0 2px 5px color-mix(in srgb, var(--accent-color) 20%, transparent); }
+.voice-library-list-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+.voice-library-list-heading h4 { margin:0; font-size:13px; }
+.voice-library-list-heading > span { font-size:11px; color:var(--text-muted); }
+.voice-library-dialog .voice-library-drag-hint { margin:8px 0 0; font-size:11px; line-height:1.5; color:var(--text-muted); }
+.voice-library-filters { display:flex; align-items:center; gap:8px; }
+.voice-library-search { display:flex; align-items:center; gap:7px; flex:1; min-width:0; padding:0 9px; background:var(--bg-input); border:1px solid var(--border-color); border-radius:7px; color:var(--text-muted); }
+.voice-library-search > svg { flex-shrink:0; }
+.voice-library-dialog .voice-library-search input { min-width:0; border:0; background:transparent; padding:6px 0; }
+.voice-library-search:focus-within { outline:2px solid var(--accent-color); outline-offset:1px; }
+.voice-library-dialog .voice-library-search input:focus-visible { outline:none; }
+.voice-library-dialog .voice-library-favorite-filter { flex-shrink:0; white-space:nowrap; box-shadow:none; }
+.voice-library-dialog button[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent-color); color:var(--accent-color); }
+.voice-library-dialog button.voice-library-icon-button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 30px; width:30px; min-height:30px; padding:0; box-shadow:none; }
+.voice-library-list article { background:var(--bg-input); border-radius:10px; padding:12px; min-width:0; }
+.voice-library-list article[draggable="true"] { cursor: grab; }
+.voice-library-list article[draggable="true"]:active { cursor: grabbing; }
+.studio-about-overlay.voice-library-dragging { pointer-events: none; }
+.voice-library-dragging .voice-library-dialog { pointer-events: auto; }
+.voice-library-asset-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.voice-library-asset-heading strong { font-size:13px; overflow-wrap:anywhere; }
+.voice-library-list article p { margin:5px 0 8px; line-height:1.5; overflow-wrap:anywhere; }
+.voice-library-list .studio-player { margin-top:9px; }
+.voice-library-asset-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.voice-library-empty { display:grid; justify-items:center; gap:8px; padding:24px 14px; color:var(--text-muted); text-align:center; border:1px dashed var(--border-color); border-radius:10px; margin-top:10px; }
+.voice-library-empty p { margin:0; line-height:1.6; }
+.voice-library-dialog .voice-library-location { display:flex; align-items:flex-start; gap:6px; margin-top:14px; font-size:11px; color:var(--text-muted); opacity:1; }
+.voice-library-location svg { flex-shrink:0; margin-top:1px; }
+.voice-library-dialog .voice-library-error { padding:9px 11px; border-radius:7px; background:color-mix(in srgb, #dc2626 8%, var(--bg-panel)); color:#dc2626; }
+.voice-library-list article { position:relative; padding:9px 11px; }
+.voice-library-asset-heading strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.voice-library-asset-heading .voice-library-asset-actions { flex-shrink:0; flex-wrap:nowrap; margin:0; gap:5px; }
+.voice-library-asset-preview { margin-top:7px; min-height:24px; }
+.voice-library-list .voice-library-asset-preview .studio-player { margin-top:0; }
+.voice-library-dialog button.voice-library-description-toggle { min-height:30px; padding:4px 5px; gap:3px; background:transparent; border-color:transparent; box-shadow:none; font-size:11px; color:var(--text-muted); white-space:nowrap; }
+.voice-library-description-toggle svg { transition:rotate 60ms ease-out; }
+.voice-library-description-toggle[aria-expanded="true"] svg { rotate:180deg; }
+.voice-library-asset-details { margin-top:9px; padding-top:7px; border-top:1px solid var(--border-color); }
+.voice-library-asset-details p { margin:4px 0; }
+.voice-library-asset-details p > span { display:block; margin-bottom:3px; font-weight:600; }
+@media (max-width:520px) {
+  .voice-library-body { padding:14px; }
+  .voice-library-dialog .voice-library-form { grid-template-columns:minmax(0, 1fr); }
+  .voice-library-filters { flex-wrap:wrap; }
+  .voice-library-search { flex-basis:100%; }
+}
 
 /* Fast pointer feedback; keep existing transition properties and loading animations.
    Repeated theme attribute intentionally outranks historical button shorthands. */
@@ -493,5 +644,118 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-dialog, .studio-compact-menu) :is(button, [role="button"], a.download-link) {
     transition-duration: 0ms !important;
+  }
+}
+.studio-node { --node-control-shadow:0 2px 5px color-mix(in srgb, var(--node-accent) 20%, transparent); }
+:root[data-theme][data-theme] .studio-shell .studio-node :is(button, a.download-link, a.batch-artifact-item-btn, .clone-preset-select, .design-preset-select) {
+  box-shadow:var(--node-control-shadow) !important;
+}
+:root[data-theme][data-theme] .studio-shell .studio-node :is(button, a.download-link, a.batch-artifact-item-btn, .clone-preset-select, .design-preset-select):hover:not(:disabled) {
+  box-shadow:0 3px 7px color-mix(in srgb, var(--node-accent) 26%, transparent) !important;
+}
+:root[data-theme][data-theme] .studio-shell .studio-node :is(button, a.download-link, a.batch-artifact-item-btn, .clone-preset-select, .design-preset-select):disabled {
+  box-shadow:0 1px 3px color-mix(in srgb, var(--node-accent) 8%, transparent) !important;
+}
+:root[data-theme][data-theme] button.settings-close-button {
+  display:inline-flex !important; align-items:center; justify-content:center; flex:0 0 32px;
+  box-sizing:border-box; width:32px !important; min-width:32px !important; height:32px !important; min-height:32px !important;
+  padding:0 !important; margin:0 !important; border-radius:9px !important;
+  background:color-mix(in srgb, var(--accent-color) 12%, var(--bg-button)) !important;
+  border:1px solid color-mix(in srgb, var(--accent-color) 18%, var(--border-color)) !important;
+  color:var(--text-main) !important; box-shadow:0 2px 5px color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
+  cursor:pointer; transition:background-color 60ms ease-out, box-shadow 60ms ease-out !important;
+}
+:root[data-theme][data-theme] button.settings-close-button svg { width:18px !important; height:18px !important; color:inherit !important; }
+:root[data-theme][data-theme] button.settings-close-button:hover { background:color-mix(in srgb, var(--accent-color) 20%, var(--bg-button)) !important; box-shadow:0 3px 7px color-mix(in srgb, var(--accent-color) 26%, transparent) !important; }
+:root[data-theme][data-theme] button.settings-close-button:active { background:color-mix(in srgb, var(--accent-color) 26%, var(--bg-button)) !important; box-shadow:0 1px 2px color-mix(in srgb, var(--accent-color) 18%, transparent) !important; }
+:root[data-theme][data-theme] button.settings-close-button:focus-visible { outline:2px solid var(--accent-color); outline-offset:2px; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .studio-node :is(
+  .role-library-button, .clone-preset-select, .design-preset-select, .batch-excel-paste-btn, .batch-clear-btn, .design-action-btn, .integrated-mini-tool,
+  .game-vocal-mode-tab, .game-vocal-cat-btn, .game-vocal-sub-btn, .game-vocal-quick-btn, .game-vocal-duration-pill,
+  .game-vocal-char-type-btn, .game-vocal-tag-chip, .game-vocal-item-chip, .game-vocal-pill-remove-btn) {
+  box-shadow:none !important;
+}
+:root[data-theme] .studio-shell .integrated-header-cell:is(.col-1, .col-2) { display:grid; grid-template-columns:14px minmax(0,1fr); row-gap:7px; }
+:root[data-theme] .studio-shell .integrated-header-cell:is(.col-1, .col-2) > span { white-space:nowrap; }
+:root[data-theme] .studio-shell .integrated-header-cell:is(.col-1, .col-2) .integrated-col-tools { grid-column:1 / -1; display:flex; flex-wrap:wrap; margin-left:0; gap:6px; }
+:root[data-theme] .studio-shell .integrated-header-cell.col-1 .integrated-batch-upload-btn { margin-left:0 !important; }
+:root[data-theme] .studio-shell .integrated-col-tools button { flex-shrink:0; white-space:nowrap; }
+
+/* Shared feedback across canvas tools, chrome and portal dialogs.
+   Filter guarantees feedback even when a control retains its selected/fill color.
+   Shadow remains owned by the primary/auxiliary rules above. */
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker) {
+  --control-hover-brightness:1.12;
+  --control-pressed-brightness:1.2;
+  transition-property:background-color, border-color, color, box-shadow, filter, transform !important;
+  transition-duration:60ms !important;
+  transition-timing-function:ease-out !important;
+  transition-delay:0ms !important;
+}
+:root[data-theme="light"][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker) {
+  --control-hover-brightness:.96;
+  --control-pressed-brightness:.91;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):hover {
+  filter:brightness(var(--control-hover-brightness)) !important;
+  transform:translateY(-1px) !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):active {
+  filter:brightness(var(--control-pressed-brightness)) !important;
+  transform:scale(.98) !important;
+  transition-duration:40ms !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):focus-visible {
+  outline:2px solid var(--node-accent, var(--accent-color)) !important;
+  outline-offset:2px !important;
+}
+/* Player circles mirror the range thumb: enlarge, without vertical travel. */
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .batch-row-remove-btn {
+  box-shadow:none !important;
+  transform:none !important;
+  filter:none !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .batch-row-remove-btn:hover:not(:disabled) { background:var(--bg-button-hover) !important; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .batch-row-remove-btn:active:not(:disabled) { background:var(--accent-soft) !important; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger) {
+  box-shadow:none !important;
+  transform:none !important;
+  filter:none !important;
+  font-size:12px !important;
+  font-weight:600 !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .studio-node .batch-col-clear-btn { font-size:11px !important; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger):hover:not(:disabled) {
+  background:var(--bg-button-hover) !important;
+  border-color:var(--border-color) !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell :is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger):active:not(:disabled) { background:var(--accent-soft) !important; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay) :is(.studio-player, .compact-audio-player) :is(.player-button, .player-speed-btn) {
+  transition-duration:120ms !important;
+  transition-timing-function:ease !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay) :is(.studio-player, .compact-audio-player) :is(.player-button, .player-speed-btn):hover:not(:disabled) {
+  transform:scale(1.0667) !important;
+  filter:none !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay) :is(.studio-player, .compact-audio-player) :is(.player-button, .player-speed-btn):active:not(:disabled) {
+  transform:scale(1.1) !important;
+  filter:none !important;
+  transition-duration:120ms !important;
+}
+:root[data-theme] .player-range:hover::-webkit-slider-thumb,
+:root[data-theme] .player-range::-webkit-slider-thumb:hover { transform:scale(1.0667) !important; }
+:root[data-theme] .player-range:active::-webkit-slider-thumb,
+:root[data-theme] .player-range::-webkit-slider-thumb:active { transform:scale(1.1) !important; }
+:root[data-theme] .player-range:hover::-moz-range-thumb,
+:root[data-theme] .player-range::-moz-range-thumb:hover { transform:scale(1.0667) !important; }
+:root[data-theme] .player-range:active::-moz-range-thumb,
+:root[data-theme] .player-range::-moz-range-thumb:active { transform:scale(1.1) !important; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker) {
+    transition-duration:0ms !important;
+  }
+  :root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):is(:hover, :active):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating) {
+    transform:none !important;
   }
 }

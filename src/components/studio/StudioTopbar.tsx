@@ -4,8 +4,11 @@ import { Palette, FolderOpen } from "lucide-react";
 import { StatusPill } from "../canvas/StatusPill";
 import { StudioMoreMenu } from "./StudioMoreMenu";
 import { PlaybackSettings } from "./PlaybackSettings";
+import { RoleVoiceLibrary } from "./RoleVoiceLibrary";
+import type { StudioNode } from "../../types/studio";
 
 export interface StudioTopbarProps {
+  nodes: StudioNode[];
   themeConfig: ThemeConfig;
   topbarCollapsed: boolean;
   topbarHoverTimerRef: RefObject<number | null>;
@@ -19,6 +22,7 @@ export interface StudioTopbarProps {
 }
 
 export function StudioTopbar({
+  nodes,
   themeConfig,
   topbarCollapsed,
   topbarHoverTimerRef,
@@ -39,21 +43,22 @@ export function StudioTopbar({
     }}
     onMouseLeave={() => {
       if ((themeConfig.autoHideTopbar ?? true) && !showApiKeyModal) {
-        topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 1500);
+        topbarHoverTimerRef.current = window.setTimeout(() => { if(!document.querySelector('.settings-popover-overlay,.studio-compact-menu')) setTopbarCollapsed(true); }, 1500);
       }
     }}
   >
     <div className="brand-block">
-      {themeConfig.brandTitleEn ? <span className="brand-kicker">{themeConfig.brandTitleEn}</span> : null}
-      {themeConfig.brandTitleZh ? <h1>{themeConfig.brandTitleZh}</h1> : null}
+      {themeConfig.brandTitleEn ? <span className="brand-kicker" title={themeConfig.brandTitleEn}>{themeConfig.brandTitleEn}</span> : null}
+      {themeConfig.brandTitleZh ? <h1 title={themeConfig.brandTitleZh}>{themeConfig.brandTitleZh}</h1> : null}
     </div>
     <div className="topbar-actions">
+      <RoleVoiceLibrary />
       <StatusPill apiKey={apiKey} serverConfigured={serverApiKeyConfigured} onOpenModal={openApiKeyModal} />
-      <button type="button" onClick={() => setShowAppearanceModal(true)} title="调整外观色彩与主题">
+      <button data-settings-trigger="appearance" type="button" onClick={() => setShowAppearanceModal(true)} title="调整外观色彩与主题">
         <Palette size={16} />
         外观
       </button>
-      <button type="button" onClick={() => setShowStoragePathModal(true)} title="存储目录与单个产物下载命名设置">
+      <button data-settings-trigger="storage" type="button" onClick={() => setShowStoragePathModal(true)} title="存储目录与单个产物下载命名设置">
         <FolderOpen size={16} />
         存储设置
       </button>

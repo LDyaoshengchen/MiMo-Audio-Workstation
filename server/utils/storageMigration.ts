@@ -27,7 +27,7 @@ export async function prepareStorageMigration(sourceDir: string, targetDir: stri
     if (info.isDirectory()) for (const child of await readdir(location)) await collect(path.join(name, child));
     else if (info.isFile()) files.push(name);
   }
-  for (const entry of ["audios", "workspaces", "workspaces.json", "templates.json"]) await collect(entry);
+  for (const entry of ["audios", "workspaces", "workspaces.json", "templates.json", "voice-library.json", "role-voice-library"]) await collect(entry);
   const backupDir = await mkdtemp(path.join(target, ".migration-backup-"));
   const changes: Array<{ destination: string; backup?: string; copied: boolean }> = [];
   async function rollback() {

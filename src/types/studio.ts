@@ -163,6 +163,8 @@ export type NodeData = {
   instruction?: string;
   naturalControl?: string;
   voiceDescription?: string;
+  voiceId?: string;
+  assetProvider?: string;
   audio?: AudioAsset;
   /** A reference node may hold several samples; the first one remains available as audio for compatibility. */
   audioAssets?: AudioAsset[];
@@ -189,6 +191,7 @@ export type NodeData = {
   refAudioName?: string;
   refAudioDuration?: number;
   isRunning?: boolean;
+  generationProgress?: { completed: number; total: number };
   singleRunningRowId?: string;
   error?: string;
   workspaceName?: string;

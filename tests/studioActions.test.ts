@@ -27,6 +27,30 @@ function synthesisContext(nodes: StudioNode[]): SynthesisActionsContext {
 }
 
 describe("extracted studio actions", () => {
+  it.each(["voiceClone", "voiceDesign"] as const)("%s shows and saves each artifact before the next request, retaining partial results on failure", async type => {
+    const context = synthesisContext([{ id: "source", type, position: { x: 0, y: 0 }, data: { title: "角色", text: "Hello", instruction: "Deep voice", naturalControl: "Calm" } }]);
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls++;
+      expect(context.nodesRef.current.filter(node => node.type === "artifact")).toHaveLength(calls - 1);
+      if (calls > 1) expect(context.saveWorkspace).toHaveBeenCalled();
+      return calls === 3 ? new Response(JSON.stringify({ error: "failed" }), { status: 500 }) : new Response(JSON.stringify({ fileName: "voice.wav", audioDataUrl: "data:audio/wav;base64,AA==", elapsedMs: 10 }));
+    }));
+    const actions = createSynthesisActions(() => context);
+    await (type === "voiceClone" ? actions.runVoiceClone("source", 9) : actions.runVoiceDesign("source", 9));
+    expect(context.nodesRef.current.filter(node => node.type === "artifact").map(node => node.data.seqIndex)).toEqual([1, 2]);
+    expect(context.edgesRef.current).toHaveLength(2);
+    expect(context.nodesRef.current[0].data.generationProgress).toEqual({ completed: 2, total: 9 });
+    expect(context.nodesRef.current[0].data.isRunning).toBe(false);
+  });
+  it("reports completed batch rows and preserves count on failure", async () => {
+    const node: StudioNode = { id: "batch", type: "batchVoiceDesign", position: { x: 0, y: 0 }, data: { title: "批量", batchRows: [{ id: "one", title: "一", instruction: "低沉", text: "Hello" }, { id: "two", title: "二", instruction: "轻快", text: "Hi" }] } };
+    const context = synthesisContext([node]); let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => ++calls === 1 ? new Response(JSON.stringify({ fileName: "one.wav", audioDataUrl: "data:audio/wav;base64,AA==", elapsedMs: 10 })) : new Response(JSON.stringify({ error: "failed" }), { status: 500 })));
+    await createSynthesisActions(() => context).runBatchVoiceDesign("batch");
+    expect(context.nodesRef.current.find(current => current.id === "batch")?.data.generationProgress).toEqual({ completed: 1, total: 2 });
+    expect(context.nodesRef.current.find(current => current.id === "batch")?.data.isRunning).toBe(false);
+  });
   it("does not evaluate controller dependencies during initialization", () => {
     const read = vi.fn(() => { throw new Error("Controller is not initialized yet"); });
     expect(() => createSynthesisActions(read)).not.toThrow();

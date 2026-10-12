@@ -5,6 +5,8 @@ import { FileAudio, Trash2, Mic2, Square } from "lucide-react";
 import { Handle, Position } from "@xyflow/react";
 import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { readRoleAudioDrag, ROLE_AUDIO_DROPPED_EVENT } from "../../utils/roleAudioDrag";
 import { allowedAudioTypes, maxAudioBytes } from "../../studio/config";
 import { fileToAudioAsset, getSupportedRecordingMimeType, convertRecordedBlobToWav, blobToDataUrl } from "../../studio/audio";
 import { formatBytes, formatDateForFile, formatTime } from "../../studio/format";
@@ -164,6 +166,7 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
   return (
     <StudioNodeFrame id={id} data={data} icon={<FileAudio size={17} />} tone="audio">
       <Handle type="source" position={Position.Right} id="audio" className="node-handle" style={{ top: "50%" }} />
+      <div className="reference-tools-row nodrag"><RoleVoiceLibrary nodeId={id} data={data} /></div>
       <label
         className={`file-picker nodrag ${isDraggingOver ? "dragging-over" : ""}`}
         onDragEnter={(e) => {
@@ -191,12 +194,19 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
           e.stopPropagation();
           dragCounterRef.current = 0;
           setIsDraggingOver(false);
+          const roleAudio = readRoleAudioDrag(e.dataTransfer);
+          if (roleAudio) {
+            const audioAssets = [...(data.audioAssets ?? (data.audio ? [data.audio] : [])), roleAudio];
+            data.onPatch?.(id, { audio: audioAssets[0], audioAssets, error: undefined });
+            window.dispatchEvent(new Event(ROLE_AUDIO_DROPPED_EVENT));
+            return;
+          }
           const files = Array.from(e.dataTransfer.files ?? []);
           processAudioFiles(files);
         }}
       >
         <input accept="audio/*,video/mp4,.mp3,.m4a,.mp4,.wav,.flac,.aac,.ogg" type="file" multiple onChange={onFileChange} />
-        <span>{data.audioAssets?.length ? `已添加 ${data.audioAssets.length} 段参考音频` : "上传参考音频 (支持多选与直接拖入)"}</span>
+        <span>{data.audioAssets?.length ? `已添加 ${data.audioAssets.length} 段参考音频` : "上传 / 拖入参考音频"}</span>
         <small>{data.audioAssets?.length ? "可继续拖入添加，连接至整合节点后按顺序输出" : "可直接拖入或选择多个 MP3、M4A、MP4 或 WAV"}</small>
       </label>
       {(data.audioAssets ?? (data.audio ? [data.audio] : [])).map((audio, index) => (
@@ -213,7 +223,7 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
       <div className="recording-panel nodrag">
         <button className={isRecording ? "record-button recording" : "record-button"} type="button" onClick={() => void startRecording()} disabled={isRecording}>
           <Mic2 size={15} />
-          开始录制
+          录制
         </button>
         <button className="record-stop-button" type="button" onClick={stopRecording} disabled={!isRecording}>
           <Square size={13} />

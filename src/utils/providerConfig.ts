@@ -10,6 +10,11 @@ export interface ProviderOptions {
   synthesisMode: "reference" | "preset" | "voiceId";
 }
 
+export function getAssetVoiceId(data: { voiceId?: string; assetProvider?: string }, headers: Record<string, string>) {
+  if (data.voiceId && data.assetProvider && data.assetProvider !== headers["X-API-Provider"]) throw new Error(`角色 Voice ID 属于 ${data.assetProvider}，请切换回对应 API 服务商，或重新应用角色。`);
+  return data.voiceId;
+}
+
 export function normalizeProviderOptions(value: Partial<ProviderOptions> = {}): ProviderOptions {
   return {
     appId: value.appId || "", accessToken: "", customProtocol: value.customProtocol || "",
@@ -18,7 +23,8 @@ export function normalizeProviderOptions(value: Partial<ProviderOptions> = {}): 
   };
 }
 
-export async function appendSynthesisInputs(form: FormData, options: ProviderOptions, audio?: { dataUrl: string; fileName: string; mimeType: string }): Promise<void> {
+export async function appendSynthesisInputs(form: FormData, options: ProviderOptions, audio?: { dataUrl: string; fileName: string; mimeType: string }, voiceId?: string): Promise<void> {
+  if (voiceId?.trim()) options = { ...options, synthesisMode: "voiceId", voiceId: voiceId.trim() };
   form.append("synthesisMode", options.synthesisMode);
   if (options.model.trim()) form.append("model", options.model.trim());
   if (options.synthesisMode === "reference") {

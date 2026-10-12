@@ -6,6 +6,7 @@ import { SingleArtifactDownloadLink } from "../SingleArtifactDownloadLink";
 import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { memo } from "react";
+import { ArtifactReview } from "../ArtifactReview";
 
 export const ArtifactNode = memo(function ArtifactNode({ id, data }: NodeProps<StudioNode>) {
   const artifact = data.artifact;
@@ -24,6 +25,7 @@ export const ArtifactNode = memo(function ArtifactNode({ id, data }: NodeProps<S
             <span>{artifact.elapsedMs} ms · {new Date(artifact.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
           </div>
           <div className="artifact-actions">
+            <ArtifactReview title={data.title} src={artifact.audioDataUrl} review={artifact.review} onChange={review => data.onPatch?.(id, { artifact: { ...artifact, review } })} />
             <button
               className={isStashed ? "download-link nodrag stashed" : "download-link nodrag"}
               type="button"

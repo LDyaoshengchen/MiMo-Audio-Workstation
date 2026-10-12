@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("electronApi", {
   showMoreMenu: () => ipcRenderer.invoke("desktop-more"),
   runMenuCommand: command => ipcRenderer.invoke("desktop-menu-command", command),
   openAppLink: destination => ipcRenderer.invoke("desktop-open-link", destination),
+  openStorageFolder: (kind, workspaceId) => ipcRenderer.invoke("desktop-open-storage", kind, workspaceId),
   editNative: command => ipcRenderer.invoke("desktop-edit-native", command),
   onMenuEvent: callback => {
     const listener = (_event, command) => callback(command);

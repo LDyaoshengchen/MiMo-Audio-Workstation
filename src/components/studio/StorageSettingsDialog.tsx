@@ -1,4 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
+import { useRef } from "react";
+import { useSettingsPopover } from "./useSettingsPopover";
 import type { SingleDownloadSettings } from "../../utils/downloadSettings";
 import type { WorkspacePayload } from "../../types/studio";
 import { DownloadNamingSettings } from "../DownloadNamingSettings";
@@ -39,19 +41,21 @@ export function StorageSettingsDialog({
   openLocalWorkspaceFolder,
   openLocalAudiosFolder,
 }: StorageSettingsDialogProps) {
+  const panel=useRef<HTMLDivElement>(null);
+  const popover=useSettingsPopover(showStoragePathModal,'[data-settings-trigger="storage"]',panel);
   return (<>{showStoragePathModal && (
     <div
-      className="api-key-modal"
+      className={`api-key-modal${popover.overlayClass}`}
       onMouseDown={handleBackdropMouseDown}
       onClick={(e) => handleBackdropClick(e, () => setShowStoragePathModal(false))}
     >
-      <div className="api-key-modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panel} className={`api-key-modal-content${popover.panelClass}`} style={{ maxWidth:520,...popover.style }} onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3>
             <FolderOpen size={18} />
             存储设置
           </h3>
-          <button className="api-key-modal-close" type="button" onClick={() => setShowStoragePathModal(false)}>
+          <button className="api-key-modal-close settings-close-button" type="button" aria-label="关闭存储设置" title="关闭" onClick={() => setShowStoragePathModal(false)}>
             <X size={18} />
           </button>
         </div>

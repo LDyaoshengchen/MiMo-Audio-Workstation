@@ -77,7 +77,7 @@ export const IntegratedPipelineRow = memo(function IntegratedPipelineRow({
                 </div>
               ) : (
                 <div className="integrated-ref-placeholder">
-                  <p className="node-muted" style={{ fontSize: 11 }}>可拖入/上传音频 (多选文件自动合并为本行参考)</p>
+                  <p className="node-muted" style={{ fontSize: 11 }}>可拖入角色库音频或上传文件，多选自动合并</p>
                 </div>
               )}
 

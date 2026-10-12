@@ -7,6 +7,8 @@ import { GAME_CHARACTER_PRESETS, getFormattedNaturalControl } from "../../utils/
 import { Handle, Position } from "@xyflow/react";
 import { NodeConfirmModal } from "../dialogs/NodeConfirmModal";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { GenerationButtonText } from "../GenerationButtonText";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
 import { Wand2, ClipboardPaste, Square, Trash2, GripVertical, Copy, ChevronUp, ChevronDown, Loader2, Sparkles, Plus } from "lucide-react";
 import { createId } from "../../studio/format";
 import { memo, useState, Fragment } from "react";
@@ -290,7 +292,6 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
         <div className="clone-toolbar" style={{ marginTop: 0, padding: 0 }}>
           <select
             className="clone-preset-select"
-            style={{ fontSize: 12, height: 28, padding: "2px 6px", width: 135, maxWidth: 140 }}
             value=""
             onChange={(e) => {
               const val = e.target.value;
@@ -343,7 +344,7 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
             }}
             title="选择游戏音色设计预设（官方支持多语种）"
           >
-            <option value="">🎮 角色预设...</option>
+            <option value="">🎮 角色预设</option>
             <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
               {GAME_CHARACTER_PRESETS.map((p) => (
                 <Fragment key={p.id}>
@@ -357,6 +358,7 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
               <option value="all_en">🌟 一键载入全套 8 位角色 (English 对白)</option>
             </optgroup>
           </select>
+          <RoleVoiceLibrary nodeId={id} data={data} />
         </div>
         <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
           {data.isRunning ? (
@@ -612,7 +614,7 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
         style={{ marginTop: 12 }}
       >
         {data.isRunning ? <Loader2 className="spin" size={16} /> : <Wand2 size={16} />}
-        {data.isRunning ? "正在批量生成音色创造..." : "运行批量音色创造"}
+        <GenerationButtonText data={data} idle="运行批量音色创造" />
       </button>
 
       {nodeConfirm ? <NodeConfirmModal options={nodeConfirm} /> : null}

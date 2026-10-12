@@ -4,6 +4,8 @@ import { GAME_CHARACTER_PRESETS, getFormattedNaturalControl } from "../../utils/
 import { Handle, Position } from "@xyflow/react";
 import { Sparkles, Wand2, Loader2, Grid } from "lucide-react";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { GenerationButtonText } from "../GenerationButtonText";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
 import { VOICE_DESIGN_PRESETS, VOICE_INSTRUCTION_TAGS, VOICE_CONTROL_TAGS } from "../../studio/voicePresets";
 import { memo, useRef, useState, useLayoutEffect, Fragment } from "react";
 import { useAutoUpdateNodeInternals, getElementTopInNode } from "../../studio/nodeInternals";
@@ -74,7 +76,7 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
 
       <div className="design-toolbar nodrag">
         <select className="design-preset-select" defaultValue="" onChange={handleSelectPreset}>
-          <option value="" disabled>✨ 音色预设…</option>
+          <option value="" disabled>✨ 音色预设</option>
           <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
             {GAME_CHARACTER_PRESETS.map((p) => (
               <Fragment key={p.id}>
@@ -93,6 +95,7 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
             ))}
           </optgroup>
         </select>
+        <RoleVoiceLibrary nodeId={id} data={data} />
         <button
           className="design-action-btn"
           type="button"
@@ -167,7 +170,7 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
           title="生成 1 条音色产物"
         >
           {data.isRunning ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
-          {data.isRunning ? "生成中..." : "运行音色创造"}
+          <GenerationButtonText data={data} idle="运行音色创造" batch={false} />
         </button>
 
         <button
@@ -179,7 +182,7 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
           title="一次性批量创造 9 个不同音色产物"
         >
           {data.isRunning ? <Loader2 className="spin" size={15} /> : <Grid size={15} />}
-          {data.isRunning ? "批量生成中..." : "批量音色 9个"}
+          <GenerationButtonText data={data} idle="批量音色 9个" running="批量生成中..." batch />
         </button>
       </div>
     </StudioNodeFrame>

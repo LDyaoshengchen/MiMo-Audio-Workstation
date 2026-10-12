@@ -819,7 +819,7 @@ export function StudioApp() {
 
     if (themeConfig.autoHideTopbar ?? true) {
       topbarHoverTimerRef.current = window.setTimeout(() => {
-        setTopbarCollapsed(true);
+        if(!document.querySelector('.settings-popover-overlay,.studio-compact-menu')) setTopbarCollapsed(true);
       }, 1500);
     }
 
@@ -1705,7 +1705,7 @@ export function StudioApp() {
   function closeApiKeyModal() {
     setShowApiKeyModal(false);
     if (themeConfig.autoHideTopbar ?? true) {
-      topbarHoverTimerRef.current = window.setTimeout(() => setTopbarCollapsed(true), 1500);
+      topbarHoverTimerRef.current = window.setTimeout(() => { if(!document.querySelector('.settings-popover-overlay,.studio-compact-menu')) setTopbarCollapsed(true); }, 1500);
     }
   }
 
@@ -2598,6 +2598,7 @@ export function StudioApp() {
         </div>
       )}
       <StudioTopbar {...{
+        nodes: hydratedNodes,
         themeConfig,
         topbarCollapsed,
         topbarHoverTimerRef,

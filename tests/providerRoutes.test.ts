@@ -226,4 +226,14 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
       if (process.platform !== "win32") expect(result.path).not.toContain("\\");
     }
   });
+  it("resolves desktop storage paths without launching the server-side explorer", async () => {
+    const { execFile } = await import("node:child_process");
+    vi.mocked(execFile).mockClear();
+    for (const endpoint of ["/api/workspaces/open-folder", "/api/workspaces/open-audios-folder"]) {
+      const response = await call(endpoint, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({resolveOnly:true}) });
+      expect(response.status).toBe(200);
+      expect(path.isAbsolute((await response.json()).path)).toBe(true);
+    }
+    expect(execFile).not.toHaveBeenCalled();
+  });
 });

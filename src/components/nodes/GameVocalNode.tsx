@@ -8,6 +8,8 @@ import { GAME_VOCAL_CATEGORIES, getRandomItemsFromSubcategory } from "../../util
 import { Gamepad2, Mic2, Sparkles, AlertTriangle, Check, Trash2, Zap, Plus, X, Loader2, Square } from "lucide-react";
 import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { GenerationButtonText } from "../GenerationButtonText";
 import { createId, formatBytes } from "../../studio/format";
 import { memo, useState, useEffect, useMemo } from "react";
 import { resolveGameVocalInputs } from "../../studio/graph";
@@ -237,6 +239,7 @@ export const GameVocalNode = memo(function GameVocalNode({ id, data }: NodeProps
             <Sparkles size={13} />
             <span>✨ 角色特征生成 (免参考)</span>
           </button>
+          <RoleVoiceLibrary nodeId={id} data={data} />
         </div>
 
         {/* 1. 根据模式呈现：参考音频卡片 VS 角色形容词特征选择面板 */}
@@ -596,11 +599,7 @@ export const GameVocalNode = memo(function GameVocalNode({ id, data }: NodeProps
           >
             {data.isRunning ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
             <span>
-              {data.isRunning
-                ? (data.vocalProgressText || `正在生成 (${selectedVocals.length} 条)...`)
-                : refMode === "design"
-                  ? `🎮 免参考·直接生成语气词 (共 ${selectedVocals.length} 条)`
-                  : `🎮 一键生成语气词 (共 ${selectedVocals.length} 条)`}
+              <GenerationButtonText data={data} idle={refMode === "design" ? `🎮 免参考·直接生成语气词 (共 ${selectedVocals.length} 条)` : `🎮 一键生成语气词 (共 ${selectedVocals.length} 条)`} running={data.vocalProgressText || "生成中..."} />
             </span>
           </button>
           {data.isRunning ? (

@@ -20,18 +20,18 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); setRestartPlayback(false); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it("provides an unchecked default, saves selection and restores it on reopening", async () => {
+it("defaults to resume, saves button selection and restores it on reopening", async () => {
   await act(async () => root.render(<PlaybackSettings />));
   await act(async () => (host.querySelector("button") as HTMLButtonElement).click());
-  let option = document.querySelector<HTMLInputElement>('.studio-playback-option input')!;
-  expect(option.checked).toBe(false);
+  let option = document.querySelector<HTMLButtonElement>('.studio-playback-options button:last-child')!;
+  expect(option.getAttribute('aria-pressed')).toBe('false');
   await act(async () => option.click()); expect(getRestartPlayback()).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(document.querySelector('[role=dialog]')).toBeNull();
   await act(async () => (host.querySelector("button") as HTMLButtonElement).click());
-  option = document.querySelector<HTMLInputElement>('.studio-playback-option input')!;
-  expect(option.checked).toBe(true);
-  await act(async () => option.click()); expect(getRestartPlayback()).toBe(false);
+  option = document.querySelector<HTMLButtonElement>('.studio-playback-options button:last-child')!;
+  expect(option.getAttribute('aria-pressed')).toBe('true');
+  await act(async () => document.querySelector<HTMLButtonElement>('.studio-playback-options button:first-child')!.click()); expect(getRestartPlayback()).toBe(false);
 });
 
 it.each(["node", "stash"])("%s player resumes by default and restarts only on play when enabled", async kind => {

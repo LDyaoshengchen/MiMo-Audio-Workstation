@@ -7,6 +7,7 @@ import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { ZipExportProgress } from "../ZipExportProgress";
 import { memo, useRef, useEffect } from "react";
+import { ArtifactReview } from "../ArtifactReview";
 import { sanitizeFileName, formatHierarchyName, getArtifactDownloadFileName, getAudioFileExtension } from "../../utils/audioNaming";
 import { scheduleBatchNodeInternalsUpdate } from "../../studio/nodeInternals";
 import { useAudioZipExport } from "../../utils/useAudioZipExport";
@@ -46,10 +47,10 @@ export const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: N
     const nodeTitle = data.title || "批量产物";
     const parentTitle = data.parentTitle || "批量节点";
     const folderName = sanitizeFileName(formatHierarchyName(parentTitle, nodeTitle));
-    const files = items.map((item, index) => ({
+    const files = items.flatMap((item, index) => [{
       name: folderName + "/" + getArtifactDownloadFileName(formatHierarchyName(parentTitle, nodeTitle, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName),
       source: item.audioDataUrl
-    }));
+    }] );
     await zipExport.download(files, folderName + ".zip");
   }
 
@@ -102,6 +103,7 @@ export const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: N
                       )}
                     </div>
                     <div className="batch-artifact-item-actions">
+                      <ArtifactReview title={fullStashName} src={item.audioDataUrl} review={item.review} onChange={review => data.onPatch?.(id, { batchArtifacts: items.map(current => current.id === item.id ? { ...current, review } : current) })} />
                       <button
                         type="button"
                         className={isStashed ? "batch-artifact-item-btn stashed" : "batch-artifact-item-btn"}

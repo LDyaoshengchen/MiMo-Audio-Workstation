@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { MoreHorizontal, X, RefreshCw, ExternalLink } from "lucide-react";
 import packageMeta from "../../../package.json";
 import { CompactMoreMenu } from "./CompactMoreMenu";
+import { useSettingsPopover } from "./useSettingsPopover";
 
 type UpdateResult = { status: "available" | "latest" | "error"; latestVersion?: string; message?: string };
 type DesktopApi = {
@@ -21,6 +22,8 @@ export function StudioMoreMenu() {
   const [about, setAbout] = useState(false);
   const [menu, setMenu] = useState(false);
   const moreRef = useRef<HTMLButtonElement>(null);
+  const aboutRef=useRef<HTMLElement>(null);
+  const popover=useSettingsPopover(about,moreRef,aboutRef);
   const editTarget = useRef<Element | null>(null);
   const [version, setVersion] = useState(packageMeta.version);
   const [result, setResult] = useState<UpdateResult | null>(null);
@@ -95,9 +98,9 @@ export function StudioMoreMenu() {
       <MoreHorizontal size={16} />更多{result?.status === "available" && <span className="studio-update-dot" aria-hidden="true" />}
     </button>
     {menu && moreRef.current && <CompactMoreMenu anchor={moreRef.current} onClose={() => setMenu(false)} onCommand={runCommand} />}
-    {about && createPortal(<div className="studio-about-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setAbout(false); }}>
-      <section className="studio-about-dialog" role="dialog" aria-modal="true" aria-labelledby="studio-about-title">
-        <header><h3 id="studio-about-title">关于</h3><button ref={closeRef} type="button" aria-label="关闭关于" onClick={() => setAbout(false)}><X size={16} /></button></header>
+    {about && createPortal(<div className={`studio-about-overlay${popover.overlayClass}`} onMouseDown={event => { if (event.target === event.currentTarget) setAbout(false); }}>
+      <section ref={aboutRef} className={`studio-about-dialog${popover.panelClass}`} style={popover.style} role="dialog" aria-modal="true" aria-labelledby="studio-about-title">
+        <header><h3 id="studio-about-title">关于</h3><button className="settings-close-button" ref={closeRef} type="button" aria-label="关闭关于" title="关闭" onClick={() => setAbout(false)}><X size={18} /></button></header>
         <h2>MiMo Audio Workstation</h2><p>音频设计、语音克隆与有声书工作站</p>
         <div className="studio-about-version">当前版本 <strong>v{version}</strong></div>
         <div role="status" className="studio-update-status">

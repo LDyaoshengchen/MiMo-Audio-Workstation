@@ -9,7 +9,7 @@ import { createId, formatBytes } from "./format";
 import { formatOptimizationError } from "./optimizationErrors";
 import { getAudioFileExtension } from "../utils/audioNaming";
 import { mergeAudioAssets, trimVocalAudioDataUrl } from "./audio";
-import { appendSynthesisInputs } from "../utils/providerConfig";
+import { appendSynthesisInputs, getAssetVoiceId } from "../utils/providerConfig";
 import { resolveMergeAudioInputs, resolveCloneInputs, resolveCloneTextInputs, createArtifactNode, resolveVoiceDesignInstructionInputs, resolveVoiceDesignInputs, resolveGameVocalInputs } from "./graph";
 
 export interface SynthesisActionsContext {
@@ -28,6 +28,14 @@ export interface SynthesisActionsContext {
 
 // Read controller dependencies on invocation, never during render initialization.
 export function createSynthesisActions(getContext: () => SynthesisActionsContext) {
+  async function appendLiveArtifact(artifactNode: StudioNode, artifactEdge: StudioEdge) {
+    const { nodesRef, edgesRef, setNodes, setEdges, saveWorkspace } = getContext();
+    const nextNodes = [...nodesRef.current, artifactNode];
+    const nextEdges = [...edgesRef.current, artifactEdge];
+    nodesRef.current = nextNodes; edgesRef.current = nextEdges;
+    setNodes(nextNodes); setEdges(nextEdges);
+    await saveWorkspace(nextNodes, nextEdges);
+  }
   async function runAudioMerge(nodeId: string) {
     const { nodesRef, edgesRef, patchNode, setNodes, saveWorkspace } = getContext();
     const currentNodes = nodesRef.current;
@@ -69,7 +77,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
     }
 
     const resolved = resolveCloneInputs(cloneNode, initialNodes, initialEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !resolved.audio?.dataUrl) {
+    if (providerOptionsRef.current.synthesisMode === "reference" && !cloneNode.data.voiceId && !resolved.audio?.dataUrl) {
       patchNode(nodeId, { error: "缺少参考音频，请连接参考音频节点或在节点中上传。" });
       return;
     }
@@ -87,13 +95,12 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     try {
       const totalRuns = count > 1 ? count : validTextItems.length;
-      const newArtifactNodes: StudioNode[] = [];
-      const newArtifactEdges: StudioEdge[] = [];
+      patchNode(nodeId, { generationProgress: { completed: 0, total: totalRuns } });
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
         const item = validTextItems[runIdx % validTextItems.length];
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio);
+        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(cloneNode.data, getApiHeaders(false)));
         formData.append("text", item.text.trim());
         formData.append("instruction", resolved.instruction.trim());
         formData.append("format", "wav");
@@ -123,12 +130,12 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           style: { stroke: "#facc15", strokeWidth: 2 }
         };
 
-        newArtifactNodes.push(artifactNode);
-        newArtifactEdges.push(artifactEdge);
+        patchNode(nodeId, { generationProgress: { completed: runIdx + 1, total: totalRuns } });
+        await appendLiveArtifact(artifactNode, artifactEdge);
       }
 
-      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n)).concat(newArtifactNodes);
-      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
+      const nextEdges = edgesRef.current;
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       setNodes(nextNodes);
@@ -212,6 +219,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
       let updatedRows = [...rows];
 
       for (const [index, row] of validRows.entries()) {
+        patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         patchNode(nodeId, { singleRunningRowId: row.id });
 
         let refAudioDataUrl = row.refAudioUrl || node.data.refAudioUrl;
@@ -227,13 +235,13 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           }
         }
 
-        if (providerOptionsRef.current.synthesisMode === "reference" && !refAudioDataUrl) {
+        if (providerOptionsRef.current.synthesisMode === "reference" && !node.data.voiceId && !refAudioDataUrl) {
           patchNode(nodeId, { isRunning: false, singleRunningRowId: undefined, error: `行「${row.title || `句段 ${index + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
           return;
         }
 
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined);
+        await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined, getAssetVoiceId(node.data, getApiHeaders(false)));
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
         formData.append("format", "wav");
@@ -275,6 +283,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           const intermediateNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, batchRows: newBatchRows } } : n));
           nodesRef.current = intermediateNodes;
           setNodes(intermediateNodes);
+          patchNode(nodeId, { generationProgress: { completed: index + 1, total: validRows.length } });
         }
       }
 
@@ -330,7 +339,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
       }
     }
 
-    if (providerOptionsRef.current.synthesisMode === "reference" && !refAudioDataUrl) {
+    if (providerOptionsRef.current.synthesisMode === "reference" && !node.data.voiceId && !refAudioDataUrl) {
       patchNode(nodeId, { error: `行「${row.title || `句段 ${rowIndex + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
       return;
     }
@@ -339,7 +348,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     try {
       const formData = new FormData();
-      await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined);
+      await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined, getAssetVoiceId(node.data, getApiHeaders(false)));
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
       formData.append("format", "wav");
@@ -411,7 +420,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
     }
 
     const resolved = resolveCloneInputs(batchNode, currentNodes, currentEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !resolved.audio) {
+    if (providerOptionsRef.current.synthesisMode === "reference" && !batchNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "批量音频克隆节点需要连接一个参考音频或音频整合节点。" });
       return;
     }
@@ -427,6 +436,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     try {
       for (const [index, row] of validRows.entries()) {
+        patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         const rowArtifactTitle = row.title.trim() || `句段 ${index + 1}`;
 
         let rowArtifactNode = nodesRef.current.find(
@@ -476,7 +486,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         const targetArtifactNodeId = rowArtifactNode.id;
 
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio);
+        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(batchNode.data, getApiHeaders(false)));
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
         formData.append("format", "wav");
@@ -524,6 +534,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         });
         nodesRef.current = intermediateNodes;
         setNodes(intermediateNodes);
+        patchNode(nodeId, { generationProgress: { completed: index + 1, total: validRows.length } });
       }
 
       const finalNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
@@ -554,7 +565,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
     }
 
     const resolved = resolveCloneInputs(batchNode, currentNodes, currentEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !resolved.audio) {
+    if (providerOptionsRef.current.synthesisMode === "reference" && !batchNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "批量音频克隆节点需要连接一个参考音频或音频整合节点。" });
       return;
     }
@@ -620,7 +631,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
       const targetArtifactNodeId = rowArtifactNode.id;
 
       const formData = new FormData();
-      await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio);
+      await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(batchNode.data, getApiHeaders(false)));
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
       formData.append("format", "wav");
@@ -712,6 +723,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     try {
       for (const [index, row] of validRows.entries()) {
+        patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         const rowArtifactTitle = row.title.trim() || `句段 ${index + 1}`;
 
         let rowArtifactNode = nodesRef.current.find(
@@ -811,6 +823,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         });
         nodesRef.current = intermediateNodes;
         setNodes(intermediateNodes);
+        patchNode(nodeId, { generationProgress: { completed: index + 1, total: validRows.length } });
       }
 
       const finalNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
@@ -1008,8 +1021,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
     try {
       const validTextItems = textItems.filter((entry) => entry.text.trim());
       const totalRuns = count > 1 ? count : validTextItems.length;
-      const newArtifactNodes: StudioNode[] = [];
-      const newArtifactEdges: StudioEdge[] = [];
+      patchNode(nodeId, { generationProgress: { completed: 0, total: totalRuns } });
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
         const item = validTextItems[runIdx % validTextItems.length];
@@ -1032,6 +1044,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         }
 
         const artifactNode = createArtifactNode(designNode, payload, item.title, runIdx, initialNodes, initialEdges);
+        patchNode(nodeId, { generationProgress: { completed: runIdx + 1, total: totalRuns } });
         const artifactEdge: StudioEdge = {
           id: createId("edge"),
           source: designNode.id,
@@ -1043,12 +1056,11 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
         };
 
-        newArtifactNodes.push(artifactNode);
-        newArtifactEdges.push(artifactEdge);
+        await appendLiveArtifact(artifactNode, artifactEdge);
       }
 
-      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n)).concat(newArtifactNodes);
-      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
+      const nextEdges = edgesRef.current;
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       setNodes(nextNodes);
@@ -1077,7 +1089,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     const isDesignMode = vocalNode.data.vocalRefMode === "design";
     const resolved = resolveGameVocalInputs(vocalNode, currentNodes, currentEdges);
-    if (!isDesignMode && providerOptionsRef.current.synthesisMode === "reference" && !resolved.audio) {
+    if (!isDesignMode && providerOptionsRef.current.synthesisMode === "reference" && !vocalNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "当前为【参考音频克隆】模式，需要从左侧连接一个参考音频、音频整合或产物卡片。如无需参考音频，可切换为【免参考·角色特征生成】模式。" });
       return;
     }
@@ -1093,11 +1105,10 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     const initialNodes = nodesRef.current;
     const initialEdges = edgesRef.current;
-    const newArtifactNodes: StudioNode[] = [];
-    const newArtifactEdges: StudioEdge[] = [];
 
     try {
       for (const [index, vocal] of vocals.entries()) {
+        patchNode(nodeId, { generationProgress: { completed: index, total: vocals.length } });
         if (vocalAbortMapRef.current[nodeId]) {
           break;
         }
@@ -1149,7 +1160,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           payload = (await response.json()) as DebugResponse & { error?: string };
         } else {
           const formData = new FormData();
-          await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio);
+          await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(vocalNode.data, getApiHeaders(false)));
           formData.append("text", vocal.text.trim());
           formData.append("instruction", optimizedInstruction.trim());
           formData.append("format", "wav");
@@ -1182,6 +1193,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         }
 
         const artifactNode = createArtifactNode(vocalNode, payload, itemTitle, index, initialNodes, initialEdges);
+        patchNode(nodeId, { generationProgress: { completed: index + 1, total: vocals.length } });
         const artifactEdge: StudioEdge = {
           id: createId("edge"),
           source: vocalNode.id,
@@ -1193,12 +1205,11 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
           style: { stroke: "#8b5cf6", strokeWidth: 2 }
         };
 
-        newArtifactNodes.push(artifactNode);
-        newArtifactEdges.push(artifactEdge);
+        await appendLiveArtifact(artifactNode, artifactEdge);
       }
 
-      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, vocalProgressText: undefined, error: undefined } } : n)).concat(newArtifactNodes);
-      const nextEdges = edgesRef.current.concat(newArtifactEdges);
+      const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, vocalProgressText: undefined, error: undefined } } : n));
+      const nextEdges = edgesRef.current;
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       setNodes(nextNodes);

@@ -18,6 +18,10 @@ import { sanitizeFileName, getArtifactDownloadFileName, formatHierarchyName } fr
 import { useAudioZipExport } from "../../utils/useAudioZipExport";
 import { useAutoUpdateNodeInternals } from "../../studio/nodeInternals";
 import { useStableEvent } from "../../utils/useStableEvent";
+import { type ProductReview } from "../../types/studioAudio";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { GenerationButtonText } from "../GenerationButtonText";
+import { readRoleAudioDrag, ROLE_AUDIO_DROPPED_EVENT } from "../../utils/roleAudioDrag";
 
 export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, data, selected }: NodeProps<StudioNode>) {
   const rows = data.batchRows || [
@@ -220,6 +224,12 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
   // Row-level drag & drop: ONLY targets rowId, merges multiple files into 1 combined reference audio for rowId
   async function handleDropRefAudioOnRow(rowId: string, event: React.DragEvent) {
     event.preventDefault();
+    const roleAudio = readRoleAudioDrag(event.dataTransfer);
+    if (roleAudio) {
+      patchRows(rows.map(row => row.id === rowId ? { ...row, refAudioUrl: roleAudio.dataUrl, refAudioName: roleAudio.fileName } : row));
+      window.dispatchEvent(new Event(ROLE_AUDIO_DROPPED_EVENT));
+      return;
+    }
     const files = Array.from(event.dataTransfer.files).filter(
       (f) => f.type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name)
     );
@@ -376,10 +386,10 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
 
   async function handleDownloadAllZip() {
     const folderName = sanitizeFileName(data.title || "全能工作台产物");
-    const files = rows.flatMap(row => (row.artifacts || []).map((item, index) => ({
+    const files = rows.flatMap(row => (row.artifacts || []).flatMap((item, index) => [{
       name: folderName + "/" + getArtifactDownloadFileName(formatHierarchyName(data.title, row.title, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName),
       source: item.audioDataUrl
-    })));
+    }]));
     await zipExport.download(files, folderName + ".zip");
   }
 
@@ -396,14 +406,15 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
   const onRun = useStableEvent((rowId: string) => data.onRunIntegratedSingleRow?.(id, rowId));
   const onToggleStash = useStableEvent((artifact: ArtifactData) => data.onToggleStashArtifact?.(artifact));
   const onDeleteArtifact = useStableEvent((rowId: string, artifactId: string) => data.onDeleteIntegratedArtifactItem?.(id, rowId, artifactId));
+  const onReview = useStableEvent((rowId: string, artifactId: string, review: ProductReview) => data.onPatch?.(id, { batchRows: rows.map(row => row.id !== rowId ? row : { ...row, artifacts: row.artifacts?.map(artifact => artifact.id === artifactId ? { ...artifact, review } : artifact) }) }));
   const rowActions = useMemo(() => ({
     onDragOver: setDraggingRefRowId, onDrop, onClearReference, onUpload, onStopRecording,
     onStartRecording, onUpdate, onPaste, onRemove, onRun
   }), [onDrop, onClearReference, onUpload, onStopRecording, onStartRecording, onUpdate, onPaste, onRemove, onRun]);
   const artifactContext = useMemo(() => ({
     nodeId: id, nodeTitle: data.title, workspaceName: data.workspaceName, settings: data.singleDownloadSettings,
-    stashedKeys: data.stashedArtifactKeys, onToggleStash, onDeleteArtifact
-  }), [id, data.title, data.workspaceName, data.singleDownloadSettings, data.stashedArtifactKeys, onToggleStash, onDeleteArtifact]);
+    stashedKeys: data.stashedArtifactKeys, onToggleStash, onDeleteArtifact, onReview
+  }), [id, data.title, data.workspaceName, data.singleDownloadSettings, data.stashedArtifactKeys, onToggleStash, onDeleteArtifact, onReview]);
 
   return (
     <StudioNodeFrame id={id} data={data} icon={<Sparkles size={17} />} tone="integrated-studio">
@@ -420,13 +431,9 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
       {/* Top 3 Column Headers */}
       <div className="integrated-top-headers nodrag">
         <div className="integrated-header-cell col-1">
-          <div className="integrated-header-title-block">
-            <Mic size={15} className="integrated-header-icon" />
-            <div className="integrated-header-text-stacked">
-              <span className="integrated-header-title-main">参考音频</span>
-              <span className="integrated-header-title-sub">(上传/录制)</span>
-            </div>
-          </div>
+          <Mic size={15} />
+          <span>参考音频 (上传/录制)</span>
+          <div className="integrated-col-tools">
           <button
             type="button"
             className="integrated-mini-tool integrated-batch-upload-btn"
@@ -434,11 +441,9 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
             title="打开批量上传参考音频设置，可选择目标起始行或多文件合并"
           >
             <Upload size={13} />
-            <div className="integrated-btn-text-stacked">
-              <span className="btn-text-main">批量上传</span>
-              <span className="btn-text-sub">(多选)</span>
-            </div>
+            批量上传 (多选)
           </button>
+          </div>
         </div>
 
         <div className="integrated-header-cell col-2">
@@ -459,6 +464,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
             <button type="button" className="integrated-mini-tool danger" onClick={handleClearRows} title="清空所有句段">
               <Trash2 size={12} /> 清空
             </button>
+            <RoleVoiceLibrary nodeId={id} data={data} />
           </div>
         </div>
 
@@ -501,7 +507,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
         style={{ marginTop: 12 }}
       >
         {data.isRunning ? <Loader2 className="spin" size={16} /> : <Zap size={16} />}
-        {data.isRunning ? "正在批量全员生成中..." : "运行批量全部生成"}
+        <GenerationButtonText data={data} idle="运行批量全部生成" />
       </button>
 
       {nodeConfirm ? <NodeConfirmModal options={nodeConfirm} /> : null}

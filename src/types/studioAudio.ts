@@ -1,4 +1,7 @@
+export type ProductReview = { verdict?: "unrated" | "usable" | "alternate" | "rejected"; rating?: number; favorite?: boolean; selected?: boolean };
+export function isSelectedProduct(item: { review?: ProductReview }) { return !!item.review?.selected && item.review.verdict !== "rejected"; }
 export interface IntegratedRowArtifact {
+  review?: ProductReview;
   id: string;
   seqIndex?: number;
   fileName: string;
@@ -20,6 +23,7 @@ export interface BatchVoiceCloneRow {
 }
 
 export interface BatchArtifactItem {
+  review?: ProductReview;
   id: string;
   seqIndex?: number;
   rowTitle: string;
@@ -37,6 +41,7 @@ export type AudioAsset = {
 };
 
 export type ArtifactData = {
+  review?: ProductReview;
   fileName: string;
   audioDataUrl: string;
   elapsedMs: number;

@@ -1,4 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
+import { useRef } from "react";
+import { useSettingsPopover } from "./useSettingsPopover";
 import type { ThemeConfig } from "../../studio/theme";
 import { Palette, X, Monitor, Sun, Moon, RotateCcw, ChevronDown } from "lucide-react";
 import { lightPresets, darkPresets } from "../../studio/theme";
@@ -52,16 +54,18 @@ export function AppearanceSettingsDialog({
   updateDarkColor,
   resetTheme,
 }: AppearanceSettingsDialogProps) {
+  const panel=useRef<HTMLDivElement>(null);
+  const popover=useSettingsPopover(showAppearanceModal,'[data-settings-trigger="appearance"]',panel);
   return (<>{showAppearanceModal && (
     <div
-      className="api-key-modal"
+      className={`api-key-modal${popover.overlayClass}`}
       onMouseDown={handleBackdropMouseDown}
       onClick={(e) => handleBackdropClick(e, () => setShowAppearanceModal(false))}
     >
-      <div className="appearance-modal-card" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panel} className={`appearance-modal-card${popover.panelClass}`} style={{ maxWidth:540,...popover.style }} onClick={(e) => e.stopPropagation()}>
         <div className="api-key-modal-header">
           <h3><Palette size={18} /> 外观与主题</h3>
-          <button className="api-key-modal-close" type="button" onClick={() => setShowAppearanceModal(false)}>
+          <button className="api-key-modal-close settings-close-button" type="button" aria-label="关闭外观设置" title="关闭" onClick={() => setShowAppearanceModal(false)}>
             <X size={18} />
           </button>
         </div>

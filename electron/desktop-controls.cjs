@@ -1,4 +1,6 @@
 const { BrowserWindow, ipcMain, Menu, shell } = require("electron");
+const path = require("node:path");
+const { stat } = require("node:fs/promises");
 const REPO = "https://github.com/LDyaoshengchen/MiMo-Audio-Workstation";
 
 function newerVersion(candidate, current) {
@@ -54,6 +56,20 @@ function setupDesktopControls(version) {
     return window;
   }
   ipcMain.handle("desktop-info", event => { trustedWindow(event); return { version, repository: REPO }; });
+  ipcMain.handle("desktop-open-storage", async (event, kind, workspaceId) => {
+    trustedWindow(event);
+    if (!["workspace", "audios"].includes(kind) || (workspaceId !== undefined && (typeof workspaceId !== "string" || !/^[a-zA-Z0-9_-]{1,160}$/.test(workspaceId)))) throw new Error("无效的目录请求");
+    const endpoint = kind === "audios" ? "/api/workspaces/open-audios-folder" : "/api/workspaces/open-folder";
+    const response = await fetch(new URL(endpoint, event.sender.getURL()), { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ resolveOnly:true, ...(kind === "workspace" && workspaceId ? { workspaceId } : {}) }), signal:AbortSignal.timeout(10000) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "无法获取本地保存目录。");
+    if (typeof result.path !== "string" || !path.isAbsolute(result.path) || /[\r\n\0]/.test(result.path)) throw new Error("保存目录路径无效。");
+    const folder = kind === "workspace" ? path.dirname(result.path) : result.path;
+    if (!(await stat(folder)).isDirectory()) throw new Error("保存目录不存在。");
+    const error = await shell.openPath(folder);
+    if (error) throw new Error(`无法打开资源管理器：${error}`);
+    return { ok:true, path:folder };
+  });
   ipcMain.handle("desktop-menu-command", (event, command) => {
     const window = trustedWindow(event);
     if (!["reload", "forceReload", "devTools", "resetZoom", "zoomIn", "zoomOut", "fullscreen", "minimize", "maximize", "close"].includes(command)) throw new Error("无效的窗口操作");

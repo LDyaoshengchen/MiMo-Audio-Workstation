@@ -290,6 +290,8 @@ export function createWorkspaceActions(getContext: () => WorkspaceActionsContext
 
   async function openLocalWorkspaceFolder(workspaceId?: string) {
     try {
+      const desktop = (window as Window & { electronApi?: { openStorageFolder?: (kind: "workspace" | "audios", workspaceId?: string) => Promise<unknown> } }).electronApi;
+      if (desktop?.openStorageFolder) { await desktop.openStorageFolder("workspace", workspaceId); return; }
       const res = await fetch("/api/workspaces/open-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -305,6 +307,8 @@ export function createWorkspaceActions(getContext: () => WorkspaceActionsContext
 
   async function openLocalAudiosFolder() {
     try {
+      const desktop = (window as Window & { electronApi?: { openStorageFolder?: (kind: "workspace" | "audios", workspaceId?: string) => Promise<unknown> } }).electronApi;
+      if (desktop?.openStorageFolder) { await desktop.openStorageFolder("audios"); return; }
       const res = await fetch("/api/workspaces/open-audios-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" }

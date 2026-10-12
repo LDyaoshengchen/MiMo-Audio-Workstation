@@ -12,6 +12,7 @@ const actionAudit = process.argv.includes("--action-audit");
 const overlapSmoke = process.argv.includes("--overlap-smoke");
 const themePreview = process.argv.includes("--theme-preview");
 const desktopSmoke = process.argv.includes("--desktop-controls-smoke");
+const productionSmoke = process.argv.includes("--production-tools-smoke");
 const themeSettings = process.argv.includes("--theme-settings");
 const themeGame = process.argv.includes("--theme-game");
 const themeCustom = process.argv.includes("--theme-custom");
@@ -57,7 +58,7 @@ if (themePreview && !smoke && !actionAudit) {
     { id: "node-2", type: "artifact", position: { x: 980, y: 0 }, data: { title: "VO_00085_01", artifact: { fileName: "output.wav", audioDataUrl: "data:audio/wav;base64," + wav.toString("base64"), sourceNodeName: "VO_00085_01", elapsedMs: 6971, createdAt: "2026-10-09T17:00:02" } } },
   ];
   workspace.edges = [{ id: "edge-0", source: "node-0", target: "node-2", sourceHandle: "output", targetHandle: "artifact", type: "deletable" }];
-  if (themeGame) { workspace.nodes[1].type = "gameVocal"; workspace.nodes[1].data.title = "游戏语音"; }
+  if (themeGame) { workspace.nodes[1].type = "gameVocal"; workspace.nodes[1].data.title = "游戏语音"; workspace.nodes[1].data.selectedVocals = [{id:"qa-vocal",categoryId:"cat_1",categoryTitle:"攻击",subcategoryId:"qa-sub",subcategoryLabel:"普通攻击",text:"Ha!"}]; }
 }
 if (actionAudit) {
   const wav=Buffer.alloc(44+12000);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);
@@ -69,6 +70,15 @@ if (actionAudit) {
     if(['integratedStudio','batchVoiceClone','batchVoiceDesign'].includes(node.type))node.data.batchRows=[{id:'audit-row',title:'audit',instruction:'Clear',text:'Test only',refAudioUrl:item.audioDataUrl,refAudioName:'audit.wav',artifacts:[{...item}]}];
   }
 }
+if (productionSmoke) {
+  workspace.nodes[0].data.generationProgress = { completed: 8, total: 20 }; workspace.nodes[0].data.isRunning = true;
+  const previewArtifact = workspace.nodes.find(node => node.data.artifact)?.data.artifact;
+  workspace.nodes.push({ id:"qa-reference", type:"referenceAudio", position:{x:0,y:530}, data:{title:"参考音频"} });
+  workspace.nodes.push({ id:"qa-merge", type:"audioMerge", position:{x:490,y:740}, data:{title:"参考音频整合"} });
+  workspace.nodes.push({id:"qa-integrated",type:"integratedStudio",position:{x:0,y:1000},data:{title:"综合工作台",batchRows:[]}});
+  workspace.nodes.push({id:"qa-batch-design",type:"batchVoiceDesign",position:{x:1400,y:1000},data:{title:"批量音色创造",batchRows:[{id:"qa-clear-row",title:"测试行",text:"Test only",instruction:"Clear"}]}});
+  if(previewArtifact)workspace.nodes.push({id:"qa-batch-artifact",type:"batchArtifact",position:{x:980,y:270},data:{title:"批量产物",batchArtifacts:[{...previewArtifact,id:"qa-output",seqIndex:1}]}});
+}
 const settings = { apiProvider: "mimo", apiEndpoint: "https://example.invalid/v1", hasApiKey: true, configured: true };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
@@ -76,6 +86,7 @@ const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     const data = url.pathname === "/api/bootstrap" ? { settings, status: { ok: true, apiKeyConfigured: true }, workspaces: [workspace], activeWorkspace: workspace }
       : url.pathname === "/api/settings/storage-path" ? { dataDir: "isolated-test", workspaceFilePath: "isolated-test", isCustom: false }
+      : url.pathname === "/api/voice-library" ? [{ id: "qa-role", name: "测试角色音色", description: "Deep and calm", naturalControl: "Confident", voiceId: "", provider: "mimo", audio: workspace.nodes.find(node => node.data.artifact)?.data.artifact ? { fileName: "qa.wav", mimeType: "audio/wav", size: 12044, dataUrl: workspace.nodes.find(node => node.data.artifact).data.artifact.audioDataUrl } : undefined }]
       : url.pathname.startsWith("/api/workspaces/") ? workspace : {};
     if (saveLayout && req.method === "PUT") setTimeout(() => res.end(JSON.stringify(data)), 1200);
     else res.end(JSON.stringify(data));
@@ -116,10 +127,51 @@ async function main() {
   await window.loadURL(`http://127.0.0.1:${server.address().port}`);
   if (desktopSmoke) {
     await window.webContents.executeJavaScript(`(async()=>{for(let i=0;i<100&&!document.querySelector('.studio-more-button');i++)await new Promise(r=>setTimeout(r,50)); await new Promise(r=>setTimeout(r,2200));})()`);
+    const topbarChecks = [];
+    for (const width of [1024, 1008, 800, 640]) {
+      window.setContentSize(width, 720);
+      await new Promise(resolve => setTimeout(resolve, 180));
+      topbarChecks.push(await window.webContents.executeJavaScript(`(()=>{
+        const bar=document.querySelector('.studio-topbar'), buttons=[...bar.querySelectorAll('.topbar-actions > button')];
+        if(buttons.length!==6)throw new Error('All six topbar settings must remain available');
+        const assertVisible=()=>{const bounds=bar.getBoundingClientRect();for(const button of buttons){const rect=button.getBoundingClientRect();if(rect.left<0||rect.right>innerWidth||rect.top<bounds.top||rect.bottom>bounds.bottom||rect.width<button.scrollWidth-1)throw new Error('Clipped topbar setting at '+innerWidth+': '+button.textContent);}if(document.body.scrollWidth>innerWidth)throw new Error('Page exceeds small window width');};
+        assertVisible();
+        const brand=bar.querySelector('.brand-block'), original=brand.innerHTML;
+        try {brand.innerHTML='<span class="brand-kicker">A VERY LONG CUSTOM AUDIO WORKSTATION TITLE WITH EXTRA WORDS</span><h1>这是一个非常长的自定义工作站标题测试文字不会挤掉顶部设置按钮</h1>';assertVisible();}
+        finally {brand.innerHTML=original;}
+        return {width:innerWidth,settings:buttons.map(button=>button.textContent.trim()),height:bar.offsetHeight};
+      })()`));
+      if(width===1024)fs.writeFileSync(path.resolve('reports','desktop-min-window-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    }
+    console.log(JSON.stringify({type:'minimum-window-topbar-smoke',appearance,checks:topbarChecks}));
+    window.setContentSize(1600, 1000);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelector('.status-pill').click();await new Promise(r=>setTimeout(r,100));
+      window.assertSettingsPopover=(dialog,trigger)=>{const panel=dialog.getBoundingClientRect(),anchor=trigger.getBoundingClientRect();if(!dialog.classList.contains('settings-popover-panel')||Math.abs(panel.top-anchor.bottom-6)>2||panel.left<7||panel.right>innerWidth-7||panel.bottom>innerHeight-7)throw new Error('Settings panel must appear below its trigger within the window');if(getComputedStyle(dialog.parentElement).backdropFilter!=='none')throw new Error('Anchored settings must not blur the canvas');};
+      window.assertSettingsPopover(document.querySelector('.api-key-modal-content'),document.querySelector('.status-pill'));
+      const reference=getComputedStyle(document.querySelector('.api-endpoint-section .api-field-label'));
+      const labels=document.querySelectorAll('.api-key-modal-body .api-form-fields > label');
+      if(labels.length<3)throw new Error('Missing provider option labels');
+      for(const label of labels){const style=getComputedStyle(label);if(style.fontSize!==reference.fontSize||style.fontWeight!==reference.fontWeight||style.fontFamily!==reference.fontFamily)throw new Error('API option typography differs from endpoint label');}
+      for(const input of document.querySelectorAll('.api-key-modal-body .api-form-fields .api-key-input')){const style=getComputedStyle(input);if(style.fontSize!=='13px'||style.fontWeight!=='400')throw new Error('API input typography differs');}
+      const note=getComputedStyle(document.querySelector('.api-capability-note'));
+      if(note.fontSize!=='12px'||note.fontWeight!=='400'||Math.abs(parseFloat(note.lineHeight)-19.2)>.1)throw new Error('API capability note must use compact auxiliary typography');
+    })()`);
+    fs.writeFileSync(path.resolve('reports','desktop-api-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`(async()=>{document.querySelector('.api-key-modal-close').click();await new Promise(r=>setTimeout(r,80));})()`);
+    for(const kind of ['appearance','storage']){
+      await window.webContents.executeJavaScript(`(async()=>{const trigger=document.querySelector('[data-settings-trigger="${kind}"]');trigger.click();await new Promise(r=>setTimeout(r,120));const panel=document.querySelector('.settings-popover-panel');window.assertSettingsPopover(panel,trigger);})()`);
+      fs.writeFileSync(path.resolve('reports','desktop-'+kind+'-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`(async()=>{document.querySelector('.settings-popover-panel .settings-close-button').click();await new Promise(r=>setTimeout(r,80));})()`);
+    }
     window.webContents.send("desktop-menu-event", "about");
     const result = await window.webContents.executeJavaScript(`(async()=>{
       for(let i=0;i<50&&!document.querySelector('.studio-about-dialog');i++)await new Promise(r=>setTimeout(r,50));
       const dialog=document.querySelector('.studio-about-dialog'); if(!dialog)throw new Error('About did not open through IPC');
+      window.assertSettingsClose=(dialog)=>{const close=dialog.querySelector('.settings-close-button');if(!close)throw new Error('Missing shared close button');const style=getComputedStyle(close);if(style.width!=='32px'||style.height!=='32px'||style.borderRadius!=='9px'||style.boxShadow==='none'||getComputedStyle(close.querySelector('svg')).width!=='18px')throw new Error('Close button style differs');};
+      window.assertSettingsClose(dialog);
+      window.assertSettingsPopover(dialog,document.querySelector('.studio-more-button'));
       if(document.documentElement.dataset.theme!==${JSON.stringify(appearance)})throw new Error('Incorrect preview theme');
       const info=await window.electronApi.getAppInfo();const update=await window.electronApi.checkForUpdates();
       const topbar=document.querySelector('.studio-topbar');const height=parseFloat(getComputedStyle(topbar).height);
@@ -151,13 +203,174 @@ async function main() {
     await window.webContents.executeJavaScript(`(async()=>{
       document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
       document.querySelector('[title="设置音频播放起点"]').click();await new Promise(r=>setTimeout(r,50));
-      const checkbox=document.querySelector('.studio-playback-option input');
-      if(!checkbox||checkbox.checked)throw new Error('Incorrect default playback setting');
-      checkbox.click();await new Promise(r=>setTimeout(r,50));
-      if(!checkbox.checked||localStorage.getItem('mimo_playback_restart_from_beginning')!=='true')throw new Error('Playback setting was not saved');
+      const options=document.querySelectorAll('.studio-playback-options button');
+      if(options.length!==2||options[0].getAttribute('aria-pressed')!=='true'||options[1].getAttribute('aria-pressed')!=='false')throw new Error('Incorrect default playback setting');
+      window.assertSettingsClose(document.querySelector('.studio-playback-dialog'));
+      window.assertSettingsPopover(document.querySelector('.studio-playback-dialog'),document.querySelector('[title="设置音频播放起点"]'));
+      options[1].click();await new Promise(r=>setTimeout(r,50));
+      if(options[1].getAttribute('aria-pressed')!=='true'||options[0].getAttribute('aria-pressed')!=='false'||localStorage.getItem('mimo_playback_restart_from_beginning')!=='true')throw new Error('Playback setting was not saved');
+      options[0].click();await new Promise(r=>setTimeout(r,50));
+      if(options[0].getAttribute('aria-pressed')!=='true'||localStorage.getItem('mimo_playback_restart_from_beginning')!=='false')throw new Error('Resume playback setting was not saved');
     })()`);
     const playbackOutput=path.resolve('reports','desktop-playback-'+appearance+'.png');
     fs.writeFileSync(playbackOutput,(await window.webContents.capturePage()).toPNG());
+    if (productionSmoke) {
+      fs.writeFileSync(path.resolve('reports','role-toolbar-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`(()=>{const row=document.querySelector('.reference-tools-row'),button=row.querySelector('.role-library-button');if(getComputedStyle(row).justifyContent!=='flex-end'||Math.abs(row.getBoundingClientRect().right-button.getBoundingClientRect().right)>1)throw new Error('Reference role library must align to right edge');})()`);
+      await window.webContents.executeJavaScript(`(async()=>{
+        document.querySelector('[aria-label="关闭播放设置"]').click();
+        if(!document.querySelector('.node-clone .batch-nine-btn')?.textContent.includes('完成 8/20')||document.querySelector('.generation-progress'))throw new Error('Count must be inside generation button');
+        if(Array.from(document.querySelectorAll('.topbar-actions button')).some(button=>button.textContent.includes('产物筛选')||button.textContent.includes('A/B')))throw new Error('Removed tools still visible');
+        const toolbar=document.querySelector('.node-clone .clone-toolbar');
+        if(!toolbar?.querySelector('select')||toolbar.lastElementChild?.textContent!=='角色音色库')throw new Error('Preset/library toolbar incorrect');
+        const preset=toolbar.querySelector('select').getBoundingClientRect(),library=toolbar.querySelector('.role-library-button').getBoundingClientRect();
+        if(Math.abs((preset.top+preset.height/2)-(library.top+library.height/2))>2)throw new Error('Preset and library must share a row');
+        for(const toolbar of document.querySelectorAll('.node-clone .clone-toolbar,.node-design .design-toolbar')){
+          const sizes=Array.from(toolbar.querySelectorAll('button,select')).map(element=>element.getBoundingClientRect().height);
+          if(Math.max(...sizes)-Math.min(...sizes)>0.5)throw new Error('Toolbar controls have unequal heights');
+          if(toolbar.querySelector('select').selectedOptions[0].textContent.match(/[.…]/))throw new Error('Preset label retains ellipsis');
+          const select=toolbar.querySelector('select'),style=getComputedStyle(select),context=document.createElement('canvas').getContext('2d');
+          context.font=style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+          // Chromium's native dropdown arrow also consumes about 18px of inline space.
+          if(context.measureText(select.selectedOptions[0].textContent).width+parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+18>select.clientWidth)throw new Error('Preset default label has insufficient space');
+        }
+        const modes=document.querySelector('.game-vocal-mode-tabs');
+        if(modes){const heights=Array.from(modes.querySelectorAll('button')).map(element=>element.getBoundingClientRect().height);if(Math.max(...heights)-Math.min(...heights)>0.5)throw new Error('Game mode/library heights differ');}
+        for(const button of document.querySelectorAll('.integrated-col-tools button')){
+          if(getComputedStyle(button).whiteSpace!=='nowrap'||button.scrollWidth>button.clientWidth+1)throw new Error('Integrated tool text is clipped');
+        }
+        const refHeader=document.querySelector('.integrated-header-cell.col-1'),cloneHeader=document.querySelector('.integrated-header-cell.col-2');
+        const refTitle=refHeader.querySelector(':scope > span').getBoundingClientRect(),cloneTitle=cloneHeader.querySelector(':scope > span').getBoundingClientRect();
+        const upload=refHeader.querySelector('button').getBoundingClientRect(),cloneTool=cloneHeader.querySelector('button').getBoundingClientRect();
+        if(Math.abs(refTitle.top-cloneTitle.top)>1||Math.abs(upload.top-cloneTool.top)>1||Math.abs(upload.height-cloneTool.height)>1||upload.top<refTitle.bottom)throw new Error('Reference and clone headers must use matching two-row layouts');
+        const reference=document.querySelector('.node-audio');
+        if(reference.querySelector('.role-library-button').getBoundingClientRect().top>=reference.querySelector('.file-picker').getBoundingClientRect().top)throw new Error('Reference library must be above upload');
+        if(!document.querySelector('.node-artifact .artifact-actions .favorite-icon-button')||!document.querySelector('.node-batch-artifact .batch-artifact-item-actions .favorite-icon-button'))throw new Error('Favorites must be inline actions');
+        if(document.querySelector('.favorite-icon-button')?.textContent.trim())throw new Error('Favorite must be icon only');
+        const singleActions=Array.from(document.querySelector('.node-artifact .artifact-actions').children).map(element=>element.getBoundingClientRect());
+        if(Math.max(...singleActions.map(rect=>rect.top+rect.height/2))-Math.min(...singleActions.map(rect=>rect.top+rect.height/2))>2)throw new Error('Single artifact actions wrapped');
+        for(const control of document.querySelectorAll('.studio-node button,.studio-node a.download-link,.studio-node a.batch-artifact-item-btn')){
+          const auxiliary=control.matches('.role-library-button,.batch-excel-paste-btn,.batch-clear-btn,.batch-col-clear-btn,.batch-row-remove-btn,.design-action-btn,.integrated-mini-tool,.game-vocal-mode-tab,.game-vocal-cat-btn,.game-vocal-sub-btn,.game-vocal-quick-btn,.game-vocal-duration-pill,.game-vocal-char-type-btn,.game-vocal-tag-chip,.game-vocal-item-chip,.game-vocal-pill-remove-btn');
+          if((getComputedStyle(control).boxShadow==='none')!==auxiliary)throw new Error('Incorrect primary/auxiliary shadow: '+control.className);
+        }
+      })()`);
+      fs.writeFileSync(path.resolve('reports','role-toolbar-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`(async()=>{
+        document.querySelector('.node-clone .role-library-button').click();await new Promise(r=>setTimeout(r,160));
+        const currentEditor=document.querySelector('.voice-library-editor-toggle');
+        if(currentEditor.textContent!=='保存当前角色'||currentEditor.getAttribute('aria-expanded')!=='false'||!document.querySelector('.voice-library-form').hidden)throw new Error('Save current role must start collapsed');
+        if(!document.querySelector('.voice-library-drag-hint')?.textContent.includes('拖住含音频的角色卡片'))throw new Error('Missing visible role drag hint');
+        currentEditor.click();await new Promise(r=>setTimeout(r,80));
+        if(document.querySelector('.voice-library-form').hidden)throw new Error('Current role editor must still expand');
+        document.querySelector('.voice-library-dialog .settings-close-button').click();await new Promise(r=>setTimeout(r,80));
+        Array.from(document.querySelectorAll('.topbar-actions button')).find(button=>button.textContent==='角色音色库').click();await new Promise(r=>setTimeout(r,200));
+        for(let attempt=0;attempt<50&&!document.querySelector('.voice-library-list')?.textContent.includes('测试角色音色');attempt++)await new Promise(r=>setTimeout(r,50));
+        if(!document.querySelector('.voice-library-list')?.textContent.includes('测试角色音色'))throw new Error('Role library did not load');
+        window.assertSettingsClose(document.querySelector('.voice-library-dialog'));
+        window.assertSettingsPopover(document.querySelector('.voice-library-dialog'),document.querySelector('.topbar-actions .role-library-button'));
+        const editor=document.querySelector('.voice-library-editor-toggle'),form=document.querySelector('.voice-library-form');
+        if(editor.getAttribute('aria-expanded')!=='false'||getComputedStyle(form).display!=='none')throw new Error('Topbar library editor must start collapsed');
+        if(getComputedStyle(editor).borderRadius!=='11px'||getComputedStyle(editor.parentElement).borderRadius!=='12px')throw new Error('Editor inner and outer corners must match');
+        editor.click();await new Promise(r=>setTimeout(r,80));
+        if(editor.getAttribute('aria-expanded')!=='true'||getComputedStyle(form).display==='none'||editor.getAttribute('aria-controls')!==form.id)throw new Error('Role editor did not expand');
+        const picker=document.querySelector('.voice-library-native-file');
+        if(getComputedStyle(picker).display!=='none'||!document.querySelector('.voice-library-upload-row button'))throw new Error('Native upload must have a styled trigger');
+        const filter=document.querySelector('.voice-library-favorite-filter');
+        if(!filter||filter.getAttribute('aria-pressed')!=='false'||document.querySelector('.voice-library-dialog input[type="checkbox"]'))throw new Error('Favorite filter must use a compact toggle');
+        filter.click();await new Promise(r=>setTimeout(r,80));
+        if(filter.getAttribute('aria-pressed')!=='true')throw new Error('Favorite toggle did not activate');
+        filter.click();await new Promise(r=>setTimeout(r,80));
+        const search=document.querySelector('.voice-library-search').getBoundingClientRect(),toggle=filter.getBoundingClientRect();
+        if(Math.abs(search.top+search.height/2-toggle.top-toggle.height/2)>2)throw new Error('Search and favorite toggle must share a row');
+        editor.click();await new Promise(r=>setTimeout(r,80));
+        if(!form.hidden||getComputedStyle(form).display!=='none'||!document.querySelector('.voice-library-list article'))throw new Error('Collapsing editor must preserve the role list');
+        const card=document.querySelector('.voice-library-list article'),description=card.querySelector('.voice-library-asset-details'),descriptionToggle=card.querySelector('.voice-library-description-toggle');
+        if(!description.hidden||descriptionToggle.getAttribute('aria-expanded')!=='false'||card.offsetHeight>110)throw new Error('Role card must use a compact collapsed layout');
+        descriptionToggle.click();await new Promise(r=>setTimeout(r,80));
+        if(description.hidden||descriptionToggle.getAttribute('aria-expanded')!=='true'||!description.textContent.includes('Deep and calm'))throw new Error('Role description did not expand');
+        descriptionToggle.click();await new Promise(r=>setTimeout(r,80));
+        if(!description.hidden)throw new Error('Role description did not collapse');
+      })()`);
+      fs.writeFileSync(path.resolve('reports','production-role-library-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+      // Force real CSS pseudo states without triggering user actions or vendor calls.
+      window.webContents.debugger.attach('1.3');
+      await window.webContents.debugger.sendCommand('DOM.enable');
+      await window.webContents.debugger.sendCommand('CSS.enable');
+      const {root:domRoot}=await window.webContents.debugger.sendCommand('DOM.getDocument');
+      for(const selector of ['.node-clone .role-library-button','.node-clone select','.node-artifact a.download-link','.topbar-actions button','.voice-library-dialog .settings-close-button',...(themeGame?['.game-vocal-cat-btn']:[])]){
+        const {nodeId}=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:domRoot.nodeId,selector});
+        if(!nodeId)throw new Error('Missing interaction sample: '+selector);
+        for(const state of ['hover','active','focus-visible']){
+          await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[state]});
+          await new Promise(resolve=>setTimeout(resolve,100));
+          const style=await window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return {filter:s.filter,transform:s.transform,duration:s.transitionDuration,outline:s.outlineStyle};})()`);
+          if(state==='focus-visible' ? style.outline!=='solid' : style.filter==='none'||style.transform==='none'||style.duration!==(state==='active'?'0.04s':'0.06s'))throw new Error('Inconsistent '+state+' feedback: '+selector+' '+JSON.stringify(style));
+        }
+        await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+      }
+      for(const selector of ['.node-artifact .player-button','.node-artifact .player-speed-btn']){
+        const {nodeId}=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:domRoot.nodeId,selector});
+        if(!nodeId)throw new Error('Missing player circle: '+selector);
+        for(const state of ['hover','active']){
+          await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[state]});
+          await new Promise(resolve=>setTimeout(resolve,170));
+          const result=await window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)})),m=new DOMMatrix(s.transform);return {scale:m.a,x:m.e,y:m.f,duration:s.transitionDuration};})()`);
+          if(Math.abs(result.scale-(state==='hover'?1.0667:1.1))>.005||result.x!==0||result.y!==0||result.duration!=='0.12s')throw new Error('Incorrect player enlargement: '+JSON.stringify(result));
+        }
+        await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+      }
+      for(const selector of ['.batch-col-clear-btn','.batch-clear-btn','.batch-row-remove-btn','.integrated-mini-tool.danger','.voice-library-editor-toggle',...(themeGame?['.game-vocal-clear-btn']:[])]){
+        const {nodeId}=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:domRoot.nodeId,selector});
+        if(!nodeId)throw new Error('Missing clear button: '+selector);
+        for(const state of ['hover','active']){
+          await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[state]});
+          await new Promise(resolve=>setTimeout(resolve,100));
+          const style=await window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return {shadow:s.boxShadow,transform:s.transform,font:s.fontSize};})()`);
+          if(style.shadow!=='none'||style.transform!=='none'||(selector!=='.batch-row-remove-btn'&&style.font!==(selector==='.batch-col-clear-btn'?'11px':'12px')))throw new Error('Auxiliary button must stay flat: '+selector+' '+JSON.stringify(style));
+        }
+        await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+      }
+      window.webContents.debugger.detach();
+      console.log(JSON.stringify(await window.webContents.executeJavaScript(`(async()=>{
+        const node=document.querySelector('[data-id="qa-integrated"]');
+        node.querySelector('[title="加一行"]').click();await new Promise(r=>setTimeout(r,100));
+        node.querySelector('[title="加一行"]').click();await new Promise(r=>setTimeout(r,100));
+        const card=document.querySelector('.voice-library-list article'),transfer=new DataTransfer();
+        if(!card.draggable)throw new Error('Audio role card must be draggable');
+        card.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,80));
+        if(getComputedStyle(document.querySelector('.voice-library-dragging')).pointerEvents!=='none')throw new Error('Library overlay blocks drop targets');
+        card.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,80));
+        if(!document.querySelector('.voice-library-dialog')||document.querySelector('.voice-library-dragging'))throw new Error('Cancelled drag must keep library open and restore overlay');
+        const cells=[...node.querySelectorAll('.cell-ref')],before=[...node.querySelectorAll('.cell-clone textarea,.cell-clone input')].map(el=>el.value);
+        const copy=new DataTransfer();card.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:copy}));await new Promise(r=>setTimeout(r,80));
+        const expected=JSON.parse(copy.getData('application/x-mimo-role-audio'));
+        cells[0].dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:copy}));await new Promise(r=>setTimeout(r,80));
+        if(!cells[0].classList.contains('dragging-over'))throw new Error('Missing row drop highlight');
+        cells[0].dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:copy}));await new Promise(r=>setTimeout(r,100));
+        if(!cells[0].textContent.includes(expected.fileName)||!cells[0].querySelector('audio')?.src.startsWith(expected.dataUrl))throw new Error('Role audio was not applied to target row');
+        if(cells[1].querySelector('audio')||JSON.stringify(before)!==JSON.stringify([...node.querySelectorAll('.cell-clone textarea,.cell-clone input')].map(el=>el.value)))throw new Error('Drop changed another row or text');
+        card.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:copy}));await new Promise(r=>setTimeout(r,80));
+        if(document.querySelector('.voice-library-dialog'))throw new Error('Successful drag must close library');
+        const reference=document.querySelector('[data-id="qa-reference"]');
+        for(let count=1;count<=2;count++){
+          document.querySelector('.topbar-actions .role-library-button').click();
+          for(let attempt=0;attempt<50&&!document.querySelector('.voice-library-list article');attempt++)await new Promise(r=>setTimeout(r,50));
+          const source=document.querySelector('.voice-library-list article'),drag=new DataTransfer();
+          source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:drag}));await new Promise(r=>setTimeout(r,80));
+          const target=reference.querySelector('.file-picker');
+          target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:drag}));await new Promise(r=>setTimeout(r,60));
+          if(!target.classList.contains('dragging-over'))throw new Error('Reference drop highlight missing');
+          target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:drag}));await new Promise(r=>setTimeout(r,120));
+          if(reference.querySelectorAll('.reference-audio-card').length!==count||!reference.textContent.includes('qa.wav'))throw new Error('Reference node must append role audio without losing existing references');
+          if(document.querySelector('.voice-library-dialog'))throw new Error('Reference drop must close library');
+        }
+        reference.querySelector('[title="移除此参考音频"]').click();await new Promise(r=>setTimeout(r,80));
+        if(reference.querySelectorAll('.reference-audio-card').length!==1)throw new Error('Removing reference audio failed');
+        return {scenario:'role-audio-drag-smoke',targetRowOnly:true,cancel:true,overlayPassThrough:true,referenceAppend:true,referenceRemove:true};
+      })()`)));
+      console.log(JSON.stringify({scenario:'interaction-feedback-smoke',appearance,hover:true,active:true,focus:true}));
+      console.log(JSON.stringify({scenario:'production-tools-smoke',appearance,counts:true,removedTools:true,compactToolbar:true,roleLibrary:true}));
+    }
     console.log(JSON.stringify({...result,...menuResult, nativeMenuVisible:window.isMenuBarVisible(), screenshot:output,menuScreenshot:menuOutput}));
     clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
   }

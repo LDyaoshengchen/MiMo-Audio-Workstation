@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { buildCleanAudioCacheFileName, sanitizeFileName, validateAndSanitizeEndpoint } from "./utils/audioNaming.js";
 import { getProviderAdapter, getEffectiveProviderAdapter, getAllProviderCapabilities } from "./providers/index.js";
 import { prepareStorageMigration } from "./utils/storageMigration.js";
+import { registerVoiceLibrary } from "./utils/voiceLibrary.js";
 
 const currentDir = typeof __dirname !== "undefined" ? __dirname : (typeof import.meta !== "undefined" && import.meta?.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
 
@@ -428,6 +429,7 @@ async function getMimoConfig(req: { headers: Record<string, string | string[] | 
   return config;
 }
 
+registerVoiceLibrary(app, getDataDir);
 app.get("/api/providers/capabilities", (_req, res) => {
   res.json(getAllProviderCapabilities());
 });
@@ -1440,6 +1442,8 @@ app.post("/api/workspaces/open-folder", async (req, res, next) => {
 
     const normPath = path.normalize(targetFile);
 
+    if (req.body?.resolveOnly === true) return res.json({ ok: true, path: normPath });
+
     if (process.platform === "win32") {
       openLocalPath(normPath, true);
     } else if (process.platform === "darwin") {
@@ -1453,11 +1457,12 @@ app.post("/api/workspaces/open-folder", async (req, res, next) => {
   }
 });
 
-app.post("/api/workspaces/open-audios-folder", async (_req, res, next) => {
+app.post("/api/workspaces/open-audios-folder", async (req, res, next) => {
   try {
     const curAudiosDir = getAudiosDir();
     await mkdir(curAudiosDir, { recursive: true });
     const normPath = path.normalize(curAudiosDir);
+    if (req.body?.resolveOnly === true) return res.json({ ok: true, path: normPath });
     if (process.platform === "win32") {
       openLocalPath(normPath);
     } else if (process.platform === "darwin") {

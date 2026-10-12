@@ -35,7 +35,7 @@ export function ProviderSettingsFields({ provider, options, error, onChange }: {
     {options.synthesisMode === "reference" && <label>参考音频原文（SiliconFlow / Fish 必填）
       <textarea className="api-key-input" value={options.referenceText} placeholder="填写参考音频实际说出的文字；批量使用不同参考音频时请分别配置后运行。" onChange={e => onChange(o => ({ ...o, referenceText: e.target.value }))} />
     </label>}
-    <p>能力标记代表本项目已接入的功能。ElevenLabs 音色设计、各厂商 ASR 暂未接入。</p>
+    <p className="api-capability-note">能力标记代表本项目已接入的功能。ElevenLabs 音色设计、各厂商 ASR 暂未接入。</p>
   </div>
   );
 }

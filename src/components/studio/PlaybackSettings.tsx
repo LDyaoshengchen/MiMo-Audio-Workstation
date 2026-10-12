@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { SlidersHorizontal, X } from "lucide-react";
+import { Play, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { getRestartPlayback, setRestartPlayback } from "../../utils/playbackSettings";
+import { useSettingsPopover } from "./useSettingsPopover";
 
 export function PlaybackSettings() {
   const [open, setOpen] = useState(false);
   const [restart, setRestart] = useState(getRestartPlayback);
   const dialog = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
+  const trigger=useRef<HTMLButtonElement>(null);
+  const popover=useSettingsPopover(open,trigger,dialog);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -25,12 +28,15 @@ export function PlaybackSettings() {
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
   }, [open]);
   return <>
-    <button type="button" title="设置音频播放起点" onClick={() => { setRestart(getRestartPlayback()); setOpen(true); }}><SlidersHorizontal size={16} />播放设置</button>
-    {open && createPortal(<div className="studio-about-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section ref={dialog} className="studio-about-dialog studio-playback-dialog" role="dialog" aria-modal="true" aria-labelledby="playback-settings-title">
-        <header><h3 id="playback-settings-title">播放设置</h3><button ref={close} type="button" aria-label="关闭播放设置" onClick={() => setOpen(false)}><X size={16} /></button></header>
-        <label className="studio-playback-option"><input type="checkbox" checked={restart} onChange={event => { setRestart(event.target.checked); setRestartPlayback(event.target.checked); }} />每次从头播放</label>
-        <p>不勾选：从暂停位置继续播放。<br />勾选：每次点击播放，都从音频开头开始。</p>
+    <button ref={trigger} type="button" title="设置音频播放起点" onClick={() => { setRestart(getRestartPlayback()); setOpen(true); }}><SlidersHorizontal size={16} />播放设置</button>
+    {open && createPortal(<div className={`studio-about-overlay${popover.overlayClass}`} onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
+      <section ref={dialog} className={`studio-about-dialog studio-playback-dialog${popover.panelClass}`} style={popover.style} role="dialog" aria-modal="true" aria-labelledby="playback-settings-title">
+        <header><h3 id="playback-settings-title">播放设置</h3><button className="settings-close-button" ref={close} type="button" aria-label="关闭播放设置" title="关闭" onClick={() => setOpen(false)}><X size={18} /></button></header>
+        <div className="studio-playback-options" role="group" aria-label="播放起点">
+          <button type="button" aria-pressed={!restart} onClick={() => { setRestart(false); setRestartPlayback(false); }}><Play size={15} />从暂停处继续</button>
+          <button type="button" aria-pressed={restart} onClick={() => { setRestart(true); setRestartPlayback(true); }}><RotateCcw size={15} />每次从头播放</button>
+        </div>
+        <p>{restart ? "每次点击播放，都从音频开头开始。" : "点击播放，从上次暂停的位置继续。"}</p>
         <p>适用于所有节点及暂存音频；设置自动保存，下次播放生效。</p>
       </section>
     </div>, document.body)}
