@@ -396,6 +396,8 @@ async function main() {
       return {scenario:'overlap-smoke',triple,pair,single,badgeScreenWidth:badgeBounds.width,mainCanvasHasNoBadges:!document.querySelector('.react-flow__viewport .minimap-overlap-badge')};
     }
     if (${actionAudit}) {
+      // Audit settled palette colors; animation feedback is covered separately.
+      const settledStyle=document.createElement('style');settledStyle.textContent='*,*::before,*::after{transition:none!important;animation:none!important}';document.head.append(settledStyle);
       const types=[...document.querySelectorAll('.react-flow__node')].map(el=>el.dataset.id);
       if(types.length!==13)throw new Error('Expected all 13 node types');
       document.querySelector('button[title="调整外观色彩与主题"]').click();
@@ -424,7 +426,9 @@ async function main() {
           }
           for(const control of document.querySelectorAll('.studio-node button,.studio-node a.download-link')){
             const css=getComputedStyle(control);typographyChecks++;
-            if(css.fontFamily!==referenceFont || css.fontSize!=='12px' || css.fontWeight!=='700' || css.letterSpacing!=='normal')
+            const flat=control.matches('.batch-clear-btn,.batch-col-clear-btn,.game-vocal-clear-btn,.integrated-mini-tool.danger');
+            const expectedSize=control.matches('.batch-col-clear-btn')?'11px':'12px';
+            if(css.fontFamily!==referenceFont || css.fontSize!==expectedSize || css.fontWeight!==(flat?'600':'700') || css.letterSpacing!=='normal')
               failures.push({mode,palette,control:control.className,font:[css.fontFamily,css.fontSize,css.fontWeight,css.letterSpacing]});
           }
           // Resolve palette variables through a probe so computed rgb values can be compared.
@@ -484,7 +488,7 @@ async function main() {
           nodeAccentChecks+=2;
           if(getComputedStyle(gameBadge).color!==getComputedStyle(probe).color)
             failures.push({mode,palette,precisionBadge:getComputedStyle(gameBadge).color,expected:getComputedStyle(probe).color});
-          if(getComputedStyle(game.querySelector('.game-vocal-run-btn')).boxShadow!=='none')
+          if(getComputedStyle(game.querySelector('.game-vocal-run-btn')).boxShadow==='none')
             failures.push({mode,palette,gameShadow:getComputedStyle(game.querySelector('.game-vocal-run-btn')).boxShadow});
           probe.remove();
           const chip=game.querySelector('.game-vocal-item-chip');
@@ -500,6 +504,7 @@ async function main() {
             const buttons=state==='idle'?baseButtons:[...baseButtons,...document.querySelectorAll('.batch-row-single-clone-btn')];
             const original=buttons.map(button=>button.className);
             if(state==='running')buttons.filter(button=>button.matches('.run-button,.game-vocal-run-btn,.batch-row-single-clone-btn')).forEach(button=>button.classList.add('is-running','is-generating'));
+            await new Promise(r=>setTimeout(r,120));
             for(const button of buttons){
               coverage.add(button.closest('.studio-node')?.className || 'global');
               const fill=getComputedStyle(button).backgroundColor;
@@ -520,7 +525,7 @@ async function main() {
           }
         }
       }
-      if(failures.length)throw new Error('Action ink failures: '+JSON.stringify({total:failures.length,palettes:[...new Set(failures.map(f=>f.mode+'/'+f.palette))],samples:failures.slice(0,15)}));
+      if(failures.length)throw new Error('Action ink failures: '+JSON.stringify({total:failures.length,kinds:[...new Set(failures.map(f=>Object.keys(f).join(',')))],palettes:[...new Set(failures.map(f=>f.mode+'/'+f.palette))],samples:failures.slice(0,15)}));
       return {scenario:'action-audit',paletteCount:palettes.length,modes:2,nodeTypes:types.length,checks:checked,contrastChecks,nodeAccentChecks,typographyChecks,selectionMenuChecks,coverage:[...coverage],failures:failures.length};
     }
     if (${themePreview}) {

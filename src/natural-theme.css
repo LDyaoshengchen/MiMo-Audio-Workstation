@@ -601,6 +601,10 @@
 .voice-library-list article { background:var(--bg-input); border-radius:10px; padding:12px; min-width:0; }
 .voice-library-list article[draggable="true"] { cursor: grab; }
 .voice-library-list article[draggable="true"]:active { cursor: grabbing; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) {
+  background:var(--node-fill) !important; color:var(--action-ink) !important;
+}
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell .studio-node button.batch-row-single-clone-btn:is(.is-running, .is-generating) :is(span, svg) { color:var(--action-ink) !important; }
 .studio-about-overlay.voice-library-dragging { pointer-events: none; }
 .voice-library-dragging .voice-library-dialog { pointer-events: auto; }
 .voice-library-asset-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
