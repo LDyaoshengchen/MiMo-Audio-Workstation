@@ -9,6 +9,8 @@
   box-shadow:0 8px 28px #00000024 !important; border-radius:12px !important; overflow-y:auto;
 }
 :root[data-theme] .settings-popover-panel :is(.api-key-modal-body, .appearance-modal-content, .voice-library-body) { min-height:0; overflow-y:auto; max-height:none; flex:1; }
+.appearance-modal-content > * { flex-shrink:0; }
+:root[data-theme][data-theme][data-theme][data-theme][data-theme][data-theme] .studio-shell button.edge-delete { transition-property:opacity, background-color, border-color, color !important; }
 :root[data-theme] .settings-popover-panel :is(.api-key-modal-header, .api-key-modal-footer, .voice-library-header, .appearance-modal-header, .appearance-modal-footer) { flex-shrink:0; }
 .studio-node .clone-toolbar, .studio-node .design-toolbar, .studio-node .batch-toolbar-row { display:flex; align-items:center; flex-wrap:nowrap; gap:6px; }
 .studio-node .clone-toolbar > select, .studio-node .design-toolbar > select { flex:0 0 118px !important; width:118px !important; min-width:118px !important; max-width:118px !important; height:30px !important; border-radius:6px; padding:4px 20px 4px 7px !important; font-size:12px !important; font-weight:600; background-color:var(--bg-node); box-shadow:0 1px 2px #00000012; cursor:pointer; }
@@ -342,6 +344,14 @@
 .appearance-theme-group .theme-palette-sample { flex-direction: row; align-items: center; gap: 4px; }
 .appearance-theme-group .theme-palette-chip { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; }
 .appearance-theme-group .appearance-collapse-toggle-btn { padding: 6px 12px; min-height: 28px; font-size: 12px; border-top: 1px solid var(--border-color); }
+.appearance-workstation-settings { margin-bottom:0; }
+.appearance-workstation-settings:not([open]) > :not(summary) { display:none; }
+.appearance-workstation-settings > summary { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-input); color:var(--text-main); font-size:12px; font-weight:600; cursor:pointer; list-style:none; }
+.appearance-workstation-settings > summary::-webkit-details-marker { display:none; }
+.appearance-workstation-settings > summary:hover { background:var(--bg-button); }
+.appearance-workstation-settings > summary:focus-visible { outline:2px solid var(--accent-color); outline-offset:2px; }
+.appearance-workstation-settings[open] > summary svg { transform:rotate(180deg); }
+.appearance-workstation-settings[open] > .appearance-group { margin-top:12px; }
 
 /* All filled actions follow mode, never individual palette luminance. */
 :root[data-theme] .studio-shell { --node-fill: var(--accent-button); --player-fill: var(--accent-button); }
@@ -700,11 +710,11 @@
   --control-hover-brightness:.96;
   --control-pressed-brightness:.91;
 }
-:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):hover {
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(.edge-delete):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):hover {
   filter:brightness(var(--control-hover-brightness)) !important;
   transform:translateY(-1px) !important;
 }
-:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):active {
+:root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.player-button):not(.player-speed-btn):not(.edge-delete):not(:is(.batch-clear-btn, .batch-col-clear-btn, .game-vocal-clear-btn, .integrated-mini-tool.danger, .batch-row-remove-btn, .voice-library-editor-toggle)):active {
   filter:brightness(var(--control-pressed-brightness)) !important;
   transform:scale(.98) !important;
   transition-duration:40ms !important;
@@ -759,7 +769,7 @@
   :root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker) {
     transition-duration:0ms !important;
   }
-  :root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):is(:hover, :active):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating) {
+  :root[data-theme][data-theme][data-theme][data-theme][data-theme] body :is(.studio-shell, .studio-about-overlay, .studio-compact-menu, .context-menu) :is(button, [role="button"], select, a.download-link, a.batch-artifact-item-btn, .file-picker):is(:hover, :active):not(:disabled):not([aria-disabled="true"]):not(.is-running):not(.is-generating):not(.edge-delete) {
     transform:none !important;
   }
 }

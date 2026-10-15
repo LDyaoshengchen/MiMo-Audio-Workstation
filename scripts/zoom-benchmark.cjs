@@ -161,9 +161,23 @@ async function main() {
     fs.writeFileSync(path.resolve('reports','desktop-api-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
     await window.webContents.executeJavaScript(`(async()=>{document.querySelector('.api-key-modal-close').click();await new Promise(r=>setTimeout(r,80));})()`);
     for(const kind of ['appearance','storage']){
+      if(kind==='appearance'){window.setContentSize(1008,600);await new Promise(r=>setTimeout(r,100));}
       await window.webContents.executeJavaScript(`(async()=>{const trigger=document.querySelector('[data-settings-trigger="${kind}"]');trigger.click();await new Promise(r=>setTimeout(r,120));const panel=document.querySelector('.settings-popover-panel');window.assertSettingsPopover(panel,trigger);})()`);
+      if(kind==='appearance')await window.webContents.executeJavaScript(`(async()=>{
+        const group=document.querySelector('.appearance-workstation-settings'),summary=group.querySelector('summary'),input=group.querySelector('input');
+        if(group.open||input.getBoundingClientRect().height)throw new Error('Workstation settings must default to collapsed');
+        const value=input.value;summary.click();await new Promise(r=>setTimeout(r,80));
+        if(!group.open||!input.getBoundingClientRect().height||!group.querySelector('[role="switch"]'))throw new Error('Workstation settings must expand with title fields and auto-hide');
+        const mode=document.querySelector('.appearance-modal-content > .appearance-card'),main=mode.querySelector('.appearance-card-main'),bounds=mode.getBoundingClientRect();
+        if(main.getBoundingClientRect().bottom>bounds.bottom+1||mode.offsetHeight<60)throw new Error('Expanded workstation settings must not compress appearance mode card');
+        const content=document.querySelector('.appearance-modal-content');
+        if(content.scrollHeight<=content.clientHeight)throw new Error('Short appearance panel must scroll rather than shrink cards');
+        summary.click();await new Promise(r=>setTimeout(r,80));
+        if(group.open||input.value!==value)throw new Error('Collapse must preserve title settings');
+      })()`);
       fs.writeFileSync(path.resolve('reports','desktop-'+kind+'-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
       await window.webContents.executeJavaScript(`(async()=>{document.querySelector('.settings-popover-panel .settings-close-button').click();await new Promise(r=>setTimeout(r,80));})()`);
+      if(kind==='appearance'){window.setContentSize(1600,1000);await new Promise(r=>setTimeout(r,100));}
     }
     window.webContents.send("desktop-menu-event", "about");
     const result = await window.webContents.executeJavaScript(`(async()=>{
@@ -331,6 +345,38 @@ async function main() {
         await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
       }
       window.webContents.debugger.detach();
+      const edgeSample=await window.webContents.executeJavaScript(`(async()=>{
+        const paths=[...document.querySelectorAll('.edge-hover-path')],before=paths.map(path=>path.getAttribute('d'));
+        for(let i=0;i<5;i++){await new Promise(r=>setTimeout(r,100));if(paths.some((path,index)=>path.getAttribute('d')!==before[index]))throw new Error('Idle edge geometry must remain stable');}
+        const path=paths.find(path=>{const point=path.getPointAtLength(path.getTotalLength()/2).matrixTransform(path.getScreenCTM());return point.x>20&&point.x<innerWidth-20&&point.y>60&&point.y<innerHeight-20;});
+        if(!path)throw new Error('Missing visible edge test fixture');
+        const point=path.getPointAtLength(path.getTotalLength()/2).matrixTransform(path.getScreenCTM());
+        path.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,clientX:point.x,clientY:point.y}));await new Promise(r=>setTimeout(r,60));
+        const button=document.querySelector('.edge-delete'),initial=button.getBoundingClientRect();
+        const movedPoint=path.getPointAtLength(path.getTotalLength()*0.7).matrixTransform(path.getScreenCTM());
+        path.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:movedPoint.x,clientY:movedPoint.y}));await new Promise(r=>setTimeout(r,80));
+        const followed=button.getBoundingClientRect();
+        if(Math.hypot(followed.x-initial.x,followed.y-initial.y)<3)throw new Error('Disconnect button must follow mouse movement along the edge');
+        const bounds=button.getBoundingClientRect();
+        return {x:bounds.x,y:bounds.y,edgeId:path.closest('.react-flow__edge').getAttribute('data-id'),count:paths.length};
+      })()`);
+      window.webContents.debugger.attach('1.3');
+      await window.webContents.debugger.sendCommand('DOM.enable');await window.webContents.debugger.sendCommand('CSS.enable');
+      const {root:edgeRoot}=await window.webContents.debugger.sendCommand('DOM.getDocument');
+      const {nodeId:edgeButton}=await window.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:edgeRoot.nodeId,selector:'.edge-delete'});
+      for(const state of ['hover','active']){
+        await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId:edgeButton,forcedPseudoClasses:[state]});
+        await new Promise(r=>setTimeout(r,90));
+        const bounds=await window.webContents.executeJavaScript(`(()=>{const r=document.querySelector('.edge-delete').getBoundingClientRect();return {x:r.x,y:r.y};})()`);
+        if(Math.abs(bounds.x-edgeSample.x)>1||Math.abs(bounds.y-edgeSample.y)>1)throw new Error('Disconnect button jumped on '+state);
+      }
+      await window.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId:edgeButton,forcedPseudoClasses:[]});
+      await window.webContents.executeJavaScript(`document.querySelector('.edge-delete').click()`);
+      await new Promise(r=>setTimeout(r,120));
+      const remaining=await window.webContents.executeJavaScript(`(()=>({count:document.querySelectorAll('.edge-hover-path').length,deleted:!Array.from(document.querySelectorAll('.react-flow__edge')).some(edge=>edge.getAttribute('data-id')===${JSON.stringify(edgeSample.edgeId)})}))()`);
+      if(remaining.count!==edgeSample.count-1||!remaining.deleted)throw new Error('Disconnect button must remove only its edge');
+      window.webContents.debugger.detach();
+      console.log(JSON.stringify({scenario:'edge-disconnect-smoke',appearance,stableGeometry:true,stationaryButton:true,deleted:true}));
       console.log(JSON.stringify(await window.webContents.executeJavaScript(`(async()=>{
         const node=document.querySelector('[data-id="qa-integrated"]');
         node.querySelector('[title="加一行"]').click();await new Promise(r=>setTimeout(r,100));

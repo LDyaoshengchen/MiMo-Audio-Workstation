@@ -71,6 +71,8 @@ export function AppearanceSettingsDialog({
         </div>
 
         <div className="appearance-modal-content">
+          <details className="appearance-workstation-settings">
+            <summary><span>工作站名称与顶部栏</span><ChevronDown size={15} /></summary>
           {/* 工作站名称标识设置 (两列：英文与中文) */}
           <div className="appearance-group">
             <div className="appearance-group-heading">工作站名称与标识设置</div>
@@ -128,6 +130,7 @@ export function AppearanceSettingsDialog({
             </div>
           </div>
 
+          </details>
           {/* Appearance Mode Card */}
           <div className="appearance-card">
             <div className="appearance-card-main">

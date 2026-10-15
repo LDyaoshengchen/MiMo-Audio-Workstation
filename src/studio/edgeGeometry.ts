@@ -8,25 +8,19 @@ export function getBezierControlPoints(
   targetY: number,
   targetPosition: Position = Position.Left
 ): { x1: number; y1: number; x2: number; y2: number } {
-  const isHorizontal = sourcePosition === Position.Left || sourcePosition === Position.Right;
-
-  if (isHorizontal) {
-    const dist = Math.abs(targetX - sourceX);
-    const offset = Math.max(dist * 0.5, 20);
-    const x1 = sourcePosition === Position.Left ? sourceX - offset : sourceX + offset;
-    const y1 = sourceY;
-    const x2 = targetPosition === Position.Right ? targetX + offset : targetX - offset;
-    const y2 = targetY;
-    return { x1, y1, x2, y2 };
-  } else {
-    const dist = Math.abs(targetY - sourceY);
-    const offset = Math.max(dist * 0.5, 20);
-    const x1 = sourceX;
-    const y1 = sourcePosition === Position.Top ? sourceY - offset : sourceY + offset;
-    const x2 = targetX;
-    const y2 = targetPosition === Position.Bottom ? targetY + offset : targetY - offset;
-    return { x1, y1, x2, y2 };
-  }
+  // Match React Flow's default Bezier curvature, including backwards handles.
+  const offset = (distance: number) => distance >= 0 ? distance * 0.5 : 0.25 * 25 * Math.sqrt(-distance);
+  const control = (x: number, y: number, otherX: number, otherY: number, position: Position) => {
+    switch (position) {
+      case Position.Left: return { x: x - offset(x - otherX), y };
+      case Position.Right: return { x: x + offset(otherX - x), y };
+      case Position.Top: return { x, y: y - offset(y - otherY) };
+      case Position.Bottom: return { x, y: y + offset(otherY - y) };
+    }
+  };
+  const first = control(sourceX, sourceY, targetX, targetY, sourcePosition);
+  const second = control(targetX, targetY, sourceX, sourceY, targetPosition);
+  return { x1: first.x, y1: first.y, x2: second.x, y2: second.y };
 }
 
 export function getClosestPointOnBezier(
