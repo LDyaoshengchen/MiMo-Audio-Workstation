@@ -19,6 +19,7 @@ export interface BatchVoiceCloneRow {
   text: string;
   refAudioUrl?: string;
   refAudioName?: string;
+  referenceMode?: "inherit" | "audio" | "none";
   artifacts?: IntegratedRowArtifact[];
 }
 

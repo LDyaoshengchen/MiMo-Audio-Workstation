@@ -10,10 +10,13 @@ const require = createRequire(import.meta.url);
 try {
   const paths = packageWindows(rootDir);
   const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  const appVersion = pkg.appVersion || pkg.version;
+  const revision = appVersion.split(".")[3] || "0";
   console.log("📦 正在生成 NSIS 安装包...");
   execFileSync(process.execPath, [require.resolve("electron-builder/cli.js"), "--prepackaged", paths.appOutDir,
-    "--win", "nsis", `--config.directories.output=${paths.installerDir}`], { cwd: rootDir, stdio: "inherit" });
-  const sourceInstaller = path.join(paths.installerDir, `MiMo Audio Workstation Setup ${pkg.version}.exe`);
+    "--win", "nsis", `--config.directories.output=${paths.installerDir}`, `--config.buildVersion=${appVersion}`, `--config.buildNumber=${revision}`,
+    `--config.artifactName=MiMo Audio Workstation Setup ${appVersion}.exe`], { cwd: rootDir, stdio: "inherit" });
+  const sourceInstaller = path.join(paths.installerDir, `MiMo Audio Workstation Setup ${appVersion}.exe`);
   if (!fs.existsSync(sourceInstaller) || !fs.statSync(sourceInstaller).size) throw new Error("没有找到本次构建的有效安装包");
   fs.copyFileSync(sourceInstaller, paths.installerPath, fs.constants.COPYFILE_EXCL);
   console.log(`✅ 安装包: ${paths.installerPath}`);

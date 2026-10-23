@@ -24,11 +24,11 @@ it("product favorite saves a reusable role asset without selection or A/B contro
     expect(host.textContent).toBe("");
     expect(host.querySelector('button')?.getAttribute('aria-label')).toBe('收藏到角色音色库');
     await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
-    const dialog = document.querySelector<HTMLElement>('[aria-label="角色音色资产库"]')!;
-    expect(dialog.querySelector<HTMLInputElement>('.voice-library-form input')!.value).toBe('深海狂鲨');
-    await act(async () => Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === '收藏并保存到角色库')!.click());
+    const dialog = document.querySelector<HTMLElement>('[aria-label="收藏音频"]')!;
+    expect(dialog.querySelector<HTMLInputElement>('.voice-favorite-name')!.value).toBe('深海狂鲨');
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.voice-library-save')!.click());
     const body = JSON.parse(fetchMock.mock.calls.find(call => call[1]?.method === 'POST')![1]!.body as string);
     expect(body.favorite).toBe(true); expect(body.audio.dataUrl).toBe('data:audio/wav;base64,AAAA');
-    expect(dialog.querySelector('[aria-label="取消收藏"][aria-pressed="true"]')).not.toBeNull();
+    expect(document.querySelector('.voice-favorite-dialog')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 });

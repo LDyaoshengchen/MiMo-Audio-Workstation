@@ -4,6 +4,7 @@ import { AudioLines, Loader2 } from "lucide-react";
 import { Handle, Position } from "@xyflow/react";
 import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { StudioNodeFrame } from "./StudioNodeFrame";
+import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
 import { formatBytes } from "../../studio/format";
 import { memo } from "react";
 
@@ -16,7 +17,10 @@ export const AudioMergeNode = memo(function AudioMergeNode({ id, data }: NodePro
       <p className="node-muted">将所有连入的音频按连接顺序拼接为一段 WAV；一个批量参考节点可提供多段音频。</p>
       {data.audio ? (
         <>
-          <p className="merge-result">已整合：{data.audio.fileName} · {formatBytes(data.audio.size)}</p>
+          <div className="merge-result-row nodrag nopan">
+            <p className="merge-result" title={data.audio.fileName}>已整合：{data.audio.fileName} · {formatBytes(data.audio.size)}</p>
+            <RoleVoiceLibrary iconOnly draft={{ name: data.title?.trim() || data.audio.fileName.replace(/\.[^.]+$/, ""), audio: data.audio }} />
+          </div>
           <StudioAudioPlayer src={data.audio.dataUrl} />
         </>
       ) : null}

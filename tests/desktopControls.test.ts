@@ -56,6 +56,20 @@ describe("desktop controls", () => {
     const equal = fixture({ tag_name: "v0.8.38" });
     expect(await equal.handlers["desktop-check-update"](equal.event)).toMatchObject({ status: "latest" });
   });
+  it('supports four-part versions and historical pre-0.8.4 release numbering',()=>{
+    const {exports:{newerVersion}}=fixture();
+    expect(newerVersion('v0.8.5.1','0.8.5')).toBe(true);
+    expect(newerVersion('v0.8.5.2','0.8.5.1')).toBe(true);
+    expect(newerVersion('v0.8.5.1','0.8.5.1')).toBe(false);
+    expect(newerVersion('v0.8.5','0.8.5.1')).toBe(false);
+    expect(newerVersion('v0.8.5.1','0.8.39')).toBe(true);
+    expect(newerVersion('v0.8.5','0.8.39')).toBe(true);
+    expect(newerVersion('v0.8.4','0.8.38')).toBe(true);
+    expect(newerVersion('v0.8.39','0.8.5.1')).toBe(false);
+    expect(newerVersion('v0.8.39','0.8.5')).toBe(false);
+    expect(newerVersion('v0.8.4.9','0.8.5.1')).toBe(false);
+    expect(newerVersion('v0.8.5.1-beta','0.8.5')).toBe(false);
+  });
   it("reports failures rather than claiming the installed version is latest", async () => {
     const f = fixture();
     f.fetch.mockRejectedValueOnce(new Error("offline"));

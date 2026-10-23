@@ -20,7 +20,7 @@ export function packageWindows(rootDir = path.resolve(path.dirname(fileURLToPath
   if (npmCli) execFileSync(process.execPath, [npmCli, "run", "build"], options);
   else if (process.platform === "win32") execFileSync("cmd.exe", ["/d", "/c", "npm run build"], options);
   else execFileSync("npm", ["run", "build"], options);
-  const paths = createReleasePaths(rootDir, pkg.version);
+  const paths = createReleasePaths(rootDir, pkg.appVersion || pkg.version);
   console.log(`📦 独立发布目录: ${paths.releaseDir}`);
   // Filter the copy, not the installed runtime or any previous release.
   fs.cpSync(electronDistDir, paths.appOutDir, {

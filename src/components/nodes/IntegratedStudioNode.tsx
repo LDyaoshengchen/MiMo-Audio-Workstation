@@ -208,7 +208,8 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
           return {
             ...r,
             refAudioUrl: merged.dataUrl,
-            refAudioName: merged.fileName
+            refAudioName: merged.fileName,
+            referenceMode: "audio"
           };
         })
       );
@@ -226,7 +227,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
     event.preventDefault();
     const roleAudio = readRoleAudioDrag(event.dataTransfer);
     if (roleAudio) {
-      patchRows(rows.map(row => row.id === rowId ? { ...row, refAudioUrl: roleAudio.dataUrl, refAudioName: roleAudio.fileName } : row));
+      patchRows(rows.map(row => row.id === rowId ? { ...row, refAudioUrl: roleAudio.dataUrl, refAudioName: roleAudio.fileName, referenceMode: "audio" } : row));
       window.dispatchEvent(new Event(ROLE_AUDIO_DROPPED_EVENT));
       return;
     }
@@ -247,7 +248,8 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
           return {
             ...r,
             refAudioUrl: merged.dataUrl,
-            refAudioName: merged.fileName
+            refAudioName: merged.fileName,
+            referenceMode: "audio"
           };
         })
       );
@@ -298,6 +300,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
             ...updatedRows[targetIdx],
             refAudioUrl: dataUrl,
             refAudioName: files[0].name,
+            referenceMode: "audio",
             title: updatedRows[targetIdx].title.startsWith("句段") ? cleanName : updatedRows[targetIdx].title
           };
         } else if (files.length > 1) {
@@ -307,6 +310,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
             ...updatedRows[targetIdx],
             refAudioUrl: merged.dataUrl,
             refAudioName: merged.fileName,
+            referenceMode: "audio",
             title: updatedRows[targetIdx].title.startsWith("句段") ? (firstClean || updatedRows[targetIdx].title) : updatedRows[targetIdx].title
           };
         }
@@ -324,7 +328,7 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
     patchRows(
       rows.map((r) => {
         if (r.id !== rowId) return r;
-        return { ...r, refAudioUrl: undefined, refAudioName: undefined };
+        return { ...r, refAudioUrl: undefined, refAudioName: undefined, referenceMode: "none" };
       })
     );
   }
@@ -353,7 +357,8 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
               return {
                 ...r,
                 refAudioUrl: dataUrl,
-                refAudioName: `录制句段音频_${new Date().toLocaleTimeString().replace(/:/g, "")}.wav`
+                refAudioName: `录制句段音频_${new Date().toLocaleTimeString().replace(/:/g, "")}.wav`,
+                referenceMode: "audio"
               };
             })
           );

@@ -3,8 +3,19 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { StudioMoreMenu } from "../src/components/studio/StudioMoreMenu";
+import packageMeta from "../package.json";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 afterEach(() => { vi.useRealTimers(); delete (window as any).electronApi; });
+
+it("shows the four-part public version in browser mode as well as desktop mode", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<StudioMoreMenu />));
+    await act(async () => (host.querySelector('.studio-more-button') as HTMLButtonElement).click());
+    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>('.studio-compact-root button')).find(button => button.textContent === "关于")!.click());
+    expect(document.querySelector('[role=dialog]')?.textContent).toContain(`v${packageMeta.appVersion}`);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
 
 it("shows the actual desktop version, update badge, fixed links, and cleans subscriptions", async () => {
   vi.useFakeTimers();

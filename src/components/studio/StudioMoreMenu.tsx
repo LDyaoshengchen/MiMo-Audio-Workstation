@@ -25,7 +25,7 @@ export function StudioMoreMenu() {
   const aboutRef=useRef<HTMLElement>(null);
   const popover=useSettingsPopover(about,moreRef,aboutRef);
   const editTarget = useRef<Element | null>(null);
-  const [version, setVersion] = useState(packageMeta.version);
+  const [version, setVersion] = useState(packageMeta.appVersion || packageMeta.version);
   const [result, setResult] = useState<UpdateResult | null>(null);
   const [checking, setChecking] = useState(false);
   const alive = useRef(true);

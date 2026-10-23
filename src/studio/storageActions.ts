@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
+import { voiceFavoriteStatus } from "../utils/voiceFavoriteStatus";
 
 export interface StorageActionsContext {
   setStoragePathInfo: Dispatch<SetStateAction<{ dataDir: string; workspaceFilePath: string; isCustom: boolean; } | null>>;
@@ -46,6 +47,7 @@ export function createStorageActions(getContext: () => StorageActionsContext) {
       }
       const savedInfo = await saveRes.json();
       setStoragePathInfo(savedInfo);
+      voiceFavoriteStatus.refresh();
       alert(`本地存储目录已成功更改为：\n${savedInfo.dataDir}\n原目录保留，目标同名文件已备份。${savedInfo.backupDir ? `\n备份目录：${savedInfo.backupDir}` : ""}`);
       await loadWorkspaceList();
     } catch (err) {
@@ -68,6 +70,7 @@ export function createStorageActions(getContext: () => StorageActionsContext) {
       }
       const data = await res.json();
       setStoragePathInfo(data);
+      voiceFavoriteStatus.refresh();
       alert(`本地存储目录已更改为：\n${data.dataDir}\n原目录保留，目标同名文件已备份。${data.backupDir ? `\n备份目录：${data.backupDir}` : ""}`);
       await loadWorkspaceList();
     } catch (err) {
@@ -85,6 +88,7 @@ export function createStorageActions(getContext: () => StorageActionsContext) {
       }
       const data = await res.json();
       setStoragePathInfo(data);
+      voiceFavoriteStatus.refresh();
       setCustomPathInput(data.dataDir);
       alert(`存储目录已重置为默认值：\n${data.dataDir}`);
       await loadWorkspaceList();

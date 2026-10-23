@@ -2,12 +2,17 @@ import { constants } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import type { MigrationProgress } from "./storageMigrationStatus.js";
 
 const error = (message: string) => Object.assign(new Error(message), { status: 409 });
 const hash = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
 /** 复制后校验；冲突文件留备份，失败只撤回本次修改，绝不删除来源数据。 */
-export async function prepareStorageMigration(sourceDir: string, targetDir: string) {
+export async function prepareStorageMigration(sourceDir: string, targetDir: string, onProgress?: (progress: MigrationProgress) => void) {
+  let totalBytes = 0, processedBytes = 0, processedFiles = 0;
+  const sizes = new Map<string, number>();
+  const report = (phase: MigrationProgress["phase"]) => onProgress?.({ phase, totalFiles: sizes.size, processedFiles, totalBytes, processedBytes });
+  report("scanning");
   await mkdir(targetDir, { recursive: true });
   const source = await realpath(sourceDir);
   const target = await realpath(targetDir);
@@ -25,9 +30,10 @@ export async function prepareStorageMigration(sourceDir: string, targetDir: stri
     catch (e: any) { if (e.code === "ENOENT") return; throw e; }
     if (info.isSymbolicLink()) throw error("存储目录含符号链接，迁移已停止以保护数据。");
     if (info.isDirectory()) for (const child of await readdir(location)) await collect(path.join(name, child));
-    else if (info.isFile()) files.push(name);
+    else if (info.isFile()) { files.push(name); sizes.set(name, info.size); totalBytes += info.size; }
   }
   for (const entry of ["audios", "workspaces", "workspaces.json", "templates.json", "voice-library.json", "role-voice-library"]) await collect(entry);
+  report("copying");
   const backupDir = await mkdtemp(path.join(target, ".migration-backup-"));
   const changes: Array<{ destination: string; backup?: string; copied: boolean }> = [];
   async function rollback() {
@@ -52,7 +58,7 @@ export async function prepareStorageMigration(sourceDir: string, targetDir: stri
       let existing: Buffer | undefined;
       try { existing = await readFile(destination); }
       catch (e: any) { if (e.code !== "ENOENT") throw e; }
-      if (existing && hash(existing) === hash(contents)) continue;
+      if (existing && hash(existing) === hash(contents)) { processedBytes += sizes.get(name) || 0; processedFiles++; report("copying"); continue; }
       await mkdir(path.dirname(destination), { recursive: true });
       const entry: { destination: string; backup?: string; copied: boolean } = { destination, copied: false };
       changes.push(entry);
@@ -64,6 +70,7 @@ export async function prepareStorageMigration(sourceDir: string, targetDir: stri
       await copyFile(from, destination, constants.COPYFILE_EXCL);
       entry.copied = true;
       if (hash(await readFile(destination)) !== hash(contents)) throw error(`文件校验失败：${name}`);
+      processedBytes += sizes.get(name) || 0; processedFiles++; report("copying");
     }
     return { backupDir, rollback };
   } catch (e) {

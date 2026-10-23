@@ -26,7 +26,7 @@ function getPackageMeta() {
 }
 
 const pkgMeta = getPackageMeta();
-const APP_VERSION = pkgMeta.version || "0.8.17";
+const APP_VERSION = pkgMeta.appVersion || pkgMeta.version || "0.8.17";
 
 
 function loadEnvFiles(appRoot) {

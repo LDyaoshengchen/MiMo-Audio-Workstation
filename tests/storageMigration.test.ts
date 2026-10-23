@@ -23,7 +23,11 @@ describe("transactional data-directory migration", () => {
   }
   it("copies audios, workspace files and templates while retaining originals and leaving credentials fixed", async () => {
     const { source, target } = await fixture();
-    await prepareStorageMigration(source, target);
+    const progress: any[] = [];
+    await prepareStorageMigration(source, target, value=>progress.push(value));
+    expect(progress[0].phase).toBe('scanning');
+    const last=progress.at(-1);expect(last.processedFiles).toBe(last.totalFiles);expect(last.processedBytes).toBe(last.totalBytes);
+    expect(progress.filter(value=>value.phase==='copying').map(value=>value.processedFiles)).toEqual([0,1,2,3,4,5]);
     for (const file of ["audios/voice.wav", "workspaces/board.json", "templates.json", "voice-library.json", "role-voice-library/assets.json"]) {
       expect(await readFile(path.join(target, file))).toEqual(await readFile(path.join(source, file)));
     }

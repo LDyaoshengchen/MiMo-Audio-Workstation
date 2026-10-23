@@ -37,6 +37,13 @@ afterEach(() => {
 });
 
 describe("isolated Windows releases", () => {
+  it('names four-part releases without making package SemVer invalid',()=>{
+    const root=fixture();fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({version:'0.8.5',appVersion:'0.8.5.1'}));
+    execMock.mockImplementation((command,_args,options)=>{if(command==='powershell.exe')fs.writeFileSync(options.env.MIMO_RELEASE_ZIP,'fake ZIP');});
+    const release=packageWindows(root);expect(path.basename(release.zipPath)).toBe('MiMo-Audio-Workstation-v0.8.5.1-win64-portable.zip');
+    const meta=JSON.parse(fs.readFileSync(path.join(release.appOutDir,'resources/app/package.json'),'utf8'));
+    expect(meta.appVersion).toBe('0.8.5.1');expect(meta.version).toBe('0.8.5');
+  });
   it("uses unique output directories and rejects path-traversal versions", () => {
     const root = fixture();
     const first = createReleasePaths(root, "0.8.38");

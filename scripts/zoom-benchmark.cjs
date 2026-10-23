@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const http = require("node:http");
+const { createHash } = require("node:crypto");
 const dist = path.resolve(process.argv[2] || "dist");
 const count = Number(process.argv[3] || 100);
 const saveLayout = process.argv.includes("--save-layout");
@@ -12,6 +13,17 @@ const actionAudit = process.argv.includes("--action-audit");
 const overlapSmoke = process.argv.includes("--overlap-smoke");
 const themePreview = process.argv.includes("--theme-preview");
 const desktopSmoke = process.argv.includes("--desktop-controls-smoke");
+const contextMenuSmoke = process.argv.includes("--context-menu-smoke");
+const storageMigrationSmoke = process.argv.includes("--storage-migration-smoke");
+const taskOwnershipSmoke = process.argv.includes("--task-ownership-smoke");
+const mergeFavoriteSmoke = process.argv.includes("--merge-favorite-smoke");
+const mergeFavoriteAssets = [];
+let mergeFavoriteProductAudio;
+const favoriteDigest = dataUrl => 'sha256:' + createHash('sha256').update(Buffer.from(dataUrl.split(',')[1], 'base64')).digest('hex');
+const taskRequests = [];
+let releaseTaskResponse;
+let releaseSecondTaskResponse;
+let previewMigrationRunning = true;
 const productionSmoke = process.argv.includes("--production-tools-smoke");
 const themeSettings = process.argv.includes("--theme-settings");
 const themeGame = process.argv.includes("--theme-game");
@@ -79,14 +91,105 @@ if (productionSmoke) {
   workspace.nodes.push({id:"qa-batch-design",type:"batchVoiceDesign",position:{x:1400,y:1000},data:{title:"批量音色创造",batchRows:[{id:"qa-clear-row",title:"测试行",text:"Test only",instruction:"Clear"}]}});
   if(previewArtifact)workspace.nodes.push({id:"qa-batch-artifact",type:"batchArtifact",position:{x:980,y:270},data:{title:"批量产物",batchArtifacts:[{...previewArtifact,id:"qa-output",seqIndex:1}]}});
 }
+if (taskOwnershipSmoke) {
+  const wav = Buffer.alloc(12044);
+  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(24000, 24); wav.writeUInt32LE(48000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write('data', 36); wav.writeUInt32LE(12000, 40);
+  const dataUrl = 'data:audio/wav;base64,' + wav.toString('base64');
+  workspace.nodes = [
+    { id: 'qa-clone', type: 'voiceClone', position: { x: 0, y: 0 }, data: { title: '任务归属', text: 'Test only', voiceId: 'old-id', assetProvider: 'mimo' } },
+    { id: 'qa-integrated', type: 'integratedStudio', position: { x: 490, y: 0 }, data: { title: '参考音频优先级', voiceId: 'old-id', assetProvider: 'mimo', refAudioUrl: dataUrl, refAudioName: 'old.wav', batchRows: [{ id: 'row', title: '测试行', text: 'Test only', instruction: 'Clear', refAudioUrl: dataUrl, refAudioName: 'old.wav', referenceMode: 'inherit' }] } },
+    { id: 'qa-audio', type: 'artifact', position: { x: 0, y: 700 }, data: { artifact: { fileName: 'new-role.wav', audioDataUrl: dataUrl } } },
+  ];
+  workspace.edges = [];
+}
+if (mergeFavoriteSmoke) {
+  const audioDataUrl = workspace.nodes.find(node => node.data.artifact)?.data.artifact.audioDataUrl;
+  if (!audioDataUrl) throw new Error('Merge favorite smoke requires --theme-preview');
+  const productBytes = Buffer.from(audioDataUrl.split(',')[1], 'base64'); productBytes[productBytes.length - 1] = 1;
+  mergeFavoriteProductAudio = 'data:audio/wav;base64,' + productBytes.toString('base64');
+  workspace.nodes = [
+    { id: 'qa-merge-favorite', type: 'audioMerge', position: { x: 0, y: 0 }, data: { title: '整合参考音色', audio: { fileName: 'merged-reference-original-with-a-long-name.wav', mimeType: 'audio/wav', size: 12044, dataUrl: audioDataUrl } } },
+    { id: 'qa-merge-target', type: 'referenceAudio', position: { x: 490, y: 0 }, data: { title: '参考音频' } },
+    { id: 'qa-favorite-product', type: 'artifact', position: { x: 0, y: 390 }, data: { title: '产物收藏测试', artifact: { fileName: 'favorite-product.wav', audioDataUrl: '/api/audio-cache/favorite-product.wav', elapsedMs: 1, createdAt: now, sourceNodeName: '产物收藏测试' } } },
+  ];
+  workspace.edges = [];
+}
+const secondWorkspace = { ...workspace, id: 'qa-other-board', name: '另一个画板', nodes: [], edges: [] };
+const taskBoards = new Map([workspace, secondWorkspace].map(board => [board.id, JSON.parse(JSON.stringify(board))]));
+let taskSaveVersion = Date.now();
 const settings = { apiProvider: "mimo", apiEndpoint: "https://example.invalid/v1", hasApiKey: true, configured: true };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
   if (url.pathname.startsWith("/api/")) {
     res.setHeader("Content-Type", "application/json");
-    const data = url.pathname === "/api/bootstrap" ? { settings, status: { ok: true, apiKeyConfigured: true }, workspaces: [workspace], activeWorkspace: workspace }
+    if (mergeFavoriteSmoke && url.pathname === '/api/audio-cache/favorite-product.wav') {
+      res.setHeader('Content-Type','audio/wav');res.end(Buffer.from(mergeFavoriteProductAudio.split(',')[1],'base64'));return;
+    }
+    if (mergeFavoriteSmoke && url.pathname === '/api/voice-library/favorite-status') {
+      const sources=JSON.parse(url.searchParams.get('sources'));
+      const hashes=new Set(mergeFavoriteAssets.filter(asset=>asset.favorite).map(asset=>favoriteDigest(asset.audio.dataUrl)));
+      res.end(JSON.stringify(sources.map(source=>hashes.has(source==='/api/audio-cache/favorite-product.wav'?favoriteDigest(mergeFavoriteProductAudio):source))));return;
+    }
+    if (mergeFavoriteSmoke && url.pathname === '/api/voice-library') {
+      if (req.method === 'POST') {
+        const chunks = []; req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => {
+          mergeFavoriteAssets.push({ ...JSON.parse(Buffer.concat(chunks).toString('utf8')), id: 'saved-merge-'+(mergeFavoriteAssets.length+1) });
+          res.end(JSON.stringify(mergeFavoriteAssets));
+        });
+      } else res.end(JSON.stringify(mergeFavoriteAssets));
+      return;
+    }
+    if (mergeFavoriteSmoke && url.pathname.startsWith('/api/voice-library/')) {
+      const id=decodeURIComponent(url.pathname.slice('/api/voice-library/'.length)),index=mergeFavoriteAssets.findIndex(asset=>asset.id===id);
+      if (index>=0 && req.method==='PATCH') {
+        const chunks=[];req.on('data',chunk=>chunks.push(chunk));req.on('end',()=>{mergeFavoriteAssets[index].favorite=JSON.parse(Buffer.concat(chunks).toString('utf8')).favorite;res.end(JSON.stringify(mergeFavoriteAssets));});return;
+      }
+      if (index>=0 && req.method==='DELETE') {mergeFavoriteAssets.splice(index,1);res.end(JSON.stringify(mergeFavoriteAssets));return;}
+    }
+    if (taskOwnershipSmoke && url.pathname === '/api/tts/voiceclone') {
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', () => {
+        taskRequests.push(Buffer.concat(chunks).toString('utf8'));
+        const respond = () => res.end(JSON.stringify({ fileName: 'qa.wav', audioDataUrl: workspace.nodes[2].data.artifact.audioDataUrl, elapsedMs: 1 }));
+        if (taskRequests.length === 1) releaseTaskResponse = respond;
+        else if (taskRequests.length === 2) releaseSecondTaskResponse = respond;
+        else respond();
+      });
+      return;
+    }
+    if (taskOwnershipSmoke && url.pathname.startsWith('/api/workspaces/')) {
+      const id = decodeURIComponent(url.pathname.slice('/api/workspaces/'.length));
+      const existing = taskBoards.get(id);
+      if (!existing) { res.statusCode = 404; res.end(JSON.stringify({error:'Board not found'})); return; }
+      if (req.method === 'PUT') {
+        const chunks = []; req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const latest = taskBoards.get(id);
+          if (body.baseUpdatedAt && body.baseUpdatedAt !== latest.updatedAt) { res.statusCode = 409; res.end(JSON.stringify({error:'Stale board version'})); return; }
+          const saved = {...latest,...body,updatedAt:new Date(++taskSaveVersion).toISOString()}; delete saved.baseUpdatedAt;
+          taskBoards.set(id,saved);res.end(JSON.stringify(saved));
+        });
+      } else {
+        // Deliberately return stale A data: reactivation must use the live task graph.
+        res.end(JSON.stringify(id === workspace.id ? workspace : existing));
+      }
+      return;
+    }
+    if(storageMigrationSmoke && url.pathname==='/api/settings/storage-migration'){res.end(JSON.stringify({running:previewMigrationRunning,phase:previewMigrationRunning?'copying':'completed',remainingSeconds:previewMigrationRunning?8:0,startedAt:100}));return;}
+    if(storageMigrationSmoke && url.pathname.startsWith('/api/voice-library')){
+      if(previewMigrationRunning){res.statusCode=503;res.end(JSON.stringify({error:'数据正在迁移，请稍后重试。'}));return;}
+      if(url.pathname.endsWith('/location')){res.end(JSON.stringify({directory:'D:\\音色资料\\role-voice-library'}));return;}
+    }
+    const data = url.pathname === "/api/bootstrap" ? { settings, status: { ok: true, apiKeyConfigured: true }, workspaces: taskOwnershipSmoke ? [workspace, secondWorkspace] : [workspace], activeWorkspace: workspace }
       : url.pathname === "/api/settings/storage-path" ? { dataDir: "isolated-test", workspaceFilePath: "isolated-test", isCustom: false }
       : url.pathname === "/api/voice-library" ? [{ id: "qa-role", name: "测试角色音色", description: "Deep and calm", naturalControl: "Confident", voiceId: "", provider: "mimo", audio: workspace.nodes.find(node => node.data.artifact)?.data.artifact ? { fileName: "qa.wav", mimeType: "audio/wav", size: 12044, dataUrl: workspace.nodes.find(node => node.data.artifact).data.artifact.audioDataUrl } : undefined }]
+      : url.pathname === '/api/workspaces/qa-other-board' ? secondWorkspace
       : url.pathname.startsWith("/api/workspaces/") ? workspace : {};
     if (saveLayout && req.method === "PUT") setTimeout(() => res.end(JSON.stringify(data)), 1200);
     else res.end(JSON.stringify(data));
@@ -110,7 +213,7 @@ async function main() {
   if (desktopSmoke) {
     // Stub public release lookup: this diagnostic never contacts GitHub or user APIs.
     global.fetch = async () => ({ ok: true, json: async () => ({ tag_name: "v9.9.9" }) });
-    require("../electron/desktop-controls.cjs").setupDesktopControls(require("../package.json").version);
+    const metadata=require("../package.json");require("../electron/desktop-controls.cjs").setupDesktopControls(metadata.appVersion||metadata.version);
   }
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   window = new BrowserWindow({ show: false, width: 1600, height: 1000,
@@ -125,6 +228,242 @@ async function main() {
     callback({ cancel: !details.url.startsWith("http://127.0.0.1:") && !details.url.startsWith("data:") && !details.url.startsWith("blob:") });
   });
   await window.loadURL(`http://127.0.0.1:${server.address().port}`);
+  if (mergeFavoriteSmoke) {
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('.merge-result-row .favorite-icon-button');i++)await new Promise(r=>setTimeout(r,50));
+      const row=document.querySelector('.merge-result-row'),button=row?.querySelector('.favorite-icon-button'),label=row?.querySelector('.merge-result');
+      if(!button||!button.querySelector('svg'))throw new Error('Missing merge favorite icon');
+      const bounds=row.getBoundingClientRect(),icon=button.getBoundingClientRect();
+      if(icon.right>bounds.right+1||icon.left<label.getBoundingClientRect().right-1||label.scrollWidth<=label.clientWidth||label.getAttribute('title')!==${JSON.stringify(workspace.nodes[0].data.audio.fileName)})throw new Error('Merge result and icon must remain compact and unclipped');
+      const node=button.closest('.react-flow__node'),zoom=new DOMMatrixReadOnly(getComputedStyle(node.parentElement).transform).a;
+      node.style.top=((innerHeight-70-icon.top)/zoom)+'px';
+      button.click();
+      for(let i=0;i<100&&!document.querySelector('.voice-library-save');i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelector('.voice-library-form')||document.querySelector('.voice-library-list')||document.querySelector('[placeholder="输入角色名称"]').value!=='整合参考音色'||!document.querySelector('.voice-favorite-preview').textContent.includes(${JSON.stringify(workspace.nodes[0].data.audio.fileName)}))throw new Error('Quick favorite must show only naming and the actual audio');
+      if(document.activeElement!==document.querySelector('.voice-favorite-name'))throw new Error('Name must receive keyboard focus');
+      await new Promise(r=>setTimeout(r,180));
+      const panel=document.querySelector('.voice-library-dialog'),rect=panel.getBoundingClientRect();
+      if(rect.width<200||rect.height<160||rect.left<0||rect.right>innerWidth||rect.top<0||rect.bottom>innerHeight||!document.elementFromPoint(rect.left+rect.width/2,rect.top+30)?.closest('.voice-library-dialog'))throw new Error('Favorite dialog must be visible above the canvas and fit the window');
+      const save=document.querySelector('.voice-library-save'),saveRect=save.getBoundingClientRect();
+      if(rect.width>365||rect.height>340||Math.abs(rect.top+rect.height/2-innerHeight/2)>2||!document.elementFromPoint(saveRect.x+saveRect.width/2,saveRect.y+saveRect.height/2)?.closest('.voice-library-save'))throw new Error('Naming popup and save button must remain compact, centered and directly clickable for a bottom node');
+    })()`);
+    await new Promise(resolve=>setTimeout(resolve,500));
+    window.webContents.invalidate();
+    await new Promise(resolve=>setTimeout(resolve,100));
+    fs.writeFileSync(path.resolve('reports','merge-favorite-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<50&&document.querySelector('.voice-library-save').disabled;i++)await new Promise(r=>setTimeout(r,30));
+      document.querySelector('.voice-library-save').click();
+      for(let i=0;i<100&&document.querySelector('.voice-favorite-dialog');i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelector('.voice-favorite-dialog'))throw new Error('Successful quick save must close the popup');
+      document.querySelector('[data-id="qa-merge-favorite"]').style.top='';
+      document.querySelector('.topbar-actions .role-library-button').click();
+      for(let i=0;i<100&&!document.querySelector('.voice-library-list article');i++)await new Promise(r=>setTimeout(r,30));
+      const card=document.querySelector('.voice-library-list article'),transfer=new DataTransfer();
+      if(!card?.draggable||!card.querySelector('[aria-label="取消收藏"]'))throw new Error('Reloaded asset must be a draggable favorite');
+      card.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,60));
+      document.querySelector('[data-id="qa-merge-target"] .file-picker').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,120));
+      if(!document.querySelector('[data-id="qa-merge-target"] .reference-audio-card')?.textContent.includes(${JSON.stringify(workspace.nodes[0].data.audio.fileName)})||document.querySelector('.voice-library-dialog'))throw new Error('Saved merge audio must remain reusable by reference nodes');
+      if(!document.querySelector('[data-id="qa-merge-favorite"] audio')||document.querySelectorAll('[data-id="qa-merge-favorite"] .run-button').length!==1)throw new Error('Favorite action changed original merge controls');
+    })()`);
+    if (mergeFavoriteAssets.length !== 1 || !mergeFavoriteAssets[0].favorite || JSON.stringify(mergeFavoriteAssets[0].audio) !== JSON.stringify(workspace.nodes[0].data.audio)) throw new Error('Favorite must preserve complete merge audio metadata and content');
+    await new Promise(resolve=>setTimeout(resolve,500));
+    fs.writeFileSync(path.resolve('reports','merge-favorite-node-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`(async()=>{
+      window.assertStar=async(selector,filled)=>{
+        for(let i=0;i<100&&document.querySelector(selector)?.getAttribute('aria-pressed')!==String(filled);i++)await new Promise(r=>setTimeout(r,30));
+        const button=document.querySelector(selector),svg=button?.querySelector('svg');
+        if(button?.getAttribute('aria-pressed')!==String(filled)||svg?.getAttribute('fill')!==(filled?'currentColor':'none'))throw new Error('Incorrect favorite star state: '+selector);
+        if(filled&&getComputedStyle(svg).fill!==getComputedStyle(svg).color)throw new Error('Filled star must use its existing icon color');
+      };
+      await window.assertStar('[data-id="qa-merge-favorite"] .favorite-icon-button',true);
+      await window.assertStar('[data-id="qa-favorite-product"] .favorite-icon-button',false);
+      document.querySelector('[data-id="qa-favorite-product"] .favorite-icon-button').click();
+      for(let i=0;i<100&&(!document.querySelector('.voice-library-save')||document.querySelector('.voice-library-save').disabled);i++)await new Promise(r=>setTimeout(r,30));
+      document.querySelector('.voice-library-save').click();
+      await window.assertStar('[data-id="qa-favorite-product"] .favorite-icon-button',true);
+      if(document.querySelector('.voice-favorite-dialog'))throw new Error('Product quick save must close after success');
+      document.querySelector('.topbar-actions .role-library-button').click();
+      for(let i=0;i<100&&document.querySelectorAll('.voice-library-list article').length!==2;i++)await new Promise(r=>setTimeout(r,30));
+      const product=[...document.querySelectorAll('.voice-library-list article')].find(card=>card.querySelector('strong')?.textContent==='产物收藏测试');
+      if(!product)throw new Error('Saved cached product missing');
+      window.confirm=()=>true;product.querySelector('[title="删除角色"]').click();
+      await window.assertStar('[data-id="qa-favorite-product"] .favorite-icon-button',false);
+      const merge=document.querySelector('.voice-library-list article');
+      merge.querySelector('[aria-label="取消收藏"]').click();
+      await window.assertStar('[data-id="qa-merge-favorite"] .favorite-icon-button',false);
+      merge.querySelector('[aria-label="收藏角色"]').click();
+      await window.assertStar('[data-id="qa-merge-favorite"] .favorite-icon-button',true);
+      document.querySelector('[aria-label="关闭角色音色库"]').click();
+    })()`);
+    await new Promise(resolve=>{window.webContents.once('did-finish-load',resolve);window.webContents.reload();});
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<150&&document.querySelector('[data-id="qa-merge-favorite"] .favorite-icon-button')?.getAttribute('aria-pressed')!=='true';i++)await new Promise(r=>setTimeout(r,30));
+      const merge=document.querySelector('[data-id="qa-merge-favorite"] .favorite-icon-button'),product=document.querySelector('[data-id="qa-favorite-product"] .favorite-icon-button');
+      if(merge?.getAttribute('aria-pressed')!=='true'||merge.querySelector('svg').getAttribute('fill')!=='currentColor'||product?.getAttribute('aria-pressed')!=='false')throw new Error('Favorite state must survive reload for both node types');
+    })()`);
+    window.webContents.invalidate();await new Promise(r=>setTimeout(r,150));
+    fs.writeFileSync(path.resolve('reports','favorite-star-state-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    // Multiple cards with long names, descriptions, and controls exercise the real responsive grid.
+    for(let i=0;i<8;i++)mergeFavoriteAssets.push({...mergeFavoriteAssets[0],id:'grid-'+i,name:i===0?'很长的角色名称_完整文件名保留在悬浮提示_0123456789':'角色音色 '+(i+2),description:'低沉、清晰的男声，语速平稳。',naturalControl:'自信，温和。'});
+    await window.webContents.executeJavaScript(`document.querySelector('.topbar-actions .role-library-button').click()`);
+    for(const [width,height,columns] of [[1600,1000,3],[1024,680,3],[520,640,2],[360,480,1]]){
+      window.setContentSize(width,height);await new Promise(r=>setTimeout(r,250));
+      await window.webContents.executeJavaScript(`(async()=>{
+        for(let i=0;i<100&&document.querySelectorAll('.voice-library-list article').length!==9;i++)await new Promise(r=>setTimeout(r,30));
+        const panel=document.querySelector('.voice-library-dialog'),list=document.querySelector('.voice-library-list'),cards=[...list.querySelectorAll('article')],bounds=panel.getBoundingClientRect();
+        if(getComputedStyle(list).gridTemplateColumns.split(' ').length!==${columns})throw new Error('Incorrect role library column count at '+innerWidth);
+        if(bounds.left<0||bounds.right>innerWidth||bounds.top<0||bounds.bottom>innerHeight+1||panel.scrollWidth>panel.clientWidth+1)throw new Error('Role library must fit narrow windows without horizontal overflow');
+        if(!document.querySelector('.voice-library-form').hidden)throw new Error('Full editor must remain collapsed');
+        const card=cards[0],rect=card.getBoundingClientRect();
+        if(rect.height>112||card.scrollWidth>card.clientWidth+1)throw new Error('Role card must remain compact without overflow');
+        for(const control of card.querySelectorAll('button,input')){
+          const r=control.getBoundingClientRect();if(r.left<rect.left||r.right>rect.right)throw new Error('Card controls must fit their column');
+        }
+        const range=card.querySelector('.player-range');if(range.getBoundingClientRect().height>6)throw new Error('Progress track must not inherit tall text-input styling');
+        const description=card.querySelector('.voice-library-description-toggle');description.click();await new Promise(r=>setTimeout(r,30));
+        if(card.querySelector('.voice-library-asset-details').hidden)throw new Error('Description must remain expandable');description.click();
+        const last=cards.at(-1);last.scrollIntoView({block:'nearest'});await new Promise(r=>setTimeout(r,40));
+        const lastRect=last.getBoundingClientRect();if(lastRect.bottom>innerHeight+1)throw new Error('Last grid row must be reachable by scrolling');
+        document.querySelector('.voice-library-body').scrollTop=0;
+        await new Promise(r=>setTimeout(r,100));
+      })()`);
+      if(width===1600||width===520)fs.writeFileSync(path.resolve('reports','role-library-grid-'+width+'-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    }
+    window.setContentSize(1600,1000);await new Promise(r=>setTimeout(r,200));
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelector('[aria-label="关闭角色音色库"]').click();
+      for(let i=0;i<100&&!document.querySelector('[data-id="qa-merge-favorite"] .favorite-icon-button');i++)await new Promise(r=>setTimeout(r,30));
+      document.querySelector('[data-id="qa-merge-favorite"] .favorite-icon-button').click();
+      for(let i=0;i<100&&!document.querySelector('.voice-favorite-dialog');i++)await new Promise(r=>setTimeout(r,30));
+    })()`);
+    window.setContentSize(1024,520);
+    await new Promise(r=>setTimeout(r,200));
+    await window.webContents.executeJavaScript(`(()=>{
+      const panel=document.querySelector('.voice-favorite-dialog'),rect=panel.getBoundingClientRect(),button=panel.querySelector('.voice-library-save'),b=button.getBoundingClientRect();
+      if(rect.left<0||rect.right>innerWidth||rect.top<0||rect.bottom>innerHeight||!document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('.voice-library-save'))throw new Error('Quick favorite save must stay accessible in a small window');
+    })()`);
+    fs.writeFileSync(path.resolve('reports','quick-favorite-small-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    console.log(JSON.stringify({scenario:'merge-favorite-smoke',appearance,icon:true,compact:true,saved:true,reloaded:true,reusable:true,filled:true,productCached:true,unfavorite:true,deleted:true,restartRestored:true,quickNaming:true,bottomNode:true,gridColumns:[3,2,1],smallWindow:true}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
+  if (taskOwnershipSmoke) {
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('[data-id="qa-clone"] .run-button');i++)await new Promise(r=>setTimeout(r,50));
+      document.querySelector('[data-id="qa-clone"] .batch-nine-btn').click();
+    })()`);
+    for (let i = 0; i < 100 && !releaseTaskResponse; i++) await new Promise(r => setTimeout(r, 30));
+    if (!releaseTaskResponse) throw new Error('Generation did not start');
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelectorAll('.board-item')[1].click();
+      for(let i=0;i<100&&!document.querySelector('.board-item.active')?.textContent.includes('另一个画板');i++)await new Promise(r=>setTimeout(r,30));
+      if(!document.querySelector('.board-item.active')?.textContent.includes('另一个画板')||document.querySelector('.react-flow__node')||document.querySelector('.global-app-toast'))throw new Error('Running tasks must allow switching without any interception message');
+      const pane=document.querySelector('.react-flow__pane'),bounds=pane.getBoundingClientRect();
+      pane.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:bounds.left+80,clientY:bounds.top+80}));
+      for(let i=0;i<50&&!document.querySelector('.context-menu');i++)await new Promise(r=>setTimeout(r,30));
+      document.querySelector('.context-menu .tone-comment').click();await new Promise(r=>setTimeout(r,80));
+      if(!document.querySelector('.react-flow__node-comment'))throw new Error('Other board must remain editable');
+    })()`);
+    releaseTaskResponse();
+    for(let i=0;i<100&&!releaseSecondTaskResponse;i++)await new Promise(r=>setTimeout(r,30));
+    if(!releaseSecondTaskResponse)throw new Error('Batch did not continue in background');
+    const partial=taskBoards.get(workspace.id);
+    if(partial.nodes.filter(node=>node.type==='artifact').length!==2)throw new Error('Partial result was not persisted to the original board');
+    await window.webContents.executeJavaScript(`(async()=>{
+      if(document.querySelectorAll('.react-flow__node').length!==1||document.querySelector('.react-flow__node-artifact'))throw new Error('Background result contaminated the other board');
+      document.querySelectorAll('.board-item')[0].click();
+      for(let i=0;i<100&&(!document.querySelector('[data-id="qa-clone"]')||document.querySelectorAll('.react-flow__node-artifact').length!==2);i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelectorAll('.react-flow__node-artifact').length!==2||!document.querySelector('[data-id="qa-clone"] .batch-nine-btn')?.textContent.includes('完成 1/9'))throw new Error('Returning mid-job must restore live progress despite stale GET data');
+      document.querySelectorAll('.board-item')[1].click();
+      for(let i=0;i<100&&!document.querySelector('.react-flow__node-comment');i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelectorAll('.react-flow__node').length!==1)throw new Error('Other board edits were lost');
+    })()`);
+    releaseSecondTaskResponse();
+    for(let i=0;i<200&&(taskRequests.length<9||taskBoards.get(workspace.id).nodes[0].data.isRunning);i++)await new Promise(r=>setTimeout(r,30));
+    const completed=taskBoards.get(workspace.id);
+    if(taskRequests.length!==9||completed.nodes.filter(node=>node.type==='artifact').length!==10||completed.nodes[0].data.isRunning||completed.edges.length!==9)throw new Error('Full batch/final running flag was not saved on original board');
+    await window.webContents.executeJavaScript(`(async()=>{
+      if(!localStorage.getItem('mimo_last_active_id')?.includes('qa-other-board')||document.querySelector('.react-flow__node-artifact')||document.querySelector('.global-app-toast'))throw new Error('Background save must not change the active board or show an interception message');
+      document.querySelectorAll('.board-item')[0].click();
+      for(let i=0;i<100&&(!document.querySelector('[data-id="qa-clone"]')||document.querySelectorAll('.react-flow__node-artifact').length!==10||document.querySelector('[data-id="qa-clone"] .run-button')?.disabled);i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelectorAll('.react-flow__node-artifact').length!==10||document.querySelector('[data-id="qa-clone"] .run-button')?.disabled)throw new Error('Completed background batch was not restored');
+      const node=document.querySelector('[data-id="qa-integrated"]');
+      node.querySelector('[title="清除此行参考音频"]').click();await new Promise(r=>setTimeout(r,60));
+      node.querySelector('.batch-row-single-clone-btn').click();await new Promise(r=>setTimeout(r,100));
+      if(!node.querySelector('.node-error')?.textContent.includes('缺少参考音频')||node.querySelector('.cell-ref audio'))throw new Error('Explicit clear must block hidden audio fallback');
+    })()`);
+    if (taskRequests.length !== 9) throw new Error('Cleared row unexpectedly sent a synthesis request');
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelector('.topbar-actions .role-library-button').click();
+      for(let i=0;i<100&&!document.querySelector('.voice-library-list article');i++)await new Promise(r=>setTimeout(r,30));
+      const card=document.querySelector('.voice-library-list article'),transfer=new DataTransfer(),node=document.querySelector('[data-id="qa-integrated"]');
+      card.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,60));
+      node.querySelector('.cell-ref').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));await new Promise(r=>setTimeout(r,80));
+      node.querySelector('.batch-row-single-clone-btn').click();
+      for(let i=0;i<100&&!node.querySelector('.batch-artifact-item-card');i++)await new Promise(r=>setTimeout(r,30));
+      if(!node.querySelector('.batch-artifact-item-card'))throw new Error('New reference generation did not produce a row artifact');
+    })()`);
+    if (taskRequests.length !== 10 || taskRequests[9].includes('name="voiceId"') || !taskRequests[9].includes('name="synthesisMode"\r\n\r\nreference') || !taskRequests[9].includes('filename="qa.wav"')) throw new Error('New role reference must override the old Voice ID');
+    await window.webContents.executeJavaScript(`(async()=>{
+      document.querySelectorAll('.board-item')[1].click();
+      for(let i=0;i<100&&!document.querySelector('.board-item.active')?.textContent.includes('另一个画板');i++)await new Promise(r=>setTimeout(r,30));
+      if(!document.querySelector('.board-item.active')?.textContent.includes('另一个画板')||document.querySelectorAll('.react-flow__node').length!==1||!document.querySelector('.react-flow__node-comment'))throw new Error('Switching back must preserve the other board without contamination');
+    })()`);
+    console.log(JSON.stringify({scenario:'task-ownership-smoke',appearance,backgroundContinue:true,noInterception:true,persistedBatch:9,liveProgress:true,otherBoardEditable:true,clearBlocksFallback:true,rowAudioOverridesVoiceId:true,requests:taskRequests.length}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
+  if(storageMigrationSmoke){
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('.topbar-actions .role-library-button');i++)await new Promise(r=>setTimeout(r,50));
+      document.querySelector('.topbar-actions .role-library-button').click();
+      for(let i=0;i<50&&!document.querySelector('.voice-library-migration');i++)await new Promise(r=>setTimeout(r,50));
+      const banner=document.querySelector('.voice-library-migration'),eta=banner.querySelector('strong');
+      const bounds=banner.getBoundingClientRect(),label=eta.getBoundingClientRect();
+      if(eta.textContent!=='预计 8 秒'||label.left<bounds.left+bounds.width/2||label.right>bounds.right)throw new Error('Migration ETA must fit on right of banner');
+      if(document.querySelector('.voice-library-error'))throw new Error('Migration should not display stale error');
+    })()`);
+    fs.writeFileSync(path.resolve('reports','storage-migration-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    previewMigrationRunning=false;
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<80&&!document.querySelector('.voice-library-location')?.textContent.includes('音色资料');i++)await new Promise(r=>setTimeout(r,50));
+      if(document.querySelector('.voice-library-migration')||document.querySelector('.voice-library-error')||!document.querySelector('.voice-library-location')?.textContent.includes('D:\\\\音色资料'))throw new Error('Migration completion must refresh Unicode location and clear banner');
+    })()`);
+    console.log(JSON.stringify({scenario:'storage-migration-smoke',appearance,etaRight:true,refresh:true,unicode:true}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
+  if(contextMenuSmoke){
+    const sample=await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('.react-flow__pane');i++)await new Promise(r=>setTimeout(r,50));
+      await new Promise(r=>setTimeout(r,600));
+      const pane=document.querySelector('.react-flow__pane'),rect=pane.getBoundingClientRect();
+      const point={x:rect.left+20,y:rect.top+20};
+      pane.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:rect.left+250,clientY:rect.top+100}));
+      await new Promise(r=>setTimeout(r,80));if(!document.querySelector('.context-menu'))throw new Error('Context menu did not open');
+      return {...point,transform:document.querySelector('.react-flow__viewport').style.transform};
+    })()`);
+    window.webContents.debugger.attach('1.3');
+    const mouse=async(type,x,y,buttons,button='right')=>window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,x,y,button,buttons,clickCount:type==='mouseMoved'?0:1});
+    await mouse('mousePressed',sample.x,sample.y,2);
+    for(let i=1;i<=5;i++)await mouse('mouseMoved',sample.x+i*12,sample.y+i*5,2);
+    await new Promise(r=>setTimeout(r,80));
+    await window.webContents.executeJavaScript(`(()=>{if(document.querySelector('.context-menu'))throw new Error('Right drag must dismiss open node menu');if(document.querySelector('.react-flow__viewport').style.transform===${JSON.stringify(sample.transform)})throw new Error('Right drag must still pan the canvas');})()`);
+    await mouse('mouseReleased',sample.x+60,sample.y+25,0);
+    await new Promise(r=>setTimeout(r,80));
+    await window.webContents.executeJavaScript(`(()=>{if(document.querySelector('.context-menu'))throw new Error('Drag release must not reopen node menu');})()`);
+    await mouse('mousePressed',sample.x,sample.y,2);await mouse('mouseReleased',sample.x,sample.y,0);
+    await new Promise(r=>setTimeout(r,80));
+    await window.webContents.executeJavaScript(`(async()=>{
+      const menu=document.querySelector('.context-menu');if(!menu)throw new Error('Normal right click must still open node menu');
+      const count=document.querySelectorAll('.react-flow__node').length;menu.querySelector('.tone-comment').click();await new Promise(r=>setTimeout(r,120));
+      if(document.querySelector('.context-menu')||document.querySelectorAll('.react-flow__node').length!==count+1)throw new Error('Node creation must remain functional');
+      const pane=document.querySelector('.react-flow__pane');pane.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:800,clientY:300}));await new Promise(r=>setTimeout(r,80));
+      document.querySelector('.context-menu').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:2,buttons:2,clientX:810,clientY:310}));await new Promise(r=>setTimeout(r,80));
+      if(document.querySelector('.context-menu'))throw new Error('Right press on menu must dismiss it');
+    })()`);
+    window.webContents.debugger.detach();
+    console.log(JSON.stringify({scenario:'context-menu-pan-smoke',dismissOnDrag:true,panWorks:true,noReopen:true,rightClick:true,addNode:true,menuRightPress:true}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
   if (desktopSmoke) {
     await window.webContents.executeJavaScript(`(async()=>{for(let i=0;i<100&&!document.querySelector('.studio-more-button');i++)await new Promise(r=>setTimeout(r,50)); await new Promise(r=>setTimeout(r,2200));})()`);
     const topbarChecks = [];

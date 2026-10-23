@@ -6,6 +6,8 @@ import { AppleConfirmDialog } from "../components/studio/AppleConfirmDialog";
 import { WorkspaceSidebar } from "../components/studio/WorkspaceSidebar";
 import { BoardCanvas } from "../components/studio/BoardCanvas";
 import { createSynthesisActions } from "./synthesisActions";
+import { hasActiveNodeTasks } from "./taskScope";
+import { WorkspaceTaskStore } from "./workspaceTasks";
 import { createAudiobookActions } from "./audiobookActions";
 import { createStorageActions } from "./storageActions";
 import { createWorkspaceActions } from "./workspaceActions";
@@ -15,7 +17,7 @@ import type { LayoutNodeInput, LayoutEdgeInput } from "../utils/layout";
 import type { ProviderOptions } from "../utils/providerConfig";
 import type { ReactFlowInstance, NodeChange, Connection, FinalConnectionState } from "@xyflow/react";
 import { STUDIO_NODE_TYPES, STUDIO_EDGE_TYPES } from "../components/nodes/nodeRegistry";
-import type { StatusResponse, WorkspaceSummary, WorkspacePayload, StudioNode, StudioEdge, StudioNodeType, NodeData, ApiSettingsResponse, WorkspacesResponse } from "../types/studio";
+import type { StatusResponse, WorkspaceSummary, WorkspacePayload, BoardWorkspacePayload, StudioNode, StudioEdge, StudioNodeType, NodeData, ApiSettingsResponse, WorkspacesResponse } from "../types/studio";
 import type { ThemeConfig } from "./theme";
 import { API_KEY_STORAGE_KEY, DEFAULT_API_KEY, API_ENDPOINT_STORAGE_KEY, DEFAULT_API_ENDPOINT, API_PROVIDER_STORAGE_KEY, API_PROVIDERS, NODE_COLOR_MAP, getNodeDefaultData } from "./config";
 import { AudiobookConsole } from "../components/audiobook/AudiobookConsole";
@@ -41,9 +43,11 @@ import { useAudioZipExport } from "../utils/useAudioZipExport";
 import { useDownloadSettings } from "../utils/useDownloadSettings";
 import { useNodesState, useEdgesState, addEdge } from "@xyflow/react";
 import { useSmoothCanvasZoom } from "../utils/useSmoothCanvasZoom";
-import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, startTransition, MouseEvent } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, MouseEvent } from "react";
+import { flushSync } from "react-dom";
 
 export function StudioApp() {
+  const workspaceTasks = useMemo(() => new WorkspaceTaskStore(), []);
 
   const {
     runAudioMerge,
@@ -72,6 +76,9 @@ export function StudioApp() {
     setEdges,
     activeWorkspace,
     vocalAbortMapRef,
+    activeWorkspaceRef,
+    workspaceTasks,
+    saveTaskWorkspace,
   }));
 
   const {
@@ -135,6 +142,8 @@ export function StudioApp() {
     workspaces,
     loadWorkspace,
     selectedWorkspaceIds,
+    canDeleteWorkspaces,
+    onWorkspacesDeleted: ids => workspaceTasks.forget(ids),
   }));
 
   const [themeConfig, setThemeConfig] = useState<ThemeConfig>(getInitialTheme);
@@ -396,6 +405,7 @@ export function StudioApp() {
 
   const saveTimerRef = useRef<number | null>(null);
   const switchingTargetIdRef = useRef<string | null>(initialCachedActiveWorkspace?.id || null);
+  const workspaceLoadRequestRef = useRef(0);
   const lastSavedOrLoadedKeyRef = useRef<string>("");
   const flowWrapRef = useRef<HTMLDivElement | null>(null);
   const canvasMotion = useSmoothCanvasZoom(flowWrapRef, flowRef, activeWorkspace?.type === "board" ? activeWorkspace.id : undefined);
@@ -1117,12 +1127,14 @@ export function StudioApp() {
   edgesRef.current = edges;
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
+  workspaceTasks.capture(activeWorkspace, nodes, edges);
   const vocalAbortMapRef = useRef<Record<string, boolean>>({});
 
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<NodeData>) => {
       if (patch.isRunning === false) {
         vocalAbortMapRef.current[nodeId] = true;
+        workspaceTasks.stopNode(activeWorkspaceRef.current?.id, nodeId);
       }
       const currentNodes = nodesRef.current;
       const targetNode = currentNodes.find((n) => n.id === nodeId);
@@ -1558,7 +1570,7 @@ export function StudioApp() {
       if (data.activeWorkspace) {
         // 防乱序检查：如果用户在 bootstrap 请求完成前已经手动点击或切换了画板，绝对不覆盖用户意图
         if (!switchingTargetIdRef.current || switchingTargetIdRef.current === data.activeWorkspace.id) {
-          const ws = data.activeWorkspace as WorkspacePayload;
+          const ws = workspaceTasks.restore(data.activeWorkspace as WorkspacePayload);
           switchingTargetIdRef.current = ws.id;
           setActiveWorkspace(ws);
           if (ws.type === "board") {
@@ -1760,12 +1772,28 @@ export function StudioApp() {
     }
   }
 
+  function canDeleteWorkspaces(ids: string[]) {
+    if (ids.some(id => hasActiveNodeTasks(id))) {
+      showToast("该画板仍在生成或处理，请完成后再删除。");
+      return false;
+    }
+    return true;
+  }
+
+  function displayWorkspace(workspace: WorkspacePayload | null, nextNodes: StudioNode[], nextEdges: StudioEdge[]) {
+    workspaceTasks.capture(activeWorkspaceRef.current, nodesRef.current, edgesRef.current);
+    activeWorkspaceRef.current = workspace;
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
+    // Commit ownership and graph together, before any pending background response can run.
+    flushSync(() => { setActiveWorkspace(workspace); setNodes(nextNodes); setEdges(nextEdges); });
+  }
+
   async function loadWorkspace(id: string) {
+    const request = ++workspaceLoadRequestRef.current;
     if (!id) {
       switchingTargetIdRef.current = null;
-      setActiveWorkspace(null);
-      setNodes([]);
-      setEdges([]);
+      displayWorkspace(null, [], []);
       return;
     }
 
@@ -1833,33 +1861,30 @@ export function StudioApp() {
       const response = await fetch(`/api/workspaces/${id}`);
       if (!response.ok) {
         if (response.status === 404) {
-          if (switchingTargetIdRef.current === id) {
-            setActiveWorkspace(null);
-            setNodes([]);
-            setEdges([]);
+          if (switchingTargetIdRef.current === id && request === workspaceLoadRequestRef.current) {
+            displayWorkspace(null, [], []);
           }
           return;
         }
         console.warn(`加载画板失败：HTTP ${response.status}`);
         return;
       }
-      const workspace = (await response.json()) as WorkspacePayload;
+      const received = (await response.json()) as WorkspacePayload;
 
-      // 4. 严格校验：确保当前用户最终想要的画板 ID 依然是本画板（防网络并发乱序）
-      if (switchingTargetIdRef.current !== id) {
+      // Also reject older requests for the same board, not just different board IDs.
+      if (switchingTargetIdRef.current !== id || request !== workspaceLoadRequestRef.current) {
         return;
       }
-      workspaceSaveQueue.current.seed(id, workspace.updatedAt);
+      const hasLiveSnapshot = workspaceTasks.has(id);
+      const workspace = workspaceTasks.restore(received);
+      if (!hasLiveSnapshot) workspaceSaveQueue.current.seed(id, workspace.updatedAt);
 
       if (workspace.type === "board") {
         const boardNodes = workspace.nodes ?? [];
         const boardEdges = workspace.edges ?? [];
         const normalizedNodes = boardNodes.map((n) => ensureArtifactSeqIndexes(n, boardNodes, boardEdges));
-        startTransition(() => {
-          setActiveWorkspace(workspace);
-          setNodes(normalizedNodes);
-          setEdges(boardEdges);
-        });
+        displayWorkspace(workspace, normalizedNodes, boardEdges);
+        void workspaceTasks.retry(id);
         lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, normalizedNodes, boardEdges);
         window.setTimeout(() => {
           if (switchingTargetIdRef.current === id) {
@@ -1867,19 +1892,13 @@ export function StudioApp() {
           }
         }, 16);
       } else {
-        startTransition(() => {
-          setActiveWorkspace(workspace);
-          setNodes([]);
-          setEdges([]);
-        });
+        displayWorkspace(workspace, [], []);
         lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, [], []);
       }
     } catch (err) {
       console.warn("加载画板异常:", err);
-      if (switchingTargetIdRef.current === id) {
-        setActiveWorkspace(null);
-        setNodes([]);
-        setEdges([]);
+      if (switchingTargetIdRef.current === id && request === workspaceLoadRequestRef.current) {
+        displayWorkspace(null, [], []);
       }
     }
   }
@@ -1913,9 +1932,7 @@ export function StudioApp() {
       localStorage.setItem("mimo_cached_active_workspace", JSON.stringify(strippedNew || workspace));
       localStorage.setItem("mimo_last_active_id", workspace.id);
     } catch { }
-    setActiveWorkspace(workspace);
-    setNodes(initialNodes);
-    setEdges(initialEdges);
+    displayWorkspace(workspace, initialNodes, initialEdges);
     lastSavedOrLoadedKeyRef.current = computeWorkspaceKey(workspace, initialNodes, initialEdges);
     setWorkspaces((items) => [
       {
@@ -1949,6 +1966,29 @@ export function StudioApp() {
       throw new Error(workspace.error || `智能画板生成失败：HTTP ${response.status}`);
     }
     await loadWorkspaceList(workspace.id);
+  }
+
+  async function saveTaskWorkspace(workspace: BoardWorkspacePayload) {
+    const cleanNodes = workspace.nodes.map(stripNodeCallbacks);
+    try {
+      const saved = await sendWorkspaceSnapshot(workspace.id, {
+        name: workspace.name, nodes: cleanNodes, edges: workspace.edges,
+        stashItems: workspace.stashItems ?? [], baseUpdatedAt: workspace.updatedAt,
+      });
+      setWorkspaces(items => items.map(item => item.id === workspace.id ? {
+        ...item, name: workspace.name, nodeCount: cleanNodes.length, edgeCount: workspace.edges.length,
+        stashCount: workspace.stashItems?.length ?? 0, updatedAt: saved.updatedAt,
+      } : item));
+      if (activeWorkspaceRef.current?.id === workspace.id) {
+        activeWorkspaceRef.current = { ...activeWorkspaceRef.current, updatedAt: saved.updatedAt };
+        setActiveWorkspace(current => current?.id === workspace.id ? { ...current, updatedAt: saved.updatedAt } : current);
+      }
+      if (!workspaceSaveQueue.current.getFailedSnapshots().length) setSaveError("");
+      return { updatedAt: saved.updatedAt };
+    } catch (error) {
+      setSaveError(`画板「${workspace.name}」后台保存失败，请勿关闭程序。${error instanceof Error ? error.message : ""}`);
+      throw error;
+    }
   }
 
   async function saveWorkspace(
@@ -2257,9 +2297,14 @@ export function StudioApp() {
   useEffect(() => {
     const handlePointerDownCapture = (event: globalThis.MouseEvent) => {
       if (event.button === 2) {
+        if (event.target instanceof Element && event.target.closest('.context-menu')) {
+          setMenu(null);
+          return;
+        }
         if (flowWrapRef.current && event.target && !flowWrapRef.current.contains(event.target as unknown as globalThis.Node)) {
           return;
         }
+        setMenu(null);
         const viewport = flowRef.current?.getViewport();
         rightDragRef.current = {
           startX: event.clientX,
@@ -2277,6 +2322,7 @@ export function StudioApp() {
       const dx = Math.abs(event.clientX - rightDragRef.current.startX);
       const dy = Math.abs(event.clientY - rightDragRef.current.startY);
       if (dx > 4 || dy > 4) {
+        if (!rightDragRef.current.moved) setMenu(null);
         rightDragRef.current.moved = true;
       }
     };
@@ -2354,6 +2400,7 @@ export function StudioApp() {
       // 3. 标记为已移动 (moved)
       // 4. 按住时间超过 350ms (长按，非快速单击)
       if (drag.moved || dist > 4 || viewportMoved || elapsed > 350) {
+        setMenu(null);
         return;
       }
     }

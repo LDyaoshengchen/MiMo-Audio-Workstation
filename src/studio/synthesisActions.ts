@@ -1,7 +1,7 @@
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { IntegratedRowArtifact, BatchArtifactItem } from "../types/studioAudio";
 import type { ProviderOptions } from "../utils/providerConfig";
-import type { WorkspacePayload, StudioNode, StudioEdge, NodeData, DebugResponse, StyleOptimizeResponse } from "../types/studio";
+import type { WorkspacePayload, BoardWorkspacePayload, StudioNode, StudioEdge, NodeData, DebugResponse, StyleOptimizeResponse } from "../types/studio";
 import { NODE_COLOR_MAP, maxAudioBytes } from "./config";
 import { buildOptimizedGameVocalPrompt } from "../utils/gameVocalOptimizer";
 import { buildVoiceDescriptionFromTags } from "../utils/gameVocalCharacterTags";
@@ -10,6 +10,9 @@ import { formatOptimizationError } from "./optimizationErrors";
 import { getAudioFileExtension } from "../utils/audioNaming";
 import { mergeAudioAssets, trimVocalAudioDataUrl } from "./audio";
 import { appendSynthesisInputs, getAssetVoiceId } from "../utils/providerConfig";
+import { scopeNodeTask, beginNodeTask, taskWorkspaceId } from "./taskScope";
+import type { WorkspaceTaskStore } from "./workspaceTasks";
+import { resolveIntegratedReference } from "./integratedReference";
 import { resolveMergeAudioInputs, resolveCloneInputs, resolveCloneTextInputs, createArtifactNode, resolveVoiceDesignInstructionInputs, resolveVoiceDesignInputs, resolveGameVocalInputs } from "./graph";
 
 export interface SynthesisActionsContext {
@@ -23,11 +26,27 @@ export interface SynthesisActionsContext {
   getApiHeaders: (isJson?: boolean, extraHeaders?: Record<string, string>) => Record<string, string>;
   setEdges: Dispatch<SetStateAction<StudioEdge[]>>;
   activeWorkspace: WorkspacePayload | null;
+  activeWorkspaceRef?: RefObject<WorkspacePayload | null>;
+  workspaceTasks?: WorkspaceTaskStore;
+  saveTaskWorkspace?: (workspace: BoardWorkspacePayload) => Promise<{ updatedAt: string }>;
   vocalAbortMapRef: RefObject<Record<string, boolean>>;
 }
 
 // Read controller dependencies on invocation, never during render initialization.
-export function createSynthesisActions(getContext: () => SynthesisActionsContext) {
+export function createSynthesisActions(getContext: () => SynthesisActionsContext): ReturnType<typeof createUnscopedSynthesisActions> {
+  const actions = createUnscopedSynthesisActions(getContext);
+  const tasks = ["runAudioMerge", "runVoiceClone", "runIntegratedBatch", "runIntegratedSingleRow", "runBatchVoiceClone", "runSingleRowBatchVoiceClone", "runBatchVoiceDesign", "runSingleRowBatchVoiceDesign", "runVoiceDesign", "runGameVocalClone", "optimizeVoiceStyle", "optimizeVoiceDesign"] as const;
+  return { ...actions, ...Object.fromEntries(tasks.map(name => [name, async (nodeId: string, ...args: any[]) => {
+    const context = scopeNodeTask(getContext, nodeId);
+    const finish = beginNodeTask(taskWorkspaceId(context));
+    const action = createUnscopedSynthesisActions(() => context)[name] as (...args: any[]) => Promise<void>;
+    try { await action(nodeId, ...args); } finally {
+      try { await context.finishTask?.(); } finally { finish(); }
+    }
+  }])) };
+}
+
+function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContext) {
   async function appendLiveArtifact(artifactNode: StudioNode, artifactEdge: StudioEdge) {
     const { nodesRef, edgesRef, setNodes, setEdges, saveWorkspace } = getContext();
     const nextNodes = [...nodesRef.current, artifactNode];
@@ -222,26 +241,14 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
         patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         patchNode(nodeId, { singleRunningRowId: row.id });
 
-        let refAudioDataUrl = row.refAudioUrl || node.data.refAudioUrl;
-        let refAudioFileName = row.refAudioName || node.data.refAudioName || "ref.wav";
-        let refAudioMimeType = "audio/wav";
-
-        if (!refAudioDataUrl) {
-          const resolved = resolveCloneInputs(node, currentNodes, edgesRef.current);
-          if (resolved.audio) {
-            refAudioDataUrl = resolved.audio.dataUrl;
-            refAudioFileName = resolved.audio.fileName;
-            refAudioMimeType = resolved.audio.mimeType;
-          }
-        }
-
-        if (providerOptionsRef.current.synthesisMode === "reference" && !node.data.voiceId && !refAudioDataUrl) {
+        const reference = resolveIntegratedReference(node, row, currentNodes, edgesRef.current, providerOptionsRef.current, getApiHeaders(false));
+        if (reference.options.synthesisMode === "reference" && !reference.voiceId && !reference.audio?.dataUrl) {
           patchNode(nodeId, { isRunning: false, singleRunningRowId: undefined, error: `行「${row.title || `句段 ${index + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
           return;
         }
 
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined, getAssetVoiceId(node.data, getApiHeaders(false)));
+        await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId);
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
         formData.append("format", "wav");
@@ -326,20 +333,10 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
       return;
     }
 
-    let refAudioDataUrl = row.refAudioUrl || node.data.refAudioUrl;
-    let refAudioFileName = row.refAudioName || node.data.refAudioName || "ref.wav";
-    let refAudioMimeType = "audio/wav";
-
-    if (!refAudioDataUrl) {
-      const resolved = resolveCloneInputs(node, currentNodes, currentEdges);
-      if (resolved.audio) {
-        refAudioDataUrl = resolved.audio.dataUrl;
-        refAudioFileName = resolved.audio.fileName;
-        refAudioMimeType = resolved.audio.mimeType;
-      }
-    }
-
-    if (providerOptionsRef.current.synthesisMode === "reference" && !node.data.voiceId && !refAudioDataUrl) {
+    let reference: ReturnType<typeof resolveIntegratedReference>;
+    try { reference = resolveIntegratedReference(node, row, currentNodes, currentEdges, providerOptionsRef.current, getApiHeaders(false)); }
+    catch (error) { patchNode(nodeId, { error: error instanceof Error ? error.message : "参考音色配置无效。" }); return; }
+    if (reference.options.synthesisMode === "reference" && !reference.voiceId && !reference.audio?.dataUrl) {
       patchNode(nodeId, { error: `行「${row.title || `句段 ${rowIndex + 1}`}」缺少参考音频！请在第1列上传/录制参考音频。` });
       return;
     }
@@ -348,7 +345,7 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 
     try {
       const formData = new FormData();
-      await appendSynthesisInputs(formData, providerOptionsRef.current, refAudioDataUrl ? { dataUrl: refAudioDataUrl, fileName: refAudioFileName, mimeType: refAudioMimeType } : undefined, getAssetVoiceId(node.data, getApiHeaders(false)));
+      await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId);
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
       formData.append("format", "wav");

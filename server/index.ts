@@ -12,6 +12,8 @@ import { buildCleanAudioCacheFileName, sanitizeFileName, validateAndSanitizeEndp
 import { getProviderAdapter, getEffectiveProviderAdapter, getAllProviderCapabilities } from "./providers/index.js";
 import { prepareStorageMigration } from "./utils/storageMigration.js";
 import { registerVoiceLibrary } from "./utils/voiceLibrary.js";
+import { windowsFolderPickerArgs, parseFolderPickerOutput } from "./utils/folderPicker.js";
+import { createStorageMigrationStatus } from "./utils/storageMigrationStatus.js";
 
 const currentDir = typeof __dirname !== "undefined" ? __dirname : (typeof import.meta !== "undefined" && import.meta?.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
 
@@ -340,6 +342,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 let storageMigrationRunning = false;
+const storageMigrationStatus = createStorageMigrationStatus();
 let activeMutations = 0;
 let storageReady: Promise<void> | undefined;
 app.use("/api", async (_req, _res, next) => {
@@ -349,6 +352,7 @@ app.use("/api", async (_req, _res, next) => {
     next();
   } catch (error) { storageReady = undefined; next(error); }
 });
+app.get("/api/settings/storage-migration", (_req, res) => { res.setHeader("Cache-Control", "no-store"); res.json(storageMigrationStatus.snapshot()); });
 app.use("/api", (req, res, next) => {
   if (storageMigrationRunning) return res.status(503).json({ error: "数据正在迁移，请稍后重试。" });
   if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
@@ -365,19 +369,24 @@ async function switchStorageDirectory(targetDir: string) {
     throw Object.assign(new Error("请等待保存、生成或导出任务完成后再更改存储目录。"), { status: 409 });
   }
   storageMigrationRunning = true;
+  storageMigrationStatus.start();
   try {
     await workspaceWriteQueue;
+    await voiceLibrary.settled();
     const settings = await readApiSettings();
     const source = getDataDir();
     await mkdir(source, { recursive: true });
-    const transaction = await prepareStorageMigration(source, targetDir);
+    const transaction = await prepareStorageMigration(source, targetDir, storageMigrationStatus.update);
+    storageMigrationStatus.update({ ...storageMigrationStatus.snapshot(), phase: "committing" });
     try {
       const nextSettings = { ...settings, customDataDir: targetDir === defaultDataDir ? undefined : targetDir };
       await writeApiSettings(nextSettings);
       activeCustomDataDir = nextSettings.customDataDir || "";
+      storageMigrationStatus.finish();
       return transaction.backupDir;
     } catch (error) { await transaction.rollback(); throw error; }
-  } finally { storageMigrationRunning = false; }
+  } catch (error) { storageMigrationStatus.finish(error instanceof Error ? error.message : "数据迁移失败。"); throw error; }
+  finally { storageMigrationRunning = false; }
 }
 
 interface RequestApiConfig {
@@ -429,7 +438,7 @@ async function getMimoConfig(req: { headers: Record<string, string | string[] | 
   return config;
 }
 
-registerVoiceLibrary(app, getDataDir);
+const voiceLibrary = registerVoiceLibrary(app, getDataDir);
 app.get("/api/providers/capabilities", (_req, res) => {
   res.json(getAllProviderCapabilities());
 });
@@ -1661,16 +1670,10 @@ app.post("/api/settings/storage-path", async (req, res, next) => {
 app.post("/api/settings/select-folder", async (_req, res, next) => {
   try {
     if (process.platform === "win32") {
-      const psScript = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = '选择画板本地存储目录'; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }`;
-      exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/"/g, '\\"')}"`, (error, stdout) => {
-        if (error || !stdout || !stdout.trim()) {
-          return res.json({ canceled: true });
-        }
-        const selectedPath = stdout.trim().split(/\r?\n/).pop()?.trim() || "";
-        if (!selectedPath) {
-          return res.json({ canceled: true });
-        }
-        res.json({ folderPath: selectedPath, canceled: false });
+      execFile("powershell.exe", windowsFolderPickerArgs(), { encoding: "utf8", windowsHide: true }, (error, stdout) => {
+        if (error) return next(error);
+        try { const selectedPath = parseFolderPickerOutput(stdout); res.json(selectedPath ? { folderPath: selectedPath, canceled: false } : { canceled: true }); }
+        catch (reason) { next(reason); }
       });
     } else {
       res.json({ error: "当前系统暂不支持调起文件夹选择框，请在输入框中手动填写绝对路径。" });

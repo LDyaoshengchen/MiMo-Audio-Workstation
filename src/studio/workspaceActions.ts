@@ -27,29 +27,39 @@ export interface WorkspaceActionsContext {
   workspaces: WorkspaceSummary[];
   loadWorkspace: (id: string) => Promise<void>;
   selectedWorkspaceIds: Set<string>;
+  canDeleteWorkspaces?: (ids: string[]) => boolean;
+  onWorkspacesDeleted?: (ids: string[]) => void;
 }
 
 // Read controller dependencies on invocation, never during render initialization.
 export function createWorkspaceActions(getContext: () => WorkspaceActionsContext) {
   async function executeDeleteWorkspace(workspaceId: string) {
-    const { saveTimerRef, maxSaveTimerRef, setActiveWorkspace, setNodes, setEdges, loadWorkspaceList } = getContext();
-    if (saveTimerRef.current) {
+    if (getContext().canDeleteWorkspaces?.([workspaceId]) === false) return;
+    const { saveTimerRef, maxSaveTimerRef, activeWorkspaceRef, setActiveWorkspace, setNodes, setEdges, loadWorkspaceList } = getContext();
+    const deletingActive = activeWorkspaceRef.current?.id === workspaceId;
+    if (deletingActive && saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    if (maxSaveTimerRef.current) {
+    if (deletingActive && maxSaveTimerRef.current) {
       window.clearTimeout(maxSaveTimerRef.current);
       maxSaveTimerRef.current = null;
     }
 
     try {
-      await fetch(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
+      const response = await fetch(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`删除失败：HTTP ${response.status}`);
+      getContext().onWorkspacesDeleted?.([workspaceId]);
     } catch (err) {
       console.warn("删除画板失败:", err);
+      getContext().setAppToast({ id: Date.now(), text: err instanceof Error ? err.message : "删除画板失败" });
+      return;
     }
-    setActiveWorkspace(null);
-    setNodes([]);
-    setEdges([]);
+    if (activeWorkspaceRef.current?.id === workspaceId) {
+      setActiveWorkspace(null);
+      setNodes([]);
+      setEdges([]);
+    }
     await loadWorkspaceList();
   }
 
@@ -368,6 +378,7 @@ export function createWorkspaceActions(getContext: () => WorkspaceActionsContext
   }
 
   async function executeBatchDeleteWorkspaces(ids: string[]) {
+    if (getContext().canDeleteWorkspaces?.(ids) === false) return;
     const { saveTimerRef, maxSaveTimerRef, setSelectedWorkspaceIds, setLastSelectedIndex, loadWorkspaceList } = getContext();
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
@@ -386,6 +397,7 @@ export function createWorkspaceActions(getContext: () => WorkspaceActionsContext
       });
       if (!res.ok) throw new Error("批量删除失败。");
       const data = await res.json();
+      getContext().onWorkspacesDeleted?.(ids);
       setSelectedWorkspaceIds(new Set());
       setLastSelectedIndex(null);
       await loadWorkspaceList(data.activeWorkspaceId);

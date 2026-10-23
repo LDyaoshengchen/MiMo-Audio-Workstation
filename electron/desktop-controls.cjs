@@ -4,11 +4,16 @@ const { stat } = require("node:fs/promises");
 const REPO = "https://github.com/LDyaoshengchen/MiMo-Audio-Workstation";
 
 function newerVersion(candidate, current) {
-  const parse = value => /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  const parse = value => /^v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$/.exec(value);
   const next = parse(candidate), installed = parse(current);
   if (!next || !installed) return false;
-  for (let i = 1; i <= 3; i++) {
-    if (+next[i] !== +installed[i]) return +next[i] > +installed[i];
+  // Compatibility for the historical 0.8.17..0.8.39 numbering, before 0.8.4/5.
+  const legacy = parts => +parts[1] === 0 && +parts[2] === 8 && !parts[4] && +parts[3] >= 17 && +parts[3] <= 39;
+  const modern = parts => +parts[1] === 0 && +parts[2] === 8 && (parts[4] !== undefined || +parts[3] === 4 || +parts[3] === 5);
+  if (legacy(installed) && modern(next)) return true;
+  if (legacy(next) && modern(installed)) return false;
+  for (let i = 1; i <= 4; i++) {
+    if (+(next[i] || 0) !== +(installed[i] || 0)) return +(next[i] || 0) > +(installed[i] || 0);
   }
   return false;
 }

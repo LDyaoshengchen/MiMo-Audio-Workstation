@@ -35,6 +35,7 @@ try {
   if (fs.existsSync(path.join(rootDir, "electron"))) {
     fs.mkdirSync(path.join(targetApp, "electron"), { recursive: true });
     fs.cpSync(path.join(rootDir, "electron"), path.join(targetApp, "electron"), { recursive: true });
+    fs.copyFileSync(path.join(rootDir, "package.json"), path.join(targetApp, "package.json"));
     console.log("  ✅ electron 主进程代码已同步");
   }
 

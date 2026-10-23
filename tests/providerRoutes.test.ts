@@ -46,6 +46,48 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
     process.env = originalEnv;
   });
 
+  it('keeps migration status readable while protecting data access during migration', async()=>{
+    const module=await import('../server/utils/storageMigration');
+    let release!:()=>void,started!:()=>void;
+    const waiting=new Promise<void>(resolve=>{release=resolve;}),begin=new Promise<void>(resolve=>{started=resolve;});
+    const spy=vi.spyOn(module,'prepareStorageMigration').mockImplementation(async(_source,_target,progress)=>{
+      progress?.({phase:'copying',totalFiles:10,processedFiles:1,totalBytes:1000,processedBytes:100});started();await waiting;
+      return {backupDir:'',rollback:async()=>{}};
+    });
+    let pending:Promise<Response>|undefined;
+    try{
+      pending=call('/api/settings/reset-storage-path',{method:'POST'});await begin;
+      const status=await call('/api/settings/storage-migration');expect(status.status).toBe(200);expect(await status.json()).toMatchObject({running:true,phase:'copying',processedFiles:1});
+      expect((await call('/api/voice-library')).status).toBe(503);
+      release();expect((await pending).status).toBe(200);
+      expect(await (await call('/api/settings/storage-migration')).json()).toMatchObject({running:false,phase:'completed',remainingSeconds:0});
+    }finally{release();await pending;spy.mockRestore();}
+  });
+
+  it('waits for existing role audio backfill before migrating the data directory', async () => {
+    const voiceFiles = await import('../server/utils/voiceLibraryAudioFiles');
+    const migration = await import('../server/utils/storageMigration');
+    const original = voiceFiles.prepareRoleAudioFiles;
+    let release!: () => void, started!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; }), begin = new Promise<void>(resolve => { started = resolve; });
+    const audioSpy = vi.spyOn(voiceFiles, 'prepareRoleAudioFiles').mockImplementation(async (...args) => { started(); await waiting; return original(...args); });
+    const migrateSpy = vi.spyOn(migration, 'prepareStorageMigration').mockResolvedValue({ backupDir: '', rollback: async () => {} });
+    const opening = call('/api/voice-library'); let switching: Promise<Response> | undefined;
+    try {
+      await begin;
+      switching = call('/api/settings/reset-storage-path', { method: 'POST' });
+      for (let i = 0; i < 30; i++) {
+        if ((await (await call('/api/settings/storage-migration')).json()).running) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect((await (await call('/api/settings/storage-migration')).json()).running).toBe(true);
+      expect(migrateSpy).not.toHaveBeenCalled();
+      release();
+      expect((await opening).status).toBe(200); expect((await switching).status).toBe(200);
+      expect(migrateSpy).toHaveBeenCalledTimes(1);
+    } finally { release(); await opening; await switching; audioSpy.mockRestore(); migrateSpy.mockRestore(); }
+  });
+
   it("saved keys stay on server, survive blank updates, and synthesize without a key header", async () => {
     expect((await save({ apiProvider: "openai", apiKey: "fixture-saved-secret", apiEndpoint: "https://speech-proxy.example/v1/audio/speech", synthesisMode: "preset" })).status).toBe(200);
     expect((await save({ apiProvider: "openai", apiKey: "", apiEndpoint: "https://speech-proxy.example/v1/audio/speech", synthesisMode: "preset" })).status).toBe(200);
