@@ -6,7 +6,8 @@ import { Mic2, Loader2, AudioLines, Grid } from "lucide-react";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { GenerationButtonText } from "../GenerationButtonText";
 import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
-import { memo, useRef, useState, useLayoutEffect, Fragment } from "react";
+import { StyledSelect } from "../StyledSelect";
+import { memo, useRef, useState, useLayoutEffect } from "react";
 import { useAutoUpdateNodeInternals, getElementTopInNode } from "../../studio/nodeInternals";
 
 export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodeProps<StudioNode>) {
@@ -48,11 +49,13 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
       <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
 
       <div className="clone-toolbar nodrag">
-        <select
-          className="clone-preset-select"
-          defaultValue=""
-          onChange={(e) => {
-            const val = e.target.value;
+        <StyledSelect
+          className="clone-preset-wrapper"
+          triggerClassName="clone-preset-select"
+          value=""
+          placeholder="🎮 角色预设"
+          title="选择游戏角色预设（官方支持多语种）"
+          onValueChange={(val) => {
             if (!val) return;
             const isEn = val.endsWith("_en");
             const charId = val.replace(/_(?:zh|en)$/, "");
@@ -65,22 +68,12 @@ export const VoiceCloneNode = memo(function VoiceCloneNode({ id, data }: NodePro
               });
             }
           }}
-        >
-          <option value="" disabled>🎮 角色预设</option>
-          <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
-            {GAME_CHARACTER_PRESETS.map((p) => (
-              <Fragment key={p.id}>
-                <option value={`${p.id}_zh`}>
-                  {p.avatar} {p.nameZh} (中)
-                </option>
-                <option value={`${p.id}_en`}>
-                  {p.avatar} {p.nameZh} (英)
-                </option>
-              </Fragment>
-            ))}
-          </optgroup>
-        </select>
-        <RoleVoiceLibrary nodeId={id} data={data} />
+          options={GAME_CHARACTER_PRESETS.flatMap(p => [
+            { value: `${p.id}_zh`, label: `${p.avatar} ${p.nameZh} (中)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+            { value: `${p.id}_en`, label: `${p.avatar} ${p.nameZh} (英)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+          ])}
+        />
+        <RoleVoiceLibrary nodeId={id} data={data} allowOfficialPresets />
       </div>
 
       <label className="node-field nodrag">

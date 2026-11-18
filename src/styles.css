@@ -5779,9 +5779,46 @@ a.stash-round-action:hover {
 .download-naming-settings {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 3px;
+  margin-bottom: 8px;
   font-family: inherit;
+}
+
+.download-naming-settings .appearance-card-main {
+  padding: 5px 12px;
+}
+
+.storage-download-naming,
+.storage-node-examples {
+  margin-bottom: 8px;
+}
+
+.storage-node-examples {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.storage-download-naming > summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  margin: 0;
+}
+
+.storage-download-naming[open] > summary {
+  margin-bottom: 12px;
+}
+
+.storage-naming-chevron { margin-left: auto; }
+.storage-download-naming[open] .storage-naming-chevron { transform: rotate(180deg); }
+.storage-download-naming .download-naming-settings:last-child { margin-bottom: 0; }
+
+.download-naming-settings .appearance-card-title,
+.download-naming-settings .appearance-card-sub {
+  line-height: 1.2;
+  margin-top: 0;
 }
 
 .workspace-save-notice {

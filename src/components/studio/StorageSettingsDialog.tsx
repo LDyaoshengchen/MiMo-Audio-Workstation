@@ -1,10 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { NODE_EXAMPLES_KEY, showNodeExamples } from "../../studio/config";
 import { useSettingsPopover } from "./useSettingsPopover";
 import type { SingleDownloadSettings } from "../../utils/downloadSettings";
 import type { WorkspacePayload } from "../../types/studio";
 import { DownloadNamingSettings } from "../DownloadNamingSettings";
-import { FolderOpen, X } from "lucide-react";
+import { ChevronDown, FileDown, FolderOpen, X } from "lucide-react";
 
 export interface StorageSettingsDialogProps {
   showStoragePathModal: boolean;
@@ -13,6 +14,8 @@ export interface StorageSettingsDialogProps {
   setShowStoragePathModal: Dispatch<SetStateAction<boolean>>;
   singleDownloadSettings: SingleDownloadSettings;
   setSingleDownloadSettings: Dispatch<SetStateAction<SingleDownloadSettings>>;
+  batchDownloadSettings: SingleDownloadSettings;
+  setBatchDownloadSettings: Dispatch<SetStateAction<SingleDownloadSettings>>;
   activeWorkspace: WorkspacePayload | null;
   customPathInput: string;
   setCustomPathInput: Dispatch<SetStateAction<string>>;
@@ -31,6 +34,8 @@ export function StorageSettingsDialog({
   setShowStoragePathModal,
   singleDownloadSettings,
   setSingleDownloadSettings,
+  batchDownloadSettings,
+  setBatchDownloadSettings,
   activeWorkspace,
   customPathInput,
   setCustomPathInput,
@@ -42,6 +47,7 @@ export function StorageSettingsDialog({
   openLocalAudiosFolder,
 }: StorageSettingsDialogProps) {
   const panel=useRef<HTMLDivElement>(null);
+  const [showExamples, setShowExamples] = useState(showNodeExamples);
   const popover=useSettingsPopover(showStoragePathModal,'[data-settings-trigger="storage"]',panel);
   return (<>{showStoragePathModal && (
     <div
@@ -60,7 +66,21 @@ export function StorageSettingsDialog({
           </button>
         </div>
         <div className="api-key-modal-body">
-          <DownloadNamingSettings settings={singleDownloadSettings} onChange={setSingleDownloadSettings} workspaceName={activeWorkspace?.name} />
+          <section className="storage-path-card storage-node-examples" aria-label="节点示例设置">
+              <div><div className="appearance-card-title">显示默认节点示例</div>
+                <div className="appearance-card-sub">关闭后，新建节点从空白内容开始。</div></div>
+              <button type="button" role="switch" aria-label="显示默认节点示例" aria-checked={showExamples}
+                className={`capsule-switch ${showExamples ? "checked" : ""}`}
+                onClick={() => {
+                  localStorage.setItem(NODE_EXAMPLES_KEY, String(!showExamples));
+                  setShowExamples(!showExamples);
+                }}><span className="capsule-switch-thumb" /></button>
+          </section>
+          <details className="storage-path-card storage-download-naming">
+            <summary className="storage-path-card-title"><FileDown size={16} />下载命名<ChevronDown className="storage-naming-chevron" size={16} /></summary>
+            <DownloadNamingSettings settings={singleDownloadSettings} onChange={setSingleDownloadSettings} workspaceName={activeWorkspace?.name} />
+            <DownloadNamingSettings scope="batch" settings={batchDownloadSettings} onChange={setBatchDownloadSettings} workspaceName={activeWorkspace?.name} />
+          </details>
           <p className="section-hint">更改目录会复制并校验画板、音频和模板；原目录保留，目标同名文件会先备份。请等待生成和保存完成后操作。</p>
           <div className="storage-path-card" style={{ marginTop: 0 }}>
             <span className="storage-path-card-title">

@@ -9,7 +9,7 @@ import { AudioMergeNode } from "../src/components/nodes/AudioMergeNode";
 vi.mock("@xyflow/react", () => ({ Handle: () => null, Position: { Left: "left", Right: "right" } }));
 vi.mock("../src/components/StudioAudioPlayer", () => ({ StudioAudioPlayer: ({ src }: { src: string }) => <audio src={src} /> }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); });
 
 const audio = { fileName: "merged-reference-original.wav", mimeType: "audio/wav", size: 3, dataUrl: "data:audio/wav;base64,AQID" };
 async function renderNode(data: NodeData, check: (host: HTMLDivElement, render: (next: NodeData) => Promise<void>) => Promise<void>) {

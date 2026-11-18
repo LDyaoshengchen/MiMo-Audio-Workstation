@@ -8,6 +8,7 @@ import { useState, useRef, useEffect } from "react";
 export function StashPanel({
   isOpen,
   items,
+  getDisplayName,
   workspaceName,
   onBatchDownload,
   onDelete,
@@ -16,6 +17,7 @@ export function StashPanel({
 }: {
   isOpen: boolean;
   items: StashItem[];
+  getDisplayName?: (item: StashItem) => string;
   workspaceName?: string;
   onBatchDownload: () => void;
   onDelete: (itemId: string) => void;
@@ -43,7 +45,7 @@ export function StashPanel({
             </button>
           </div>
           {items.map((item) => (
-            <StashItemCard key={item.id} item={item} onDelete={onDelete} />
+            <StashItemCard key={item.id} item={item} displayName={getDisplayName?.(item)} onDelete={onDelete} />
           ))}
         </div>
       ) : null}
@@ -52,10 +54,12 @@ export function StashPanel({
 }
 
 export function StashItemCard({
+  displayName,
   item,
   onDelete
 }: {
   item: StashItem;
+  displayName?: string;
   onDelete: (itemId: string) => void;
 }) {
   const [progress, setProgress] = useState(0);
@@ -71,7 +75,7 @@ export function StashItemCard({
       }}
     >
       <div className="stash-item-info">
-        <strong title={item.sourceNodeName || item.fileName}>{item.sourceNodeName || item.fileName}</strong>
+        <strong title={displayName || item.sourceNodeName || item.fileName}>{displayName || item.sourceNodeName || item.fileName}</strong>
       </div>
       <div className="stash-item-actions">
         <StashMiniPlayer

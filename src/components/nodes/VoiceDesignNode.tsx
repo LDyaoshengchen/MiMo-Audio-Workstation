@@ -6,8 +6,9 @@ import { Sparkles, Wand2, Loader2, Grid } from "lucide-react";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { GenerationButtonText } from "../GenerationButtonText";
 import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { StyledSelect } from "../StyledSelect";
 import { VOICE_DESIGN_PRESETS, VOICE_INSTRUCTION_TAGS, VOICE_CONTROL_TAGS } from "../../studio/voicePresets";
-import { memo, useRef, useState, useLayoutEffect, Fragment } from "react";
+import { memo, useRef, useState, useLayoutEffect } from "react";
 import { useAutoUpdateNodeInternals, getElementTopInNode } from "../../studio/nodeInternals";
 
 export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeProps<StudioNode>) {
@@ -30,8 +31,7 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
     return () => ro.disconnect();
   }, [textTop]);
 
-  const handleSelectPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
+  const handleSelectPreset = (val: string) => {
     if (!val) return;
 
     if (val.startsWith("game_")) {
@@ -75,26 +75,13 @@ export const VoiceDesignNode = memo(function VoiceDesignNode({ id, data }: NodeP
       <Handle type="source" position={Position.Right} id="output" className="node-handle" style={{ top: "50%" }} />
 
       <div className="design-toolbar nodrag">
-        <select className="design-preset-select" defaultValue="" onChange={handleSelectPreset}>
-          <option value="" disabled>✨ 音色预设</option>
-          <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
-            {GAME_CHARACTER_PRESETS.map((p) => (
-              <Fragment key={p.id}>
-                <option value={`game_${p.id}_zh`}>
-                  {p.avatar} {p.nameZh} (中)
-                </option>
-                <option value={`game_${p.id}_en`}>
-                  {p.avatar} {p.nameZh} (英)
-                </option>
-              </Fragment>
-            ))}
-          </optgroup>
-          <optgroup label="🎙️ 通用播客/有声预设">
-            {VOICE_DESIGN_PRESETS.map((p, i) => (
-              <option key={i} value={i}>{p.name}</option>
-            ))}
-          </optgroup>
-        </select>
+        <StyledSelect className="design-preset-wrapper" triggerClassName="design-preset-select" value="" placeholder="✨ 音色预设" onValueChange={handleSelectPreset} options={[
+          ...GAME_CHARACTER_PRESETS.flatMap(p => [
+            { value: `game_${p.id}_zh`, label: `${p.avatar} ${p.nameZh} (中)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+            { value: `game_${p.id}_en`, label: `${p.avatar} ${p.nameZh} (英)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+          ]),
+          ...VOICE_DESIGN_PRESETS.map((preset, index) => ({ value: String(index), label: preset.name, group: "🎙️ 通用播客/有声预设" })),
+        ]} />
         <RoleVoiceLibrary nodeId={id} data={data} />
         <button
           className="design-action-btn"

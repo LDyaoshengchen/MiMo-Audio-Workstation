@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DownloadNamingSettings } from "../src/components/DownloadNamingSettings";
-import { getSingleArtifactDownloadFileName, parseDownloadSettings, stripWorkspaceTimestamp } from "../src/utils/downloadSettings";
+import { getSingleArtifactDownloadFileName, getZipArchiveFileName, parseDownloadSettings, stripWorkspaceTimestamp } from "../src/utils/downloadSettings";
 import { formatHierarchyName } from "../src/utils/audioNaming";
 
 describe("single artifact download naming settings", () => {
@@ -44,8 +44,7 @@ describe("single artifact download naming settings", () => {
     expect(html).toContain("带时间");
     expect(html).toContain("VO_00085_01_2026-10-08_17-00-02.wav");
     expect(html).not.toContain("怪物_VO_00085");
-    expect(html).toContain("全能综合工作台和批量产物节点的单条下载");
-    expect(html).toContain("不影响 ZIP 打包");
+    expect(html).toContain("单个产物下载命名");
   });
   it.each([
     [false, false, "VO_M_J_xg_tiegou_JZ_01.wav"],
@@ -70,5 +69,56 @@ describe("single artifact download naming settings", () => {
     ["战斗_VO", "VO_M_J_xg_tiegou_JZ", "战斗_VO_M_J_xg_tiegou_JZ_02"]
   ])("uses consistent hierarchy for node=%s row=%s", (node, row, expected) => {
     expect(formatHierarchyName(node, row, 2)).toBe(expected);
+  });
+  it.each([
+    [false, false, "暂存产物.zip"],
+    [true, false, "怪物_暂存产物.zip"],
+    [false, true, "暂存产物_2026-10-08_17-00-02.zip"],
+    [true, true, "怪物_暂存产物_2026-10-08_17-00-02.zip"]
+  ])("applies board and timestamp settings to ZIP names (%s, %s)", (includeWorkspaceName, includeTime, expected) => {
+    expect(getZipArchiveFileName("暂存产物", "怪物", { includeWorkspaceName, includeTime }, new Date("2026-10-08T17:00:02"))).toBe(expected);
+  });
+
+  it("resolves stash audio download name matching batch row title when batch nodes are unnamed", async () => {
+    const { resolveStashDownloadName } = await import("../src/studio/stashIdentity");
+    const mockNodes: any[] = [
+      {
+        id: "art-1",
+        type: "batchArtifact",
+        data: {
+          title: "句段 1",
+          parentTitle: "批量节点",
+          batchArtifacts: [
+            {
+              id: "item-1",
+              seqIndex: 1,
+              rowTitle: "VO_P_jinmaoduizhang_TZ",
+              createdAt: "2026-10-08T17:00:02",
+              audioDataUrl: "data:audio/wav;base64,AAAA"
+            }
+          ]
+        }
+      }
+    ];
+    const item: any = {
+      id: "stash-1",
+      sourceNodeId: "art-1",
+      sourceNodeName: "VO_P_jinmaoduizhang_TZ_01",
+      fileName: "VO_P_jinmaoduizhang_TZ_01.wav",
+      createdAt: "2026-10-08T17:00:02",
+      audioDataUrl: "data:audio/wav;base64,AAAA"
+    };
+
+    // 默认设置（带画板名称）
+    const nameWithBoard = resolveStashDownloadName(item, mockNodes, { includeWorkspaceName: true, includeTime: false }, "游戏画板");
+    expect(nameWithBoard).toBe("游戏画板_VO_P_jinmaoduizhang_TZ_01.wav");
+
+    // 不带画板名称
+    const nameWithoutBoard = resolveStashDownloadName(item, mockNodes, { includeWorkspaceName: false, includeTime: false }, "游戏画板");
+    expect(nameWithoutBoard).toBe("VO_P_jinmaoduizhang_TZ_01.wav");
+
+    // 批量下载配置中排除节点名称
+    const nameWithoutBatchNode = resolveStashDownloadName(item, mockNodes, { includeWorkspaceName: false, includeTime: false, includeBatchNodeName: false }, "游戏画板");
+    expect(nameWithoutBatchNode).toBe("VO_P_jinmaoduizhang_TZ_01.wav");
   });
 });

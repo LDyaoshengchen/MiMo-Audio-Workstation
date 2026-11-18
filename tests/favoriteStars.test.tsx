@@ -13,7 +13,7 @@ import { favoriteAudioKey } from "../src/utils/voiceFavoriteStatus";
 vi.mock("@xyflow/react", () => ({ Handle: () => null, Position: { Left: "left", Right: "right" } }));
 vi.mock("../src/components/StudioAudioPlayer", () => ({ StudioAudioPlayer: ({ src }: { src: string }) => <audio src={src} /> }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); });
 const audio = { fileName: "merge.wav", mimeType: "audio/wav", size: 3, dataUrl: "data:audio/wav;base64,AQID" };
 
 async function setup(initialFavorite = false, fail = false) {
@@ -67,6 +67,7 @@ it("updates both matching stars after save, un-favorite, re-favorite and deletio
     await expectStars(view.host, [true, true]);
     expect(document.querySelector('.voice-favorite-dialog')).toBeNull();
     await act(async () => view.host.querySelector<HTMLButtonElement>('.role-library-button')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="展开分组 未分组"]')?.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="取消收藏"]')!.click());
     await expectStars(view.host, [false, false]);
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="收藏角色"]')!.click());

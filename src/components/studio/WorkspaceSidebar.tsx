@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction, RefObject } from "react";
 import type { AudioAsset } from "../../types/studioAudio";
-import type { WorkspaceSummary, WorkspacePayload } from "../../types/studio";
+import type { StashItem, WorkspaceSummary, WorkspacePayload } from "../../types/studio";
 import { FileDown, FolderOpen, Trash2, PanelTop, ChevronRight, ChevronLeft, Plus, BookOpen, Copy, FileJson, LayoutTemplate } from "lucide-react";
 import { StashPanel } from "../canvas/StashPanel";
 
@@ -21,6 +21,7 @@ export interface WorkspaceSidebarProps {
   openExportModal: (targetId?: string) => void;
   isStashOpen: boolean;
   downloadStashZip: () => Promise<void>;
+  getStashDownloadName?: (item: StashItem) => string;
   deleteStashItem: (itemId: string) => void;
   setIsStashOpen: Dispatch<SetStateAction<boolean>>;
   createReferenceAudioFromData: (title: string, audioAsset: AudioAsset) => void;
@@ -46,6 +47,7 @@ export function WorkspaceSidebar({
   openExportModal,
   isStashOpen,
   downloadStashZip,
+  getStashDownloadName,
   deleteStashItem,
   setIsStashOpen,
   createReferenceAudioFromData,
@@ -181,6 +183,7 @@ export function WorkspaceSidebar({
                   <StashPanel
                     isOpen={isStashOpen}
                     items={activeWorkspace.stashItems}
+                    getDisplayName={getStashDownloadName}
                     workspaceName={activeWorkspace.name}
                     onBatchDownload={() => void downloadStashZip()}
                     onDelete={deleteStashItem}

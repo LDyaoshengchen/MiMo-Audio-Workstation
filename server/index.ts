@@ -2,12 +2,16 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import fs from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import multer from "multer";
 import { exec, execFile } from "node:child_process";
 import JSZip from "jszip";
 import { fileURLToPath } from "node:url";
+import { normalizeVolcengineOptions, type VolcengineOptions } from "../shared/volcengine.js";
+import { runVolcengineTool } from "./providers/volcengineTools.js";
+import { runMiniMaxTool } from "./providers/minimaxTools.js";
 import { buildCleanAudioCacheFileName, sanitizeFileName, validateAndSanitizeEndpoint } from "./utils/audioNaming.js";
 import { getProviderAdapter, getEffectiveProviderAdapter, getAllProviderCapabilities } from "./providers/index.js";
 import { prepareStorageMigration } from "./utils/storageMigration.js";
@@ -172,6 +176,7 @@ type SmartWorkspaceSegment = {
 };
 
 type ApiSettings = {
+  volcengine?: VolcengineOptions;
   apiKey?: string;
   apiEndpoint?: string;
   apiProvider?: string;
@@ -390,6 +395,8 @@ async function switchStorageDirectory(targetDir: string) {
 }
 
 interface RequestApiConfig {
+  minimaxCacheDir?: string;
+  volcengine?: VolcengineOptions;
   apiKey: string;
   apiEndpoint: string;
   apiProvider: string;
@@ -417,16 +424,20 @@ async function getApiConfig(req: { headers: Record<string, string | string[] | u
     throw Object.assign(error instanceof Error ? error : new Error("非法服务地址"), { status: 400 });
   }
   const accessToken = header("x-api-accesstoken") || (apiProvider === savedProvider ? settings.accessToken : undefined);
-  const apiKey = header("x-api-key") || (apiProvider === savedProvider ? settings.apiKey : undefined)
+  const rawApiKey = header("x-api-key") || (apiProvider === savedProvider ? settings.apiKey : undefined)
     || (apiProvider === "mimo" ? process.env.MIMO_API_KEY : undefined) || accessToken || "";
+  const apiKey = rawApiKey || (apiProvider === "indextts" ? "local-indextts" : "");
   if (apiProvider === "custom" && !["mimo-chat", "openai-tts", "fish-tts", "siliconflow"].includes(customProtocol || "")) {
     throw Object.assign(new Error("自定义 API 必须显式选择有效协议。"), { status: 400 });
   }
   const appId = header("x-api-appid") || (apiProvider === savedProvider ? settings.appId : undefined);
-  if (apiProvider === "volcengine" && (!appId || !accessToken)) {
-    throw Object.assign(new Error("火山引擎需要 AppID 与 AccessToken。"), { status: 400 });
+  if (apiProvider === "volcengine" && !apiKey && !(appId && accessToken)) {
+    throw Object.assign(new Error("请配置火山引擎 API Key，或旧版 AppID 与 AccessToken。"), { status: 400 });
   }
-  return { apiKey, apiEndpoint, apiProvider, appId, accessToken, customProtocol };
+  const volcengine = apiProvider === "volcengine"
+    ? normalizeVolcengineOptions(header("x-api-volcengine") ? JSON.parse(header("x-api-volcengine")!) : settings.volcengine ?? { transport: apiEndpoint.endsWith("/api/v1/tts") ? "legacy" : "http" })
+    : undefined;
+  return { apiKey, apiEndpoint, apiProvider, appId, accessToken, customProtocol, volcengine, ...(apiProvider === "minimax" ? { minimaxCacheDir: getDataDir() } : {}) };
 }
 
 // 尚未迁移到适配器的复杂规划流程，禁止发送厂商不兼容的 MiMo payload。
@@ -458,7 +469,7 @@ app.get("/api/status", async (_req, res) => {
 
 export async function getBootstrapPayload() {
   const settings = await readApiSettings();
-  const effectiveKey = settings.apiKey || ((settings.apiProvider || "mimo") === "mimo" ? process.env.MIMO_API_KEY : "") || "";
+  const effectiveKey = settings.apiKey || ((settings.apiProvider || "mimo") === "mimo" ? process.env.MIMO_API_KEY : "") || (settings.apiProvider === "indextts" ? "local-indextts" : "") || "";
   const maskedApiKey = effectiveKey ? (effectiveKey.length > 10 ? `${effectiveKey.slice(0, 4)}...${effectiveKey.slice(-4)}` : "***") : "";
 
   // 极速启动优化：从 index.json 获取摘要并仅按需读取当前 activeWorkspace 单个文件，避免每次启动反序列化十余兆大文件
@@ -555,6 +566,7 @@ export async function getBootstrapPayload() {
       model: settings.model,
       referenceText: settings.referenceText,
       synthesisMode: settings.synthesisMode,
+      volcengine: settings.volcengine,
       hasAccessToken: Boolean(settings.accessToken),
       maskedApiKey,
       apiEndpoint: settings.apiEndpoint || process.env.MIMO_API_ENDPOINT || mimoEndpoint,
@@ -589,6 +601,7 @@ app.get("/api/settings", async (_req, res, next) => {
       model: settings.model,
       referenceText: settings.referenceText,
       synthesisMode: settings.synthesisMode,
+      volcengine: settings.volcengine,
       hasAccessToken: Boolean(settings.accessToken),
       maskedApiKey,
       apiEndpoint: settings.apiEndpoint || process.env.MIMO_API_ENDPOINT || mimoEndpoint,
@@ -617,6 +630,7 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
       model: String(req.body.model || "").trim(),
       referenceText: String(req.body.referenceText || "").trim(),
       synthesisMode: req.body.synthesisMode || "reference",
+      volcengine: apiProvider === "volcengine" ? normalizeVolcengineOptions(req.body.volcengine) : undefined,
       accessToken: req.body.accessToken?.trim() || (currentSettings.apiProvider === apiProvider ? currentSettings.accessToken : undefined)
     };
 
@@ -629,8 +643,8 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
     if (apiProvider === "custom" && !["mimo-chat", "openai-tts", "fish-tts", "siliconflow"].includes(newSettings.customProtocol || "")) {
       return res.status(400).json({ error: "请选择自定义 API 协议。" });
     }
-    if (apiProvider === "volcengine" && (!newSettings.appId || !newSettings.accessToken)) {
-      return res.status(400).json({ error: "请填写 AppID 与 AccessToken。" });
+    if (apiProvider === "volcengine" && !newSettings.apiKey && !(newSettings.appId && newSettings.accessToken)) {
+      return res.status(400).json({ error: "请填写 API Key，或旧版 AppID 与 AccessToken。" });
     }
     const effectiveAdapter = getEffectiveProviderAdapter({ apiProvider, customProtocol: newSettings.customProtocol });
     const mode = newSettings.synthesisMode;
@@ -640,10 +654,10 @@ app.put("/api/settings", async (req: Request<unknown, unknown, ApiSettings>, res
       return res.status(400).json({ error: "所选厂商/协议未接入此合成模式，请选择受支持的模式。" });
     }
     if (mode === "voiceId" && !newSettings.voiceId) return res.status(400).json({ error: "请填写 Voice ID。" });
-    const usableKey = newSettings.apiKey || (apiProvider === "mimo" ? process.env.MIMO_API_KEY : "") || newSettings.accessToken;
+    const usableKey = newSettings.apiKey || (apiProvider === "mimo" ? process.env.MIMO_API_KEY : "") || newSettings.accessToken || (apiProvider === "indextts" ? "local-indextts" : "");
     if (!usableKey) return res.status(400).json({ error: "此厂商尚未配置密钥，请填写 API Key / AccessToken。" });
     await writeApiSettings(newSettings);
-    const effectiveKey = newSettings.apiKey || (newSettings.apiProvider === "mimo" ? process.env.MIMO_API_KEY : "") || "";
+    const effectiveKey = newSettings.apiKey || (newSettings.apiProvider === "mimo" ? process.env.MIMO_API_KEY : "") || (newSettings.apiProvider === "indextts" ? "local-indextts" : "") || "";
     const maskedApiKey = effectiveKey ? (effectiveKey.length > 10 ? `${effectiveKey.slice(0, 4)}...${effectiveKey.slice(-4)}` : "***") : "";
     res.json({
       hasApiKey: Boolean(effectiveKey || newSettings.accessToken),
@@ -1331,13 +1345,9 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
             if (item && item.audioDataUrl && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
               const base64 = item.audioDataUrl.split(",")[1];
               if (base64) {
-                const itemTitle = item.title || (node.data?.title ? `${node.data.title}_${item.id || "1"}` : "批量产物");
-                const fname = item.fileName || buildCleanAudioCacheFileName(itemTitle, "批量产物", item.id, item.fileName, workspace.name);
-                item.fileName = fname;
                 try {
-                  await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
+                  item.audioDataUrl = await storeBatchAudio(audiosDir, base64, item.fileName);
                   optimizedCount++;
-                  item.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
                 } catch {}
               }
             }
@@ -1349,12 +1359,9 @@ app.post("/api/workspaces/:id/optimize", async (req, res, next) => {
               if (art && art.audioDataUrl && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
                 const base64 = art.audioDataUrl.split(",")[1];
                 if (base64) {
-                  const fname = art.fileName || buildCleanAudioCacheFileName(art.title || row.title || "集成工坊产物", "集成产物", art.id, art.fileName, workspace.name);
-                  art.fileName = fname;
                   try {
-                    await writeFile(path.join(audiosDir, fname), Buffer.from(base64, "base64"));
+                    art.audioDataUrl = await storeBatchAudio(audiosDir, base64, art.fileName);
                     optimizedCount++;
-                    art.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
                   } catch {}
                 }
               }
@@ -1861,11 +1868,11 @@ app.post("/api/workspaces/smart", upload.single("voice"), async (req: Request, r
       const upstreamResponse = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
           "api-key": apiKey,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(60_000)
       });
 
       if (upstreamResponse.ok) {
@@ -1925,6 +1932,31 @@ app.post("/api/workspaces/smart", upload.single("voice"), async (req: Request, r
   } catch (error) {
     next(error);
   }
+});
+
+// Local desktop operations use the same loopback and same-origin gate as settings and synthesis.
+app.post("/api/volcengine/tools/:operation", async (req, res, next) => {
+  try {
+    const config = await getApiConfig(req);
+    if (config.apiProvider !== "volcengine") return res.status(400).json({ error: "请先保存火山引擎服务商配置。" });
+    const result = await runVolcengineTool(req.params.operation, req.body || {}, config);
+    res.json(result);
+  } catch (error) { next(error); }
+});
+
+const minimaxUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 2, fields: 12, fieldSize: 64000 } }).fields([{ name: "audio", maxCount: 1 }, { name: "promptAudio", maxCount: 1 }]);
+app.post("/api/minimax/tools/:operation", (req, res, next) => {
+  minimaxUpload(req, res, error => {
+    if (error) return res.status(400).json({ error: "克隆文件最多两条，每条不超过 20 MB；请检查上传内容。" });
+    next();
+  });
+}, async (req, res, next) => {
+  try {
+    const config = await getApiConfig(req);
+    if (config.apiProvider !== "minimax") return res.status(400).json({ error: "请先选择 MiniMax 并配置密钥。" });
+    const result = await runMiniMaxTool(req.params.operation, req.body || {}, config, req.files as Record<string, Express.Multer.File[]> | undefined);
+    res.json(result);
+  } catch (error) { next(error); }
 });
 
 app.put("/api/workspaces/:id", async (req, res, next) => {
@@ -2361,7 +2393,8 @@ ${chapter.novelText}
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000)
     });
 
     const responseText = await upstreamResponse.text();
@@ -2512,11 +2545,11 @@ app.post("/api/audiobook/:id/characters/:charId/voice", async (req, res, next) =
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
         "api-key": apiKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000)
     });
 
     const responseText = await upstreamResponse.text();
@@ -2629,7 +2662,8 @@ ${segmentList}
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000)
     });
 
     const responseText = await upstreamResponse.text();
@@ -2879,6 +2913,7 @@ app.post("/api/tts/voicedesign", async (req: Request<unknown, unknown, VoiceDesi
     }
 
     res.json({
+      ...(result.voiceId ? { voiceId: result.voiceId, assetProvider: adapter.id } : {}),
       audioDataUrl: `data:${result.mimeType};base64,${base64}`,
       fileName,
       elapsedMs: result.elapsedMs,
@@ -2975,6 +3010,7 @@ app.post("/api/tts/voiceclone", upload.single("voice"), async (req: Request, res
     }
 
     res.json({
+      ...(result.voiceId ? { voiceId: result.voiceId, assetProvider: adapter.id } : {}),
       audioDataUrl: `data:${result.mimeType};base64,${base64}`,
       fileName,
       elapsedMs: result.elapsedMs,
@@ -3192,11 +3228,11 @@ async function optimizeAudiobookCharacterVoiceDescription(
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
         "api-key": apiKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000)
     });
 
     if (!upstreamResponse.ok) {
@@ -3442,11 +3478,11 @@ async function segmentAudiobookText(novelText: string, apiKey: string, apiEndpoi
     const upstreamResponse = await fetch(apiEndpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
         "api-key": apiKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000)
     });
 
     if (upstreamResponse.ok) {
@@ -3731,6 +3767,28 @@ function createWorkflowEdge(source: string, sourceHandle: string, target: string
   };
 }
 
+async function storeBatchAudio(directory: string, base64: string, displayName: unknown): Promise<string> {
+  const bytes = Buffer.from(base64, "base64");
+  const extension = typeof displayName === "string" ? path.extname(displayName).toLowerCase() : "";
+  const safeExtension = /^\.(wav|mp3|ogg|opus|flac|m4a|aac|webm|mp4)$/.test(extension) ? extension : ".wav";
+  const key = `batch-${createHash("sha256").update(bytes).digest("hex")}${safeExtension}`;
+  const target = path.join(directory, key);
+  const existing = await stat(target).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    return undefined;
+  });
+  if (!existing?.isFile() || existing.size !== bytes.length) {
+    const tempPath = `${target}.${process.pid}.${workspaceWriteSequence++}.tmp`;
+    try {
+      await writeFile(tempPath, bytes, { flag: "wx" });
+      await renameWithRetry(tempPath, target);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
+  return `/api/audio-cache/${key}`;
+}
+
 async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
   if (!workspace || workspace.type !== "board" || !Array.isArray(workspace.nodes)) return;
   const audiosDir = getAudiosDir();
@@ -3744,16 +3802,9 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
         if (item && typeof item.audioDataUrl === "string" && item.audioDataUrl.startsWith("data:")) {
           const base64 = item.audioDataUrl.split(",")[1];
           if (base64) {
-            const itemTitle = item.title || (node.data?.title ? `${node.data.title}_${item.id || "1"}` : "批量产物");
-            const fname = item.fileName || buildCleanAudioCacheFileName(itemTitle, "批量产物", item.id, item.fileName, workspace.name);
-            item.fileName = fname;
-            const filePath = path.join(audiosDir, fname);
-            if (!fs.existsSync(filePath)) {
-              try {
-                await writeFile(filePath, Buffer.from(base64, "base64"));
-              } catch {}
-            }
-            item.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+            try {
+              item.audioDataUrl = await storeBatchAudio(audiosDir, base64, item.fileName);
+            } catch {}
           }
         }
       }
@@ -3765,15 +3816,9 @@ async function offloadWorkspaceAudiosToDisk(workspace: any): Promise<void> {
           if (art && typeof art.audioDataUrl === "string" && art.audioDataUrl.startsWith("data:")) {
             const base64 = art.audioDataUrl.split(",")[1];
             if (base64) {
-              const fname = art.fileName || buildCleanAudioCacheFileName(art.title || row.title || "集成工坊产物", "集成产物", art.id, art.fileName, workspace.name);
-              art.fileName = fname;
-              const filePath = path.join(audiosDir, fname);
-              if (!fs.existsSync(filePath)) {
-                try {
-                  await writeFile(filePath, Buffer.from(base64, "base64"));
-                } catch {}
-              }
-              art.audioDataUrl = `/api/audio-cache/${encodeURIComponent(fname)}`;
+              try {
+                art.audioDataUrl = await storeBatchAudio(audiosDir, base64, art.fileName);
+              } catch {}
             }
           }
         }
@@ -4034,12 +4079,12 @@ async function writeWorkspaceStore(store: WorkspaceStore): Promise<void> {
   return writeOperation;
 }
 
-async function writeWorkspaceStoreNow(store: WorkspaceStore): Promise<void> {
+async function writeWorkspaceStoreNow(store: WorkspaceStore, changedWorkspace?: StoredWorkspace): Promise<void> {
   const wsDir = getWorkspacesDir();
   const wsFile = getWorkspaceFilePath();
   await mkdir(wsDir, { recursive: true });
 
-  for (const workspace of store.workspaces) {
+  for (const workspace of changedWorkspace ? [changedWorkspace] : store.workspaces) {
     await offloadWorkspaceAudiosToDisk(workspace);
     const filePath = path.join(wsDir, `${workspace.id}.json`);
     await writeJsonFile(filePath, workspace);
@@ -4062,7 +4107,7 @@ async function writeWorkspaceStoreNow(store: WorkspaceStore): Promise<void> {
     }))
   };
   await writeJsonFile(path.join(wsDir, "index.json"), index);
-  await writeJsonFile(wsFile, store).catch(() => undefined);
+  if (!changedWorkspace) await writeJsonFile(wsFile, store).catch(() => undefined);
 }
 
 async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
@@ -4123,7 +4168,8 @@ function normalizeApiSettings(value: unknown): ApiSettings {
     voiceId: typeof candidate.voiceId === "string" ? candidate.voiceId.trim() : undefined,
     model: typeof candidate.model === "string" ? candidate.model.trim() : undefined,
     referenceText: typeof candidate.referenceText === "string" ? candidate.referenceText.trim() : undefined,
-    synthesisMode: candidate.synthesisMode
+    synthesisMode: candidate.synthesisMode,
+    volcengine: candidate.volcengine ? normalizeVolcengineOptions(candidate.volcengine) : undefined
   };
 }
 
@@ -4138,7 +4184,7 @@ async function updateWorkspace(workspaceId: string, update: (workspace: StoredWo
     const updated = update(store.workspaces[index]);
     store.workspaces[index] = updated;
     store.activeWorkspaceId = updated.id;
-    await writeWorkspaceStoreNow(store);
+    await writeWorkspaceStoreNow(store, updated);
     return updated;
   });
 

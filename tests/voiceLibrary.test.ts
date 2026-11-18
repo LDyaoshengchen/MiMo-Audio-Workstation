@@ -16,17 +16,54 @@ beforeEach(async () => {
   base = `http://127.0.0.1:${(server.address() as any).port}/api/voice-library`;
 });
 afterEach(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(directory, { recursive: true, force: true }); });
-const asset = { name: "角色一", description: "低沉", naturalControl: "冷静", voiceId: "voice-1", provider: "fishaudio", audio: { fileName: "voice.wav", mimeType: "audio/wav", dataUrl: "data:audio/wav;base64,AAAA" }, apiKey: "must-not-store" };
+const asset = { name: "角色一", description: "低沉", naturalControl: "冷静", language: "中文", gender: "女性", voiceId: "voice-1", provider: "fishaudio", audio: { fileName: "voice.wav", mimeType: "audio/wav", dataUrl: "data:audio/wav;base64,AAAA" }, apiKey: "must-not-store" };
 const post = (body: unknown) => fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const status = async (sources: string[]) => (await fetch(`${base}/favorite-status?sources=${encodeURIComponent(JSON.stringify(sources))}`)).json();
 const hash = (encoded: string) => `sha256:${createHash("sha256").update(Buffer.from(encoded, "base64")).digest("hex")}`;
 it("persists reusable audio and voice details without API credentials", async () => {
   const created = await post(asset); expect(created.status).toBe(201);
-  const entries = await (await fetch(base)).json(); expect(entries).toHaveLength(1); expect(entries[0].voiceId).toBe("voice-1"); expect(entries[0].audio.dataUrl).toBe(asset.audio.dataUrl); expect(JSON.stringify(entries)).not.toContain("must-not-store");
+  const entries = await (await fetch(base)).json(); expect(entries).toHaveLength(1); expect(entries[0].voiceId).toBe("voice-1"); expect(entries[0].audio.dataUrl).toBe(asset.audio.dataUrl); expect(entries[0]).toMatchObject({ language: "中文", gender: "女性" }); expect(JSON.stringify(entries)).not.toContain("must-not-store");
   expect(entries[0].localAudioFileName).toBe('角色一.wav');
   expect(await readFile(path.join(directory, 'role-voice-library', '角色一.wav'))).toEqual(Buffer.from('AAAA', 'base64'));
   const removed = await (await fetch(`${base}/${entries[0].id}`, { method: "DELETE" })).json(); expect(removed).toEqual([]);
   expect(await readFile(path.join(directory, 'role-voice-library', '角色一.wav'))).toEqual(Buffer.from('AAAA', 'base64'));
+});
+
+it("preserves official MiMo preset mode and rejects presets assigned to another provider", async () => {
+  const created = await post({ name: "Chloe", description: "官方预置音色", naturalControl: "", voiceId: "Chloe", provider: "mimo", voiceAssetMode: "preset" });
+  expect(created.status).toBe(201);
+  expect((await created.json())[0]).toMatchObject({ name: "Chloe", provider: "mimo", voiceId: "Chloe", voiceAssetMode: "preset" });
+  const invalid = await post({ name: "Chloe", voiceId: "Chloe", provider: "openai", voiceAssetMode: "preset" });
+  expect(invalid.status).toBe(400);
+});
+
+it("moves selected role assets to a group in one update and can return them to ungrouped", async () => {
+  const firstId = (await (await post({ ...asset, name: "兔女郎" })).json()).at(-1).id;
+  const secondId = (await (await post({ ...asset, name: "牛头" })).json()).at(-1).id;
+  const untouchedId = (await (await post({ ...asset, name: "金毛队长" })).json()).at(-1).id;
+  const createdGroup = await fetch(`${base}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "角色" }) });
+  const group = (await createdGroup.json())[0];
+
+  const moved = await fetch(`${base}/bulk-group`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetIds: [firstId, secondId], groupId: group.id }) });
+  expect(moved.status).toBe(200);
+  const afterMove = await moved.json();
+  expect(afterMove.find((entry: any) => entry.id === firstId).groupId).toBe(group.id);
+  expect(afterMove.find((entry: any) => entry.id === secondId).groupId).toBe(group.id);
+  expect(afterMove.find((entry: any) => entry.id === untouchedId).groupId).toBeUndefined();
+
+  const ungrouped = await fetch(`${base}/bulk-group`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetIds: [firstId, secondId], groupId: null }) });
+  expect((await ungrouped.json()).filter((entry: any) => [firstId, secondId].includes(entry.id)).every((entry: any) => !entry.groupId)).toBe(true);
+});
+
+it("rejects invalid bulk moves without partially changing assets", async () => {
+  const created = await (await post(asset)).json();
+  const invalidGroup = await fetch(`${base}/bulk-group`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetIds: [created[0].id], groupId: "missing-group" }) });
+  expect(invalidGroup.status).toBe(404);
+  const missingAsset = await fetch(`${base}/bulk-group`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetIds: [created[0].id, "missing-asset"], groupId: null }) });
+  expect(missingAsset.status).toBe(404);
+  expect((await (await fetch(base)).json())[0].groupId).toBeUndefined();
+  const invalidBody = await fetch(`${base}/bulk-group`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetIds: [], groupId: null }) });
+  expect(invalidBody.status).toBe(400);
 });
 
 it("matches existing favorites by content across renamed/cached audio and updates after un-favorite/delete", async () => {

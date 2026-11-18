@@ -12,6 +12,8 @@ export interface ProviderCapabilities {
 }
 
 export interface VoiceCloneParams {
+  volume?: number;
+  pitch?: number;
   text: string;
   instruction?: string;
   speed?: number;
@@ -43,6 +45,7 @@ export interface TextOptimizeParams {
 }
 
 export interface TTSResult {
+  voiceId?: string;
   audioBuffer: Buffer;
   mimeType: string;
   format: string;
@@ -58,6 +61,8 @@ export interface TextOptimizeResult {
 }
 
 export interface ProviderContext {
+  minimaxCacheDir?: string;
+  volcengine?: import("../../shared/volcengine.js").VolcengineOptions;
   apiKey: string;
   apiEndpoint?: string;
   appId?: string;          // e.g. for Volcengine

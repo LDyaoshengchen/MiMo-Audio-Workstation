@@ -10,10 +10,12 @@ import { readRoleAudioDrag, ROLE_AUDIO_DROPPED_EVENT } from "../../utils/roleAud
 import { allowedAudioTypes, maxAudioBytes } from "../../studio/config";
 import { fileToAudioAsset, getSupportedRecordingMimeType, convertRecordedBlobToWav, blobToDataUrl } from "../../studio/audio";
 import { formatBytes, formatDateForFile, formatTime } from "../../studio/format";
+import { OFFICIAL_MIMO_PRESET_VOICES } from "../../studio/mimoPresetVoices";
 import { memo, useState, useRef, useEffect, ChangeEvent } from "react";
 
 export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }: NodeProps<StudioNode>) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [voiceLibraryOpenRequest, setVoiceLibraryOpenRequest] = useState(0);
   const dragCounterRef = useRef(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -50,6 +52,9 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
       data.onPatch?.(id, {
         audio: audioAssets[0],
         audioAssets,
+        voiceId: undefined,
+        assetProvider: undefined,
+        voiceAssetMode: undefined,
         error: validFiles.length === files.length ? undefined : "部分不支持的文件未添加。"
       });
     });
@@ -143,6 +148,9 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
       data.onPatch?.(id, {
         audio: audioAssets[0],
         audioAssets,
+        voiceId: undefined,
+        assetProvider: undefined,
+        voiceAssetMode: undefined,
         error: undefined
       });
     } catch (error) {
@@ -163,10 +171,40 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
     mediaRecorderRef.current = null;
   }
 
+  const currentAudioAssets = data.audioAssets ?? (data.audio ? [data.audio] : []);
+  const currentAudio = currentAudioAssets[0];
+  const isPresetVoice = data.voiceAssetMode === "preset" && !!data.voiceId;
+  const hasCurrentVoice = isPresetVoice || currentAudioAssets.length > 0 || !!data.voiceId;
+  const currentVoiceName = data.title && !["参考音频", "Reference Audio"].includes(data.title)
+    ? data.title
+    : isPresetVoice
+      ? OFFICIAL_MIMO_PRESET_VOICES.find(voice => voice.voiceId === data.voiceId)?.name || data.voiceId
+      : currentAudio?.fileName || data.voiceId;
+  const currentVoiceType = isPresetVoice
+    ? "官方预置音色 · Voice ID（无参考音频文件）"
+    : currentAudioAssets.length
+      ? `带参考音频的角色 · ${currentAudioAssets.length} 段`
+      : data.voiceId
+        ? `仅 Voice ID · ${data.assetProvider || "当前服务商"}`
+        : "";
+  function clearCurrentVoice() {
+    data.onPatch?.(id, {
+      title: "参考音频", audio: undefined, audioAssets: [], refAudioUrl: undefined, refAudioName: undefined,
+      voiceId: undefined, assetProvider: undefined, voiceAssetMode: undefined, error: undefined
+    });
+  }
+
   return (
     <StudioNodeFrame id={id} data={data} icon={<FileAudio size={17} />} tone="audio">
       <Handle type="source" position={Position.Right} id="audio" className="node-handle" style={{ top: "50%" }} />
-      <div className="reference-tools-row nodrag"><RoleVoiceLibrary nodeId={id} data={data} /></div>
+      <div className="reference-tools-row nodrag"><RoleVoiceLibrary nodeId={id} data={data} allowPresetReference openRequest={voiceLibraryOpenRequest} /></div>
+      {hasCurrentVoice && <div className="reference-current-asset nodrag" aria-label="当前参考音色">
+        <div className="reference-current-info"><Mic2 size={14} /><span><strong title={currentVoiceName}>{currentVoiceName}</strong><small>{currentVoiceType}</small></span></div>
+        <div className="reference-current-actions">
+          <button type="button" className="reference-current-change" title="更换参考音色" onClick={() => setVoiceLibraryOpenRequest(request => request + 1)}>更换</button>
+          <button type="button" className="reference-current-clear" title="清除当前参考音色" aria-label="清除当前参考音色" onClick={clearCurrentVoice}><Trash2 size={13} /><span>清除</span></button>
+        </div>
+      </div>}
       <label
         className={`file-picker nodrag ${isDraggingOver ? "dragging-over" : ""}`}
         onDragEnter={(e) => {
@@ -197,7 +235,7 @@ export const ReferenceAudioNode = memo(function ReferenceAudioNode({ id, data }:
           const roleAudio = readRoleAudioDrag(e.dataTransfer);
           if (roleAudio) {
             const audioAssets = [...(data.audioAssets ?? (data.audio ? [data.audio] : [])), roleAudio];
-            data.onPatch?.(id, { audio: audioAssets[0], audioAssets, error: undefined });
+            data.onPatch?.(id, { audio: audioAssets[0], audioAssets, voiceId: undefined, assetProvider: undefined, voiceAssetMode: undefined, error: undefined });
             window.dispatchEvent(new Event(ROLE_AUDIO_DROPPED_EVENT));
             return;
           }

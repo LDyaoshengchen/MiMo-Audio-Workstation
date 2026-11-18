@@ -10,10 +10,13 @@ describe("workspace snapshot save queue", () => {
     const send = async (body: Record<string, unknown>) => { calls.push(body); if (calls.length === 1) await gate; return { updatedAt: `v${calls.length}` }; };
     const first = queue.save("board", { baseUpdatedAt: "v0", title: "first" }, send);
     const second = queue.save("board", { baseUpdatedAt: "v0", title: "second" }, send);
+    const latest = queue.save("board", { baseUpdatedAt: "v0", title: "latest" }, send);
     await Promise.resolve(); await Promise.resolve();
     expect(calls).toHaveLength(1); release();
-    await Promise.all([first, second]);
-    expect(calls.map(call => call.title)).toEqual(["first", "second"]);
+    await expect(Promise.all([first, second, latest])).resolves.toEqual([
+      { updatedAt: "v1" }, { updatedAt: "v2" }, { updatedAt: "v2" }
+    ]);
+    expect(calls.map(call => call.title)).toEqual(["first", "latest"]);
     expect(calls[1].baseUpdatedAt).toBe("v1");
     expect(queue.hasPending("board")).toBe(false);
   });

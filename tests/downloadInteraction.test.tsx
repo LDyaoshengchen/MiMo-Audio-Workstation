@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { DownloadNamingSettings } from "../src/components/DownloadNamingSettings";
 import { SingleArtifactDownloadLink } from "../src/components/SingleArtifactDownloadLink";
 import { useDownloadSettings } from "../src/utils/useDownloadSettings";
+import { BATCH_DOWNLOAD_SETTINGS_KEY } from "../src/utils/downloadSettings";
 import { formatHierarchyName } from "../src/utils/audioNaming";
 
 function DownloadHarness({ nodeName = "全能综合工作台", rowName = "VO_00085" }) {
@@ -16,6 +17,15 @@ function DownloadHarness({ nodeName = "全能综合工作台", rowName = "VO_000
     {["single", "batch", "integrated"].map(context => <div key={context} data-context={context}>
       <SingleArtifactDownloadLink title={title} fileName="cache.wav" audioDataUrl="/api/audio-cache/cache.wav" workspaceName="怪物" createdAt="2026-10-08T17:00:02" settings={settings} />
     </div>)}
+  </>;
+}
+
+function SeparateSettingsHarness() {
+  const [single, setSingle] = useDownloadSettings();
+  const [batch, setBatch] = useDownloadSettings(BATCH_DOWNLOAD_SETTINGS_KEY);
+  return <>
+    <DownloadNamingSettings settings={single} onChange={setSingle} workspaceName="怪物" />
+    <DownloadNamingSettings scope="batch" settings={batch} onChange={setBatch} workspaceName="怪物" />
   </>;
 }
 
@@ -50,5 +60,22 @@ describe("download switches → actual rendered download buttons → persisted p
     await act(async () => root.render(<DownloadHarness nodeName="战斗" />));
     expect(names()).toEqual(Array(3).fill(clickedName));
     expect(container.querySelector('[aria-label="带时间"]')?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("keeps single and batch naming preferences independent and persistent", async () => {
+    await act(async () => root.render(<SeparateSettingsHarness />));
+    const button = (scope: string, name: string) => container.querySelector(`button[data-download-scope="${scope}"][aria-label="${name}"]`) as HTMLButtonElement;
+    await act(async () => button("batch", "带画板名称").click());
+    expect(button("batch", "带画板名称").getAttribute("aria-checked")).toBe("false");
+    expect(button("single", "带画板名称").getAttribute("aria-checked")).toBe("true");
+    await act(async () => button("single", "带时间").click());
+    expect(button("single", "带时间").getAttribute("aria-checked")).toBe("true");
+    expect(button("batch", "带时间").getAttribute("aria-checked")).toBe("false");
+    await act(async () => root.unmount()); root = createRoot(container);
+    await act(async () => root.render(<SeparateSettingsHarness />));
+    expect(button("batch", "带画板名称").getAttribute("aria-checked")).toBe("false");
+    expect(button("single", "带画板名称").getAttribute("aria-checked")).toBe("true");
+    expect(button("single", "带时间").getAttribute("aria-checked")).toBe("true");
+    expect(button("batch", "带时间").getAttribute("aria-checked")).toBe("false");
   });
 });

@@ -21,15 +21,15 @@ export function ContextMenu({
   selectedCount?: number;
   onTidySelection?: () => void;
 }) {
-  const menuWidth = 440;
-  const menuHeight = 520;
-  const clampedX = Math.max(12, Math.min(menu.x, window.innerWidth - menuWidth - 12));
-  const clampedY = Math.max(12, Math.min(menu.y, window.innerHeight - menuHeight - 12));
+  const menuWidth = Math.min(440, window.innerWidth - 24);
+  const menuHeight = Math.min(520, window.innerHeight * 0.85);
+  const clampedX = Math.max(12, Math.min(menu.x + menuWidth > window.innerWidth - 12 ? menu.x - menuWidth : menu.x, window.innerWidth - menuWidth - 12));
+  const clampedY = Math.max(12, Math.min(menu.y + menuHeight > window.innerHeight - 12 ? menu.y - menuHeight : menu.y, window.innerHeight - menuHeight - 12));
 
   return (
     <div
       className="context-menu nodrag nopan nowheel"
-      style={{ left: clampedX, top: clampedY, maxHeight: "85vh", overflowY: "auto", zIndex: 999999 }}
+      style={{ left: clampedX, top: clampedY, width: menuWidth, maxHeight: menuHeight, overflowY: "auto", zIndex: 999999 }}
       onClick={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >

@@ -14,6 +14,16 @@ export function CompactMoreMenu({ anchor, onClose, onCommand }: {
   const [group, setGroup] = useState<number | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const rect = anchor.getBoundingClientRect();
+  const submenuOnRight = rect.left < window.innerWidth / 2;
+  const menuHeight = Math.min(240, window.innerHeight - 16);
+  const spaceBelow = window.innerHeight - rect.bottom - 8;
+  const spaceAbove = rect.top - 8;
+  const openAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+  const menuStyle = {
+    ...(submenuOnRight ? { left: Math.max(8, rect.left), right: "auto" } : { right: Math.max(8, window.innerWidth - rect.right), left: "auto" }),
+    ...(openAbove ? { bottom: window.innerHeight - rect.top + 5, top: "auto" } : { top: Math.min(rect.bottom + 5, window.innerHeight - menuHeight - 8), bottom: "auto" }),
+    maxHeight: Math.max(0, openAbove ? spaceAbove : spaceBelow),
+  };
   useEffect(() => {
     const pointer = (event: PointerEvent) => {
       if (!panel.current?.contains(event.target as Node) && !anchor.contains(event.target as Node)) onClose();
@@ -30,7 +40,7 @@ export function CompactMoreMenu({ anchor, onClose, onCommand }: {
     };
   }, [anchor, onClose]);
   const choose = (command: string) => { onCommand(command); onClose(); };
-  return createPortal(<div ref={panel} className="studio-compact-menu" style={{ top: Math.min(rect.bottom + 5, window.innerHeight - 230), right: Math.max(8, window.innerWidth - rect.right) }}
+  return createPortal(<div ref={panel} className={`studio-compact-menu${submenuOnRight ? " opens-right" : ""}`} style={menuStyle}
     onMouseDown={event => event.preventDefault()} onKeyDown={event => {
       const buttons = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>("button") || []);
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);

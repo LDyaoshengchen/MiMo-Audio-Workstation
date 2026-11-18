@@ -2,6 +2,7 @@ import type { BatchVoiceCloneRow } from "../../types/studioAudio";
 import { Upload, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useState, ChangeEvent, useMemo, useRef } from "react";
+import { StyledSelect } from "../StyledSelect";
 
 export interface AudioRowMapping {
   file: File;
@@ -248,20 +249,16 @@ export function BatchAudioUploadModal({
                       </td>
                       <td style={{ padding: "8px 14px", verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <select
-                            className="nodrag nopan nowheel integrated-multi-audio-select"
-                            value={item.targetRowIndex}
-                            onChange={(e) => handleUpdateTargetRow(idx, Number(e.target.value))}
-                          >
-                            {Array.from({ length: maxRowIndex }, (_, rIdx) => (
-                              <option key={rIdx} value={rIdx}>
-                                {getRowOptionLabel(rIdx)}
-                              </option>
-                            ))}
-                            <option value={maxRowIndex}>
-                              + 新增第 {maxRowIndex + 1} 行
-                            </option>
-                          </select>
+                          <StyledSelect
+                            className="integrated-multi-audio-select-wrapper nodrag nopan nowheel"
+                            triggerClassName="integrated-multi-audio-select"
+                            value={String(item.targetRowIndex)}
+                            onValueChange={(value) => handleUpdateTargetRow(idx, Number(value))}
+                            options={[
+                              ...Array.from({ length: maxRowIndex }, (_, rIdx) => ({ value: String(rIdx), label: getRowOptionLabel(rIdx) })),
+                              { value: String(maxRowIndex), label: `+ 新增第 ${maxRowIndex + 1} 行` },
+                            ]}
+                          />
                           {isMerged && (
                             <span style={{ fontSize: 10, color: "#38bdf8", background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.5)", padding: "2px 6px", borderRadius: 4, whiteSpace: "nowrap" }}>
                               自动合并

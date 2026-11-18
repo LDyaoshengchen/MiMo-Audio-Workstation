@@ -21,6 +21,9 @@ export const ArtifactNode = memo(function ArtifactNode({ id, data }: NodeProps<S
       {artifact ? (
         <>
           <StudioAudioPlayer src={artifact.audioDataUrl} />
+          {data.assetProvider === "minimax" && data.voiceId && <label className="node-muted nodrag" style={{ display: "block", marginTop: 6 }}>音色 Voice ID
+            <input className="nodrag" aria-label="MiniMax 音色 Voice ID" readOnly value={data.voiceId} onClick={event => event.currentTarget.select()} style={{ width: "100%", boxSizing: "border-box" }} title="点击全选，复制后可在 API 设置的 Voice ID 中复用" />
+          </label>}
           <div className="artifact-meta">
             <span>{artifact.elapsedMs} ms · {new Date(artifact.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
           </div>

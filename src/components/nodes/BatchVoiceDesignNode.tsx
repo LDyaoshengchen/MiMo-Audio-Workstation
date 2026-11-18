@@ -9,9 +9,10 @@ import { NodeConfirmModal } from "../dialogs/NodeConfirmModal";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { GenerationButtonText } from "../GenerationButtonText";
 import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { StyledSelect } from "../StyledSelect";
 import { Wand2, ClipboardPaste, Square, Trash2, GripVertical, Copy, ChevronUp, ChevronDown, Loader2, Sparkles, Plus } from "lucide-react";
 import { createId } from "../../studio/format";
-import { memo, useState, Fragment } from "react";
+import { memo, useState } from "react";
 import { parseTableText } from "../../studio/tableText";
 import { useAutoUpdateNodeInternals } from "../../studio/nodeInternals";
 
@@ -88,7 +89,7 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
     });
   }
 
-  function handleClearColumn(field: "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
+  function handleClearColumn(field: "title" | "instruction" | "naturalControl" | "voiceStyle" | "text", label: string) {
     const hasContent = rows.some((r) => Boolean((r[field] || "").trim()));
     if (!hasContent) {
       setPasteToast(`「${label}」列已经是空的`);
@@ -290,11 +291,12 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
           <ClipboardPaste size={14} /> 📋 从 Excel / 表格一键粘贴...
         </button>
         <div className="clone-toolbar" style={{ marginTop: 0, padding: 0 }}>
-          <select
-            className="clone-preset-select"
+          <StyledSelect
+            className="clone-preset-wrapper"
+            triggerClassName="clone-preset-select"
             value=""
-            onChange={(e) => {
-              const val = e.target.value;
+            placeholder="🎮 角色预设"
+            onValueChange={(val) => {
               if (!val) return;
               if (val === "all_zh") {
                 const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
@@ -343,21 +345,15 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
               }
             }}
             title="选择游戏音色设计预设（官方支持多语种）"
-          >
-            <option value="">🎮 角色预设</option>
-            <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
-              {GAME_CHARACTER_PRESETS.map((p) => (
-                <Fragment key={p.id}>
-                  <option value={`game_${p.id}_zh`}>{p.avatar} {p.nameZh} (中)</option>
-                  <option value={`game_${p.id}_en`}>{p.avatar} {p.nameZh} (英)</option>
-                </Fragment>
-              ))}
-            </optgroup>
-            <optgroup label="⚡ 一键整套载入">
-              <option value="all_zh">🌟 一键载入全套 8 位角色 (中文对白)</option>
-              <option value="all_en">🌟 一键载入全套 8 位角色 (English 对白)</option>
-            </optgroup>
-          </select>
+            options={[
+              ...GAME_CHARACTER_PRESETS.flatMap(p => [
+                { value: `game_${p.id}_zh`, label: `${p.avatar} ${p.nameZh} (中)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+                { value: `game_${p.id}_en`, label: `${p.avatar} ${p.nameZh} (英)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+              ]),
+              { value: "all_zh", label: "🌟 一键载入全套 8 位角色 (中文对白)", group: "⚡ 一键整套载入" },
+              { value: "all_en", label: "🌟 一键载入全套 8 位角色 (English 对白)", group: "⚡ 一键整套载入" },
+            ]}
+          />
           <RoleVoiceLibrary nodeId={id} data={data} />
         </div>
         <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
@@ -393,8 +389,17 @@ export const BatchVoiceDesignNode = memo(function BatchVoiceDesignNode({ id, dat
       ) : null}
 
       <div className="batch-table-header design-mode nodrag">
-        <div className="batch-col-meta">
-          <span>音色创造</span>
+        <div className="batch-col-meta batch-col-header-cell">
+          <span className="batch-col-header-title">音色创造</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn design-mode"
+            onClick={() => handleClearColumn("title", "名字/标识")}
+            title="一键清空整列「名字/标识」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
         </div>
         <div className="batch-col-style batch-col-header-cell">
           <span className="batch-col-header-title">音色描述词</span>

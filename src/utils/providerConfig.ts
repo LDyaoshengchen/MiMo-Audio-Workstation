@@ -1,6 +1,8 @@
 import { audioSourceToFile } from "./audioNaming";
+import { MIMO_PRESET_TTS_MODEL } from "../studio/mimoPresetVoices";
 
 export interface ProviderOptions {
+  volcengine?: import("../../shared/volcengine").VolcengineOptions;
   appId: string;
   accessToken: string;
   customProtocol: "" | "mimo-chat" | "openai-tts" | "fish-tts" | "siliconflow";
@@ -17,14 +19,17 @@ export function getAssetVoiceId(data: { voiceId?: string; assetProvider?: string
 
 export function normalizeProviderOptions(value: Partial<ProviderOptions> = {}): ProviderOptions {
   return {
+    ...(value.volcengine ? { volcengine: value.volcengine } : {}),
     appId: value.appId || "", accessToken: "", customProtocol: value.customProtocol || "",
     voiceId: value.voiceId || "", model: value.model || "", referenceText: value.referenceText || "",
     synthesisMode: value.synthesisMode || "reference"
   };
 }
 
-export async function appendSynthesisInputs(form: FormData, options: ProviderOptions, audio?: { dataUrl: string; fileName: string; mimeType: string }, voiceId?: string): Promise<void> {
-  if (voiceId?.trim()) options = { ...options, synthesisMode: "voiceId", voiceId: voiceId.trim() };
+export async function appendSynthesisInputs(form: FormData, options: ProviderOptions, audio?: { dataUrl: string; fileName: string; mimeType: string }, voiceId?: string, voiceAssetMode?: "preset"): Promise<void> {
+  if (voiceId?.trim()) options = voiceAssetMode === "preset"
+    ? { ...options, synthesisMode: "preset", model: MIMO_PRESET_TTS_MODEL, voiceId: voiceId.trim() }
+    : { ...options, synthesisMode: "voiceId", voiceId: voiceId.trim() };
   form.append("synthesisMode", options.synthesisMode);
   if (options.model.trim()) form.append("model", options.model.trim());
   if (options.synthesisMode === "reference") {

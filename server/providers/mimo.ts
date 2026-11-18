@@ -17,13 +17,50 @@ const MIMO_ALLOWED_MIMES = new Set([
   "audio/wave"
 ]);
 
+const MIMO_TTS_TIMEOUT_MS = 120_000;
+const MIMO_TEXT_TIMEOUT_MS = 60_000;
+const MIMO_MAX_RATE_LIMIT_RETRIES = 2;
+
+async function fetchMimo(endpoint: string, apiKey: string, payload: unknown, timeoutMs: number): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          // MiMo documents api-key and Bearer as alternatives; send exactly one.
+          "api-key": apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        const seconds = Math.round(timeoutMs / 1000);
+        throw new Error(`MiMo 请求超过 ${seconds} 秒仍未返回，已停止等待；可缩短文本或稍后重试。`);
+      }
+      throw error;
+    }
+
+    if (response.status !== 429 || attempt >= MIMO_MAX_RATE_LIMIT_RETRIES) return response;
+
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, 10_000)
+      : Math.min(1_000 * 2 ** attempt, 4_000);
+    await response.body?.cancel();
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 export class MimoAdapter implements ProviderAdapter {
   readonly id = "mimo";
   readonly name = "MiMo 官方 API";
   readonly defaultEndpoint = "https://api.xiaomimimo.com/v1/chat/completions";
   readonly capabilities: ProviderCapabilities = {
     textOptimization: true,
-    presetTTS: false,
+    presetTTS: true,
     voiceDesign: true,
     instantClone: true,
     trainedClone: false,
@@ -35,43 +72,32 @@ export class MimoAdapter implements ProviderAdapter {
     const endpoint = ctx.apiEndpoint || this.defaultEndpoint;
     const apiKey = ctx.apiKey;
 
-    if (!params.referenceAudioBuffer) {
-      throw new Error("MiMo 音色克隆需要上传参考音频文件。");
-    }
-
+    const isPreset = !params.referenceAudioBuffer;
     const mime = (params.referenceAudioMime || "audio/wav").toLowerCase();
-    if (!MIMO_ALLOWED_MIMES.has(mime)) {
+    if (!isPreset && !MIMO_ALLOWED_MIMES.has(mime)) {
       throw new Error(`MiMo 官方接口仅支持 MP3 与 WAV 格式，不支持 ${mime}（已禁止 M4A/MP4 格式）。`);
     }
 
-    // Check base64 size inflation to stay under 10MB upstream limit
-    if (params.referenceAudioBuffer.length > 7.5 * 1024 * 1024) {
+    if (!isPreset && params.referenceAudioBuffer!.length > 7.5 * 1024 * 1024) {
       throw new Error("参考音频体积过大（最大允许 7.5MB），Base64 编码后将超出厂商 10MB 限制。");
     }
 
-    const audioBase64 = params.referenceAudioBuffer.toString("base64");
+    const voice = isPreset
+      ? (params.voiceId || "mimo_default")
+      : `data:${mime};base64,${params.referenceAudioBuffer!.toString("base64")}`;
     const payload = {
-      model: params.model || "mimo-v2.5-tts-voiceclone",
+      model: params.model || (isPreset ? "mimo-v2.5-tts" : "mimo-v2.5-tts-voiceclone"),
       messages: [
-        { role: "user", content: params.instruction || "" },
-        { role: "assistant", content: params.text }
+        ...(isPreset && !params.instruction?.trim() ? [] : [{ role: "user" as const, content: params.instruction || "" }]),
+        { role: "assistant" as const, content: params.text }
       ],
       audio: {
         format: "wav",
-        voice: `data:${mime};base64,${audioBase64}`
+        voice
       }
     };
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+    const res = await fetchMimo(endpoint, apiKey, payload, MIMO_TTS_TIMEOUT_MS);
 
     const elapsedMs = Date.now() - startedAt;
     const resText = await res.text();
@@ -101,7 +127,7 @@ export class MimoAdapter implements ProviderAdapter {
       redactedRequest: {
         model: payload.model,
         messages: payload.messages,
-        audio: { format: "wav", voice: `[BASE64_AUDIO_${params.referenceAudioBuffer.length}_BYTES]` }
+        audio: { format: "wav", voice: isPreset ? voice : `[BASE64_AUDIO_${params.referenceAudioBuffer!.length}_BYTES]` }
       }
     };
   }
@@ -131,16 +157,7 @@ export class MimoAdapter implements ProviderAdapter {
       }
     };
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000)
-    });
+    const res = await fetchMimo(endpoint, apiKey, payload, MIMO_TTS_TIMEOUT_MS);
 
     const elapsedMs = Date.now() - startedAt;
     const resText = await res.text();
@@ -185,16 +202,7 @@ export class MimoAdapter implements ProviderAdapter {
       temperature: 0.7
     };
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(60000)
-    });
+    const res = await fetchMimo(endpoint, apiKey, payload, MIMO_TEXT_TIMEOUT_MS);
 
     const elapsedMs = Date.now() - startedAt;
     const resText = await res.text();

@@ -8,10 +8,11 @@ import { StudioNodeFrame } from "./StudioNodeFrame";
 import { ZipExportProgress } from "../ZipExportProgress";
 import { memo, useRef, useEffect } from "react";
 import { ArtifactReview } from "../ArtifactReview";
-import { sanitizeFileName, formatHierarchyName, getArtifactDownloadFileName, getAudioFileExtension } from "../../utils/audioNaming";
+import { sanitizeFileName, formatHierarchyName, getAudioFileExtension } from "../../utils/audioNaming";
 import { scheduleBatchNodeInternalsUpdate } from "../../studio/nodeInternals";
 import { useAudioZipExport } from "../../utils/useAudioZipExport";
 import { useUpdateNodeInternals, Handle, Position } from "@xyflow/react";
+import { getSingleArtifactDownloadFileName, getZipArchiveFileName } from "../../utils/downloadSettings";
 
 export const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: NodeProps<StudioNode>) {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -46,12 +47,13 @@ export const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: N
   async function handleDownloadZip() {
     const nodeTitle = data.title || "批量产物";
     const parentTitle = data.parentTitle || "批量节点";
-    const folderName = sanitizeFileName(formatHierarchyName(parentTitle, nodeTitle));
+    const downloadNodeTitle = data.batchDownloadSettings?.includeBatchNodeName === false ? undefined : nodeTitle;
+    const folderName = sanitizeFileName(formatHierarchyName(parentTitle, downloadNodeTitle) || "批量产物");
     const files = items.flatMap((item, index) => [{
-      name: folderName + "/" + getArtifactDownloadFileName(formatHierarchyName(parentTitle, nodeTitle, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName),
+      name: folderName + "/" + getSingleArtifactDownloadFileName(formatHierarchyName(parentTitle, downloadNodeTitle, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName, item.createdAt, data.batchDownloadSettings),
       source: item.audioDataUrl
     }] );
-    await zipExport.download(files, folderName + ".zip");
+    await zipExport.download(files, `${getZipArchiveFileName(folderName, data.workspaceName, data.batchDownloadSettings)}.zip`);
   }
 
   return (
@@ -72,7 +74,13 @@ export const BatchArtifactNode = memo(function BatchArtifactNode({ id, data }: N
             onWheel={(e) => e.stopPropagation()}
           >
             {items.map((item, index) => {
-              const nodeTitle = data.title || "产物";
+              const rawRow = item.rowTitle?.trim();
+              const hasCustomRow = Boolean(rawRow && !/^句段\s*\d+$/i.test(rawRow) && rawRow !== "产物" && rawRow !== "节点名称");
+              const rawNode = data.title?.trim();
+              const hasCustomNode = Boolean(rawNode && !/^句段\s*\d+$/i.test(rawNode) && rawNode !== "产物" && rawNode !== "节点名称");
+              const nodeTitle = (hasCustomNode && hasCustomRow)
+                ? `${rawNode}_${rawRow}`
+                : (hasCustomRow ? rawRow! : (hasCustomNode ? rawNode! : (rawRow || rawNode || "产物")));
               const itemSeq = item.seqIndex ?? (index + 1);
               const parentTitle = (data.parentTitle && data.parentTitle !== "批量节点" && data.parentTitle !== "节点名称") ? data.parentTitle : "";
               const fullStashName = formatHierarchyName(parentTitle, nodeTitle, itemSeq);

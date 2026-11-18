@@ -6,6 +6,7 @@ import { AppleConfirmDialog } from "../components/studio/AppleConfirmDialog";
 import { WorkspaceSidebar } from "../components/studio/WorkspaceSidebar";
 import { BoardCanvas } from "../components/studio/BoardCanvas";
 import { createSynthesisActions } from "./synthesisActions";
+import { getReferenceAudioAutoMergeNodeIds } from "./autoMerge";
 import { hasActiveNodeTasks } from "./taskScope";
 import { WorkspaceTaskStore } from "./workspaceTasks";
 import { createAudiobookActions } from "./audiobookActions";
@@ -13,9 +14,8 @@ import { createStorageActions } from "./storageActions";
 import { createWorkspaceActions } from "./workspaceActions";
 import type { AppleConfirmOptions } from "./confirmation";
 import type { ArtifactData, AudioAsset } from "../types/studioAudio";
-import type { LayoutNodeInput, LayoutEdgeInput } from "../utils/layout";
 import type { ProviderOptions } from "../utils/providerConfig";
-import type { ReactFlowInstance, NodeChange, Connection, FinalConnectionState } from "@xyflow/react";
+import type { ReactFlowInstance, NodeChange, EdgeChange, Connection, FinalConnectionState } from "@xyflow/react";
 import { STUDIO_NODE_TYPES, STUDIO_EDGE_TYPES } from "../components/nodes/nodeRegistry";
 import type { StatusResponse, WorkspaceSummary, WorkspacePayload, BoardWorkspacePayload, StudioNode, StudioEdge, StudioNodeType, NodeData, ApiSettingsResponse, WorkspacesResponse } from "../types/studio";
 import type { ThemeConfig } from "./theme";
@@ -29,19 +29,22 @@ import { SaveAsModal } from "../components/dialogs/SaveAsModal";
 import { SaveAsTemplateModal } from "../components/dialogs/SaveAsTemplateModal";
 import { WorkspaceSaveQueue } from "../utils/workspaceSaveQueue";
 import { ZipExportProgress } from "../components/ZipExportProgress";
-import { computeSmartDagLayout, getDownstreamNodeIds } from "../utils/layout";
-import { createId, formatDateForFile } from "./format";
-import { getAudioFileExtension, formatHierarchyName, buildApiHeaders, sanitizeFileName, getArtifactDownloadFileName } from "../utils/audioNaming";
+import { getDownstreamNodeIds } from "../utils/layout";
+import { computeTidyLayout } from "./tidyLayout";
+import { matchesStashedArtifact, resolveStashDownloadName } from "./stashIdentity";
+import { createId } from "./format";
+import { getAudioFileExtension, formatHierarchyName, buildApiHeaders } from "../utils/audioNaming";
+import { BATCH_DOWNLOAD_SETTINGS_KEY, getZipArchiveFileName } from "../utils/downloadSettings";
 import { getInitialTheme, resolveSystemMode, lightPresets, darkPresets, applyThemeVariables, getThemeNodeColors } from "./theme";
 import { identityMemo, IntegratedNameIndex, pruneMap } from "../utils/boardPerformance";
 import { normalizeProviderOptions } from "../utils/providerConfig";
 import { setAppleConfirmHandler } from "./confirmation";
 import { stripHeavyDataForCache } from "../utils/cache";
-import { stripNodeCallbacks, ensureArtifactSeqIndexes } from "./graph";
+import { stripNodeCallbacks, ensureArtifactSeqIndexes, resolveMergeAudioInputs } from "./graph";
 import { supportsMimoWorkflow, MIMO_WORKFLOW_NOTICE } from "../utils/providerSupport";
 import { useAudioZipExport } from "../utils/useAudioZipExport";
 import { useDownloadSettings } from "../utils/useDownloadSettings";
-import { useNodesState, useEdgesState, addEdge } from "@xyflow/react";
+import { useNodesState, useEdgesState, addEdge, applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import { useSmoothCanvasZoom } from "../utils/useSmoothCanvasZoom";
 import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, MouseEvent } from "react";
 import { flushSync } from "react-dom";
@@ -300,12 +303,12 @@ export function StudioApp() {
 
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(initialCachedWorkspaces);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspacePayload | null>(initialCachedActiveWorkspace);
-  const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>(
+  const [nodes, setNodes] = useNodesState<StudioNode>(
     initialCachedActiveWorkspace?.type === "board" && Array.isArray(initialCachedActiveWorkspace.nodes)
       ? initialCachedActiveWorkspace.nodes
       : []
   );
-  const [edges, setEdges, onEdgesChange] = useEdgesState<StudioEdge>(
+  const [edges, setEdges] = useEdgesState<StudioEdge>(
     initialCachedActiveWorkspace?.type === "board" && Array.isArray(initialCachedActiveWorkspace.edges)
       ? initialCachedActiveWorkspace.edges
       : []
@@ -323,14 +326,40 @@ export function StudioApp() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const workspaceSaveQueue = useRef(new WorkspaceSaveQueue());
+  const savedBatchAudio = useRef(new WeakMap<object, Map<string, string>>());
+
+  function batchAudioEntries(nodes: unknown) {
+    if (!Array.isArray(nodes)) return [];
+    return (nodes as StudioNode[]).flatMap(node => [
+      ...(node.data.batchArtifacts ?? []),
+      ...(node.data.batchRows ?? []).flatMap(row => row.artifacts ?? [])
+    ]);
+  }
 
   async function sendWorkspaceSnapshot(id: string, body: Record<string, unknown>) {
+    const liveEntries = new Map(batchAudioEntries(body.nodes).map(entry => [entry.id, entry]));
     return workspaceSaveQueue.current.save(id, body, async snapshot => {
+      const entries = batchAudioEntries(snapshot.nodes);
+      for (const entry of entries) {
+        const live = liveEntries.get(entry.id);
+        const cached = live && savedBatchAudio.current.get(live)?.get(entry.audioDataUrl);
+        if (cached) entry.audioDataUrl = cached;
+      }
       const response = await fetch(`/api/workspaces/${id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot)
       });
       const saved = await response.json() as WorkspacePayload & { error?: string };
       if (!response.ok) throw new Error(saved.error || `保存失败：HTTP ${response.status}`);
+      if (saved.type === "board") {
+        const urls = new Map(batchAudioEntries(saved.nodes).map(entry => [entry.id, entry.audioDataUrl]));
+        for (const entry of entries) {
+          const live = liveEntries.get(entry.id);
+          const url = urls.get(entry.id);
+          if (live && entry.audioDataUrl.startsWith("data:") && url?.startsWith("/api/audio-cache/")) {
+            savedBatchAudio.current.set(live, new Map([[entry.audioDataUrl, url]]));
+          }
+        }
+      }
       return saved;
     });
   }
@@ -521,6 +550,7 @@ export function StudioApp() {
   const [storagePathInfo, setStoragePathInfo] = useState<{ dataDir: string; workspaceFilePath: string; isCustom: boolean } | null>(null);
   const [customPathInput, setCustomPathInput] = useState("");
   const [singleDownloadSettings, setSingleDownloadSettings] = useDownloadSettings();
+  const [batchDownloadSettings, setBatchDownloadSettings] = useDownloadSettings(BATCH_DOWNLOAD_SETTINGS_KEY);
   const stashZipExport = useAudioZipExport();
   const [bgVariant, setBgVariant] = useState<"dots" | "lines" | "cross" | "none">(
     () => (localStorage.getItem("mimo_bg_variant") as "dots" | "lines" | "cross" | "none") || "dots"
@@ -543,97 +573,21 @@ export function StudioApp() {
   const tidyWorkspaceNodes = useCallback((onlySelected?: boolean) => {
     const allNodes = nodesRef.current;
     const allEdges = edgesRef.current;
-    if (!allNodes || allNodes.length === 0) return;
+    const result = computeTidyLayout(allNodes, allEdges, onlySelected);
+    if (!result) return;
 
-    // Check if user has selected multiple nodes
-    const selectedNodesList = allNodes.filter((n) => n.selected);
-    const isSelectionMode = (onlySelected === true || (selectedNodesList.length >= 2 && onlySelected !== false)) && selectedNodesList.length < allNodes.length;
-
-    const targetNodes = isSelectionMode ? selectedNodesList : allNodes;
-    const targetNodeIds = new Set(targetNodes.map((n) => n.id));
-    const targetEdges = allEdges.filter((e) => targetNodeIds.has(e.source) && targetNodeIds.has(e.target));
-
-    function getNodeWidth(node: StudioNode): number {
-      if (node.measured?.width && node.measured.width > 50) {
-        return node.measured.width;
-      }
-      const t = node.type as StudioNodeType;
-      if (t === "batchVoiceDesign") return 880;
-      if (t === "batchVoiceClone" || t === "integratedStudio" || t === "gameVocal") return 660;
-      if (t === "batchArtifact") return 440;
-      if (t === "voiceDesign" || t === "voiceClone") return 360;
-      if (t === "referenceAudio" || t === "audioMerge") return 340;
-      if (t === "comment") return 280;
-      return 340;
-    }
-
-    function getNodeHeight(node: StudioNode): number {
-      if (node.measured?.height && node.measured.height > 50) {
-        return node.measured.height;
-      }
-      const t = node.type as StudioNodeType;
-      if (t === "gameVocal") return 620;
-      if (t === "batchVoiceDesign" || t === "batchVoiceClone") {
-        const rowCount = node.data.batchRows?.length || 1;
-        return Math.max(460, 180 + rowCount * 75);
-      }
-      if (t === "integratedStudio") {
-        const rowCount = node.data.batchRows?.length || 1;
-        return Math.max(640, 240 + rowCount * 75);
-      }
-      if (t === "batchArtifact") {
-        const count = node.data.batchArtifacts?.length || 0;
-        if (count === 0) return 260;
-        return Math.max(340, 110 + count * 85);
-      }
-      if (t === "artifact") return 145;
-      if (t === "voiceDesign") return 640;
-      if (t === "voiceClone") return 380;
-      if (t === "referenceAudio" || t === "audioMerge") return 220;
-      if (t === "comment") return 200;
-      return 260;
-    }
-
-    const originBaseX = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.x)) : 80;
-    const originBaseY = isSelectionMode ? Math.min(...targetNodes.map((n) => n.position.y)) : 80;
-
-    const layoutInputNodes: LayoutNodeInput[] = targetNodes.map((n) => ({
-      id: n.id,
-      type: n.type || "default",
-      width: getNodeWidth(n),
-      height: getNodeHeight(n),
-      originalX: n.position.x,
-      originalY: n.position.y,
-      seqIndex: n.data.seqIndex
-    }));
-
-    const layoutInputEdges: LayoutEdgeInput[] = targetEdges.map((e) => ({
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.sourceHandle,
-      targetHandle: e.targetHandle
-    }));
-
-    const nodePositions = computeSmartDagLayout(layoutInputNodes, layoutInputEdges, originBaseX, originBaseY);
-
-    const nextNodes = allNodes.map((node) => {
-      if (nodePositions.has(node.id)) {
-        return {
-          ...node,
-          position: nodePositions.get(node.id)!
-        };
-      }
-      return node;
-    });
-
+    const { nextNodes, isSelectionMode } = result;
+    const workspaceId = activeWorkspaceRef.current?.id;
+    nodesRef.current = nextNodes;
+    workspaceTasks.capture(activeWorkspaceRef.current, nextNodes, allEdges);
     setNodes(nextNodes);
+    void saveWorkspace(nextNodes, allEdges);
     window.setTimeout(() => {
-      if (!isSelectionMode) {
+      if (!isSelectionMode && activeWorkspaceRef.current?.id === workspaceId) {
         flowRef.current?.fitView({ padding: 0.2, duration: 400, minZoom: 0.005 });
       }
-      void saveWorkspace();
     }, 60);
-  }, [setNodes]);
+  }, [setNodes, workspaceTasks]);
 
   const handleSelectSearchNode = useCallback(async (workspaceId: string, node: StudioNode) => {
     setShowNodeSearchModal(false);
@@ -1125,6 +1079,12 @@ export function StudioApp() {
   nodesRef.current = nodes;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
+  const runAudioMergeRef = useRef(runAudioMerge);
+  runAudioMergeRef.current = runAudioMerge;
+  const autoMergeInputsRef = useRef(new Map<string, AudioAsset[]>());
+  useEffect(() => {
+    for (const mergeNodeId of getReferenceAudioAutoMergeNodeIds(nodes, edges, autoMergeInputsRef.current)) void runAudioMergeRef.current(mergeNodeId);
+  }, [nodes, edges]);
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
   workspaceTasks.capture(activeWorkspace, nodes, edges);
@@ -1381,7 +1341,7 @@ export function StudioApp() {
     const ws = activeWorkspaceRef.current;
     if (!ws || ws.type !== "board") return false;
     const items = ws.stashItems ?? [];
-    return items.some((item) => item.fileName === artifact.fileName && item.audioDataUrl === artifact.audioDataUrl);
+    return items.some((item) => matchesStashedArtifact(item, artifact));
   }, []);
 
   const createReferenceAudioFromData = useCallback((title: string, audioAsset: AudioAsset) => {
@@ -1433,6 +1393,7 @@ export function StudioApp() {
     () => ({
       workspaceName: activeWorkspace?.name,
       singleDownloadSettings,
+      batchDownloadSettings,
       stashedArtifactKeys,
       onPatch: patchNode,
       onDelete: deleteNode,
@@ -1455,7 +1416,7 @@ export function StudioApp() {
       onCreateReferenceFromAudio: createReferenceAudioFromData,
       isArtifactStashed
     }),
-    [apiKey, serverApiKeyConfigured, singleDownloadSettings, stashedArtifactKeys, activeWorkspace?.name, patchNode, deleteNode, isArtifactStashed, createReferenceAudioFromData]
+    [apiKey, serverApiKeyConfigured, singleDownloadSettings, batchDownloadSettings, stashedArtifactKeys, activeWorkspace?.name, patchNode, deleteNode, isArtifactStashed, createReferenceAudioFromData]
   );
 
   const nodeDataCache = useRef<Map<string, { rawNodeData: unknown; callbacks: unknown; resultNode: StudioNode }>>(new Map());
@@ -1700,6 +1661,7 @@ export function StudioApp() {
       appId: providerOptionsRef.current.appId,
       accessToken: providerOptionsRef.current.accessToken,
       customProtocol: providerOptionsRef.current.customProtocol,
+      volcengine: providerOptionsRef.current.volcengine,
       isJson,
       extraHeaders
     });
@@ -2135,9 +2097,21 @@ export function StudioApp() {
 
   const handleCustomNodesChange = useCallback(
     (changes: NodeChange<StudioNode>[]) => {
+      const commit = (updates: NodeChange<StudioNode>[]) => {
+        const nextNodes = applyNodeChanges(updates, nodesRef.current);
+        const removed = new Set(updates.filter(change => change.type === "remove").map(change => change.id));
+        if (removed.size) {
+          edgesRef.current = edgesRef.current.filter(edge => !removed.has(edge.source) && !removed.has(edge.target));
+          setEdges(edgesRef.current);
+        }
+        nodesRef.current = nextNodes;
+        workspaceTasks.capture(activeWorkspaceRef.current, nextNodes, edgesRef.current);
+        setNodes(nextNodes);
+        if (removed.size) void saveWorkspace(nextNodes, edgesRef.current);
+      };
       const isPositionChange = changes.some((c) => c.type === "position" && c.position);
       if (!isPositionChange) {
-        onNodesChange(changes);
+        commit(changes);
         return;
       }
 
@@ -2221,10 +2195,18 @@ export function StudioApp() {
         return change;
       });
 
-      onNodesChange(updatedChanges);
+      commit(updatedChanges);
     },
-    [onNodesChange]
+    [setNodes, setEdges, workspaceTasks]
   );
+
+  const handleCustomEdgesChange = useCallback((changes: EdgeChange<StudioEdge>[]) => {
+    const nextEdges = applyEdgeChanges(changes, edgesRef.current);
+    edgesRef.current = nextEdges;
+    workspaceTasks.capture(activeWorkspaceRef.current, nodesRef.current, nextEdges);
+    setEdges(nextEdges);
+    if (changes.some(change => change.type === "remove")) void saveWorkspace(undefined, nextEdges);
+  }, [setEdges, workspaceTasks]);
 
   const onNodeDragStop = useCallback(() => {
     if (saveTimerRef.current) {
@@ -2242,17 +2224,23 @@ export function StudioApp() {
       const targetNode = currentNodes.find((n) => n.id === connection.target);
       const strokeColor = (sourceNode?.type && NODE_COLOR_MAP[sourceNode.type]) || "#0a84ff";
 
-      setEdges((items) =>
-        addEdge(
-          {
-            ...connection,
-            type: "deletable",
-            animated: true,
-            style: { stroke: strokeColor, strokeWidth: 2 }
-          },
-          items
-        )
+      const nextEdges = addEdge(
+        {
+          ...connection,
+          type: "deletable",
+          animated: true,
+          style: { stroke: strokeColor, strokeWidth: 2 }
+        },
+        edgesRef.current
       );
+      edgesRef.current = nextEdges;
+      setEdges(nextEdges);
+
+      if (sourceNode?.type === "referenceAudio" && targetNode?.type === "audioMerge" && connection.targetHandle === "audio") {
+        const inputs = resolveMergeAudioInputs(targetNode, currentNodes, nextEdges);
+        autoMergeInputsRef.current.set(targetNode.id, inputs);
+        if (inputs.length > 0) void runAudioMergeRef.current(targetNode.id);
+      }
 
       if (sourceNode && targetNode && sourceNode.type === "referenceAudio") {
         const sourceTitle = sourceNode.data.title;
@@ -2594,6 +2582,11 @@ export function StudioApp() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!event.repeat && activeWorkspaceRef.current) void saveWorkspace();
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, [contenteditable='true']")) return;
       if (!event.ctrlKey && !event.metaKey) return;
@@ -2626,13 +2619,25 @@ export function StudioApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [nodes, edges, handleUndo, handleRedo]);
 
+  const getStashDownloadName = useCallback(
+    (item: import("../types/studio").StashItem) => {
+      return resolveStashDownloadName(item, nodes, batchDownloadSettings, activeWorkspace?.name);
+    },
+    [nodes, batchDownloadSettings, activeWorkspace?.name]
+  );
+
   async function downloadStashZip() {
     if (!activeWorkspace || activeWorkspace.type !== "board") return;
     const files = activeWorkspace.stashItems.map(item => ({
-      name: getArtifactDownloadFileName(item.sourceNodeName || item.fileName, item.fileName, activeWorkspace.name),
+      name: getStashDownloadName(item),
       source: item.audioDataUrl
     }));
-    await stashZipExport.download(files, `${sanitizeFileName(activeWorkspace.name)}-${formatDateForFile(new Date())}.zip`);
+    const archiveName = getZipArchiveFileName(
+      activeWorkspace.name.trim() || "暂存产物",
+      undefined,
+      batchDownloadSettings
+    );
+    await stashZipExport.download(files, archiveName);
   }
 
   return (
@@ -2721,6 +2726,8 @@ export function StudioApp() {
         setShowStoragePathModal,
         singleDownloadSettings,
         setSingleDownloadSettings,
+        batchDownloadSettings,
+        setBatchDownloadSettings,
         activeWorkspace,
         customPathInput,
         setCustomPathInput,
@@ -2755,6 +2762,7 @@ export function StudioApp() {
           openExportModal,
           isStashOpen,
           downloadStashZip,
+          getStashDownloadName,
           deleteStashItem,
           setIsStashOpen,
           createReferenceAudioFromData,
@@ -2811,7 +2819,7 @@ export function StudioApp() {
             edgeTypes,
             flowRef,
             handleCustomNodesChange,
-            onEdgesChange,
+            onEdgesChange: handleCustomEdgesChange,
             onConnect,
             onConnectEnd,
             onNodeDragStop,

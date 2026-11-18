@@ -30,10 +30,17 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
     const address = server.address();
     base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      if (init.body instanceof FormData) {
+        upstream.push({ url: String(url), body: { purpose: init.body.get("purpose") }, headers: init.headers });
+        return Response.json({ base_resp: { status_code: 0 }, file: { file_id: 12345678 } });
+      }
       upstream.push({ url: String(url), body: JSON.parse(init.body), headers: init.headers });
+      if (String(url).endsWith("/voice_clone")) return Response.json({ base_resp: { status_code: 0 } });
       if (String(url).includes("text-to-speech")) return new Response(new Uint8Array([0, 0, 1, 0]), { headers: { "Content-Type": "audio/pcm" } });
       if (String(url).includes("/chat/completions")) return Response.json({ choices: [{ message: { content: "润色结果" } }] });
       const wav = pcm16ToWav(Buffer.from([0, 0, 1, 0]), 24000);
+      if (String(url).endsWith("/voice_design")) return Response.json({ base_resp: { status_code: 0 }, voice_id: "designed-minimax-voice", trial_audio: wav.toString("hex") });
+      if (String(url).includes("api.minimax.cn")) return Response.json({ base_resp: { status_code: 0 }, data: { status: 2, audio: wav.toString("hex") } });
       if (String(url).includes("bytedance")) return Response.json({ code: 3000, data: wav.toString("base64") });
       return new Response(wav, { headers: { "Content-Type": "audio/wav" } });
     }));
@@ -115,6 +122,55 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
     expect(upstream).toHaveLength(0);
   });
 
+  it("saves MiniMax settings and synthesizes through the existing node route without exposing keys", async () => {
+    expect((await save({ apiProvider: "minimax", apiKey: "fixture-minimax-secret", synthesisMode: "voiceId", voiceId: "my-character", model: "speech-2.8-turbo" })).status).toBe(200);
+    const settings = await (await call("/api/settings")).text();
+    expect(settings).not.toContain("fixture-minimax-secret");
+    expect(JSON.parse(settings)).toMatchObject({ apiProvider: "minimax", voiceId: "my-character" });
+    const form = new FormData();
+    await appendSynthesisInputs(form, normalizeProviderOptions({ synthesisMode: "voiceId", voiceId: "my-character", model: "speech-2.8-turbo" }));
+    form.append("text", "台词保持不变");
+    const response = await call("/api/tts/voiceclone", { method: "POST", body: form });
+    expect(response.status).toBe(200);
+    expect((await response.json()).audioDataUrl).toMatch(/^data:audio\/wav;base64,/);
+    expect(upstream[0].url).toBe("https://api.minimax.cn/v1/t2a_v2");
+    expect(upstream[0].body).toMatchObject({ model: "speech-2.8-turbo", text: "台词保持不变", voice_setting: { voice_id: "my-character" } });
+    expect(upstream[0].headers.Authorization).toBe("Bearer fixture-minimax-secret");
+  });
+
+  it("returns the reusable designed voice through the node route and preserves it in the artifact", async () => {
+    const response = await call("/api/tts/voicedesign", { method: "POST", headers: { "Content-Type": "application/json", "X-API-Provider": "minimax", "X-API-Key": "fixture-design-key" }, body: JSON.stringify({ voiceDescription: "沉稳男声", text: "只说这句" }) });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ voiceId: "designed-minimax-voice", assetProvider: "minimax" });
+    const { createArtifactNode } = await import("../src/studio/graph");
+    const node = createArtifactNode({ id: "design-source", type: "voiceDesign", position: { x: 0, y: 0 }, data: { title: "角色设计" } }, payload);
+    expect(node.data).toMatchObject({ voiceId: "designed-minimax-voice", assetProvider: "minimax" });
+    expect(upstream[0].body).toEqual({ prompt: "沉稳男声", preview_text: "只说这句" });
+  });
+
+  it("clones connected reference audio once and reuses the voice for the next batch sentence", async () => {
+    const headers = { "X-API-Provider": "minimax", "X-API-Key": "fixture-reference-clone-key" };
+    const sample = pcm16ToWav(Buffer.alloc(16000 * 2 * 10), 16000);
+    const synthesize = async (text: string) => {
+      const form = new FormData();
+      form.append("synthesisMode", "reference"); form.append("text", text);
+      form.append("voice", new Blob([new Uint8Array(sample)], { type: "audio/wav" }), "character.wav");
+      const response = await call("/api/tts/voiceclone", { method: "POST", headers, body: form });
+      expect(response.status).toBe(200); return response.json();
+    };
+    const first = await synthesize("第一句台词"), second = await synthesize("第二句台词");
+    expect(first.voiceId).toBe(second.voiceId);
+    expect(first.assetProvider).toBe("minimax");
+    expect(upstream.filter(item => item.url.endsWith("/voice_clone"))).toHaveLength(1);
+    expect(upstream.filter(item => item.url.endsWith("/t2a_v2")).map(item => item.body.text)).toEqual(["第一句台词", "第二句台词"]);
+  });
+
+  it("protects new MiniMax tools with the existing desktop origin boundary", async () => {
+    const response = await call("/api/minimax/tools/voice-delete", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://attacker.example", "X-API-Provider": "minimax", "X-API-Key": "fixture" }, body: JSON.stringify({ voiceId: "DoNotDelete123", voiceType: "voice_cloning" }) });
+    expect(response.status).toBe(403); expect(upstream).toHaveLength(0);
+  });
+
   it("SiliconFlow clone sends references alone with the actual reference transcript", async () => {
     const form = new FormData();
     await appendSynthesisInputs(form, normalizeProviderOptions({ referenceText: "参考音频原文" }), { dataUrl: "data:audio/wav;base64,UklGRg==", fileName: "ref.wav", mimeType: "audio/wav" });
@@ -146,13 +202,27 @@ describe("Provider configuration → HTTP route → upstream protocol", () => {
 
   it("Volcengine requires credentials and preserves its token without returning it", async () => {
     expect((await save({ apiProvider: "volcengine", apiKey: "" })).status).toBe(400);
-    expect((await save({ apiProvider: "volcengine", appId: "fixture-app", accessToken: "fixture-token", synthesisMode: "preset" })).status).toBe(200);
+    expect((await save({ apiProvider: "volcengine", appId: "fixture-app", accessToken: "fixture-token", synthesisMode: "preset", volcengine: { transport: "legacy" } })).status).toBe(200);
     const settings = await (await call("/api/settings")).json();
     expect(settings.hasAccessToken).toBe(true); expect(settings.accessToken).toBeUndefined();
     const form = new FormData(); form.append("text", "豆包测试");
     expect((await call("/api/tts/voiceclone", { method: "POST", body: form })).status).toBe(200);
     expect(upstream[0].body.app.appid).toBe("fixture-app");
     expect(upstream[0].headers.Authorization).toBe("Bearer; fixture-token");
+  });
+
+  it("saves new Volcengine API-key profiles and rejects cross-site tool calls", async () => {
+    expect((await save({ apiProvider: "volcengine", apiKey: "fixture-new-key", synthesisMode: "preset",
+      volcengine: { transport: "sse", resourceId: "seed-tts-2.0" } })).status).toBe(200);
+    const settings = await (await call("/api/settings")).json();
+    expect(settings.volcengine).toMatchObject({ transport: "sse", resourceId: "seed-tts-2.0" });
+    expect(settings.apiKey).toBeUndefined();
+    const response = await call("/api/volcengine/tools/voice-design", {
+      method: "POST", headers: { Origin: "https://untrusted.example", "Content-Type": "application/json" },
+      body: JSON.stringify({ speakerId: "S_fixture", text: "测试", prompt: "温柔" })
+    });
+    expect(response.status).toBe(403);
+    expect(upstream).toHaveLength(0);
   });
 
   it("MiMo-only planning rejects another provider before any HTTP call", async () => {

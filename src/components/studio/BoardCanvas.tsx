@@ -115,7 +115,8 @@ export function BoardCanvas({
         edges={hydratedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onlyRenderVisibleElements={true}
+        // Keep node audio players mounted when panning outside the viewport.
+        onlyRenderVisibleElements={false}
         elevateNodesOnSelect={false}
         nodesDraggable={true}
         elementsSelectable={true}
@@ -135,12 +136,6 @@ export function BoardCanvas({
         panOnDrag={[1, 2]}
         multiSelectionKeyCode={["Control", "Meta"]}
         deleteKeyCode={["Delete", "Backspace"]}
-        onNodesDelete={() => {
-          void saveWorkspace();
-        }}
-        onEdgesDelete={() => {
-          void saveWorkspace();
-        }}
         minZoom={0.005}
         maxZoom={30}
         zoomOnScroll={false}

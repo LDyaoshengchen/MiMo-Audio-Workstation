@@ -1,5 +1,6 @@
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { ArtifactData } from "../types/studioAudio";
+import { matchesStashedArtifact } from "./stashIdentity";
 import type { WorkspaceSummary, WorkspacePayload, StudioNode, StudioEdge, StashItem } from "../types/studio";
 import { createId } from "./format";
 import { sanitizeFileName } from "../utils/audioNaming";
@@ -267,7 +268,7 @@ export function createWorkspaceActions(getContext: () => WorkspaceActionsContext
     if (!activeWorkspace || activeWorkspace.type !== "board") return;
     const items = activeWorkspace.stashItems ?? [];
     const existing = items.find(
-      (item) => item.fileName === artifact.fileName && item.audioDataUrl === artifact.audioDataUrl
+      (item) => matchesStashedArtifact(item, artifact)
     );
 
     if (existing) {

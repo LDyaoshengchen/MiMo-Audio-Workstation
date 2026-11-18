@@ -16,6 +16,8 @@ const desktopSmoke = process.argv.includes("--desktop-controls-smoke");
 const contextMenuSmoke = process.argv.includes("--context-menu-smoke");
 const storageMigrationSmoke = process.argv.includes("--storage-migration-smoke");
 const taskOwnershipSmoke = process.argv.includes("--task-ownership-smoke");
+const generationLayoutSmoke = process.argv.includes("--generation-layout-smoke");
+const layoutResponses = [];
 const mergeFavoriteSmoke = process.argv.includes("--merge-favorite-smoke");
 const mergeFavoriteAssets = [];
 let mergeFavoriteProductAudio;
@@ -117,6 +119,15 @@ if (mergeFavoriteSmoke) {
   ];
   workspace.edges = [];
 }
+if (generationLayoutSmoke) {
+  const audioDataUrl = workspace.nodes.find(node => node.data.artifact)?.data.artifact.audioDataUrl;
+  if (!audioDataUrl) throw new Error('Generation layout smoke requires --theme-preview');
+  workspace.nodes = [
+    { id: 'qa-clone', type: 'voiceClone', position: { x: 1400, y: 900 }, data: { title: '生成实时布局', text: 'Test only', voiceId: 'test-voice', assetProvider: 'mimo' } },
+    { id: 'qa-old-artifact', type: 'artifact', position: { x: 1820, y: 900 }, data: { title: '生成实时布局_01', seqIndex: 1, artifact: { fileName: 'old.wav', audioDataUrl, elapsedMs: 1, sourceNodeId: 'qa-clone' } } },
+  ];
+  workspace.edges = [{ id: 'qa-old-edge', source: 'qa-clone', sourceHandle: 'output', target: 'qa-old-artifact', targetHandle: 'artifact', type: 'deletable' }];
+}
 const secondWorkspace = { ...workspace, id: 'qa-other-board', name: '另一个画板', nodes: [], edges: [] };
 const taskBoards = new Map([workspace, secondWorkspace].map(board => [board.id, JSON.parse(JSON.stringify(board))]));
 let taskSaveVersion = Date.now();
@@ -150,19 +161,21 @@ const server = http.createServer((req, res) => {
       }
       if (index>=0 && req.method==='DELETE') {mergeFavoriteAssets.splice(index,1);res.end(JSON.stringify(mergeFavoriteAssets));return;}
     }
-    if (taskOwnershipSmoke && url.pathname === '/api/tts/voiceclone') {
+    if ((taskOwnershipSmoke || generationLayoutSmoke) && url.pathname === '/api/tts/voiceclone') {
       const chunks = [];
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
         taskRequests.push(Buffer.concat(chunks).toString('utf8'));
-        const respond = () => res.end(JSON.stringify({ fileName: 'qa.wav', audioDataUrl: workspace.nodes[2].data.artifact.audioDataUrl, elapsedMs: 1 }));
-        if (taskRequests.length === 1) releaseTaskResponse = respond;
+        const respond = () => res.end(JSON.stringify({ fileName: 'qa.wav', audioDataUrl: workspace.nodes.find(node => node.data.artifact).data.artifact.audioDataUrl, elapsedMs: 1 }));
+        if (generationLayoutSmoke && taskRequests.length <= 3) layoutResponses.push(respond);
+        else if (generationLayoutSmoke) respond();
+        else if (taskRequests.length === 1) releaseTaskResponse = respond;
         else if (taskRequests.length === 2) releaseSecondTaskResponse = respond;
         else respond();
       });
       return;
     }
-    if (taskOwnershipSmoke && url.pathname.startsWith('/api/workspaces/')) {
+    if ((taskOwnershipSmoke || generationLayoutSmoke) && url.pathname.startsWith('/api/workspaces/')) {
       const id = decodeURIComponent(url.pathname.slice('/api/workspaces/'.length));
       const existing = taskBoards.get(id);
       if (!existing) { res.statusCode = 404; res.end(JSON.stringify({error:'Board not found'})); return; }
@@ -186,7 +199,7 @@ const server = http.createServer((req, res) => {
       if(previewMigrationRunning){res.statusCode=503;res.end(JSON.stringify({error:'数据正在迁移，请稍后重试。'}));return;}
       if(url.pathname.endsWith('/location')){res.end(JSON.stringify({directory:'D:\\音色资料\\role-voice-library'}));return;}
     }
-    const data = url.pathname === "/api/bootstrap" ? { settings, status: { ok: true, apiKeyConfigured: true }, workspaces: taskOwnershipSmoke ? [workspace, secondWorkspace] : [workspace], activeWorkspace: workspace }
+    const data = url.pathname === "/api/bootstrap" ? { settings, status: { ok: true, apiKeyConfigured: true }, workspaces: taskOwnershipSmoke || generationLayoutSmoke ? [workspace, secondWorkspace] : [workspace], activeWorkspace: workspace }
       : url.pathname === "/api/settings/storage-path" ? { dataDir: "isolated-test", workspaceFilePath: "isolated-test", isCustom: false }
       : url.pathname === "/api/voice-library" ? [{ id: "qa-role", name: "测试角色音色", description: "Deep and calm", naturalControl: "Confident", voiceId: "", provider: "mimo", audio: workspace.nodes.find(node => node.data.artifact)?.data.artifact ? { fileName: "qa.wav", mimeType: "audio/wav", size: 12044, dataUrl: workspace.nodes.find(node => node.data.artifact).data.artifact.audioDataUrl } : undefined }]
       : url.pathname === '/api/workspaces/qa-other-board' ? secondWorkspace
@@ -345,6 +358,73 @@ async function main() {
     })()`);
     fs.writeFileSync(path.resolve('reports','quick-favorite-small-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
     console.log(JSON.stringify({scenario:'merge-favorite-smoke',appearance,icon:true,compact:true,saved:true,reloaded:true,reusable:true,filled:true,productCached:true,unfavorite:true,deleted:true,restartRestored:true,quickNaming:true,bottomNode:true,gridColumns:[3,2,1],smallWindow:true}));
+    clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
+  }
+  if (generationLayoutSmoke) {
+    const waitFor = async (predicate, message) => {
+      for (let i=0;i<200;i++) { if (predicate()) return; await new Promise(resolve=>setTimeout(resolve,30)); }
+      throw new Error(message);
+    };
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('[data-id="qa-clone"] .batch-nine-btn');i++)await new Promise(r=>setTimeout(r,30));
+      const button=document.querySelector('[data-id="qa-clone"] .batch-nine-btn');
+      if(!button)throw new Error('Missing generation control');button.click();
+    })()`);
+    await waitFor(()=>layoutResponses.length===1,'Generation did not start');
+    await window.webContents.executeJavaScript(`(()=>{[...document.querySelectorAll('.canvas-titlebar-btn')].find(button=>button.textContent.trim()==='整齐排版').click();})()`);
+    await waitFor(()=>taskBoards.get(workspace.id).nodes.find(node=>node.id==='qa-clone').position.x!==1400,'Tidy did not persist the live source position');
+    const tidySlot={...taskBoards.get(workspace.id).nodes.find(node=>node.id==='qa-old-artifact').position};
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('[data-id="qa-old-artifact"] [title="删除节点"]');i++)await new Promise(r=>setTimeout(r,30));
+      const button=document.querySelector('[data-id="qa-old-artifact"] [title="删除节点"]');
+      if(!button)throw new Error('Tidied result did not mount for button deletion');button.click();
+    })()`);
+    await waitFor(()=>!taskBoards.get(workspace.id).nodes.some(node=>node.id==='qa-old-artifact'),'Button deletion did not save');
+    layoutResponses[0]();
+    await waitFor(()=>layoutResponses.length===2,'Second generation did not start');
+    const first=taskBoards.get(workspace.id).nodes.find(node=>node.type==='artifact');
+    if(!first||first.data.seqIndex!==2||JSON.stringify(first.position)!==JSON.stringify(tidySlot))throw new Error('New result must fill the deleted slot in the tidied layout');
+    await window.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!document.querySelector('[data-id="${first.id}"]');i++)await new Promise(r=>setTimeout(r,30));
+      const node=document.querySelector('[data-id="${first.id}"]');node.focus();node.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      await new Promise(r=>setTimeout(r,80));
+      if(!node.classList.contains('selected'))throw new Error('Result must be selected for keyboard deletion');
+      node.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',code:'Delete',bubbles:true,cancelable:true}));
+      await new Promise(r=>setTimeout(r,100));
+      document.dispatchEvent(new KeyboardEvent('keyup',{key:'Delete',code:'Delete',bubbles:true}));
+      for(let i=0;i<100&&document.querySelector('[data-id="${first.id}"]');i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelector('[data-id="${first.id}"]'))throw new Error('Keyboard delete did not remove the result');
+      document.querySelectorAll('.board-item')[1].click();
+      for(let i=0;i<100&&!document.querySelector('.board-item.active')?.textContent.includes('另一个画板');i++)await new Promise(r=>setTimeout(r,30));
+    })()`);
+    await waitFor(()=>!taskBoards.get(workspace.id).nodes.some(node=>node.id===first.id),'Keyboard deletion did not persist');
+    layoutResponses[1]();
+    await waitFor(()=>layoutResponses.length===3,'Generation stopped while off-screen');
+    const background=taskBoards.get(workspace.id).nodes.find(node=>node.type==='artifact');
+    if(!background||background.data.seqIndex!==3||JSON.stringify(background.position)!==JSON.stringify(tidySlot))throw new Error('Background result must use the current empty slot, without resurrecting deleted nodes');
+    await window.webContents.executeJavaScript(`(async()=>{
+      if(document.querySelector('.react-flow__node-artifact'))throw new Error('Background layout contaminated the other board');
+      document.querySelectorAll('.board-item')[0].click();
+      for(let i=0;i<100&&!document.querySelector('[data-id="${background.id}"]');i++)await new Promise(r=>setTimeout(r,30));
+      if(document.querySelector('[data-id="qa-old-artifact"]')||document.querySelector('[data-id="${first.id}"]'))throw new Error('Deleted results reappeared after switching');
+      [...document.querySelectorAll('.canvas-titlebar-btn')].find(button=>button.textContent.trim()==='整齐排版').click();
+      await new Promise(r=>setTimeout(r,450));
+    })()`);
+    layoutResponses[2]();
+    await waitFor(()=>taskRequests.length===9&&!taskBoards.get(workspace.id).nodes.find(node=>node.id==='qa-clone').data.isRunning,'Batch did not finish');
+    const saved=taskBoards.get(workspace.id),results=saved.nodes.filter(node=>node.type==='artifact'),source=saved.nodes.find(node=>node.id==='qa-clone');
+    if(results.length!==8||results.map(node=>node.data.seqIndex).join(',')!=='3,4,5,6,7,8,9,10'||saved.edges.length!==8)throw new Error('Deleted products must stay deleted while remaining results keep sequential names');
+    const sourceWidth=source.measured?.width||360;
+    for(const result of results){
+      if(result.position.x<source.position.x+sourceWidth+59||result.position.y<source.position.y||result.position.y>=900)throw new Error('Result used a stale source coordinate');
+      for(const other of results){if(result===other)continue;const w=result.measured?.width||340,h=result.measured?.height||145,ow=other.measured?.width||340,oh=other.measured?.height||145;
+        if(result.position.x<other.position.x+ow&&result.position.x+w>other.position.x&&result.position.y<other.position.y+oh&&result.position.y+h>other.position.y)throw new Error('Live result cards overlap');}
+    }
+    if(taskBoards.get(secondWorkspace.id).nodes.length)throw new Error('Other board graph was modified');
+    await window.webContents.executeJavaScript(`[...document.querySelectorAll('.canvas-titlebar-btn')].find(button=>button.textContent.trim()==='整齐排版').click()`);
+    await new Promise(r=>setTimeout(r,500));window.webContents.invalidate();await new Promise(r=>setTimeout(r,100));
+    fs.writeFileSync(path.resolve('reports','generation-layout-'+appearance+'.png'),(await window.webContents.capturePage()).toPNG());
+    console.log(JSON.stringify({scenario:'generation-layout-smoke',appearance,tidyWhileGenerating:true,buttonDelete:true,keyboardDelete:true,emptySlotReuse:true,backgroundLayout:true,noOverlap:true,sequences:results.map(node=>node.data.seqIndex),otherBoardUnchanged:true}));
     clearTimeout(fatalTimer);window.destroy();server.close();app.exit(0);return;
   }
   if (taskOwnershipSmoke) {

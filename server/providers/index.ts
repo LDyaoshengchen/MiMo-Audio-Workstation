@@ -6,6 +6,8 @@ import { ElevenLabsAdapter } from "./elevenlabs.js";
 import { OpenAIAdapter } from "./openai.js";
 import { VolcengineAdapter } from "./volcengine.js";
 import { CustomAdapter } from "./custom.js";
+import { MiniMaxAdapter } from "./minimax.js";
+import { IndexTTSAdapter } from "./indextts.js";
 import { assertAudioFormat } from "../../shared/audioValidation.js";
 
 export * from "./types.js";
@@ -16,8 +18,12 @@ export { ElevenLabsAdapter } from "./elevenlabs.js";
 export { OpenAIAdapter } from "./openai.js";
 export { VolcengineAdapter } from "./volcengine.js";
 export { CustomAdapter } from "./custom.js";
+export { MiniMaxAdapter } from "./minimax.js";
+export { IndexTTSAdapter } from "./indextts.js";
 
 const adapters: Record<string, ProviderAdapter> = {
+  indextts: new IndexTTSAdapter(),
+  minimax: new MiniMaxAdapter(),
   mimo: new MimoAdapter(),
   siliconflow: new SiliconFlowAdapter(),
   fishaudio: new FishAudioAdapter(),

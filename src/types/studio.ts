@@ -165,6 +165,7 @@ export type NodeData = {
   voiceDescription?: string;
   voiceId?: string;
   assetProvider?: string;
+  voiceAssetMode?: "preset";
   audio?: AudioAsset;
   /** A reference node may hold several samples; the first one remains available as audio for compatibility. */
   audioAssets?: AudioAsset[];
@@ -174,6 +175,7 @@ export type NodeData = {
   seqIndex?: number;
   batchRowId?: string;
   batchRows?: BatchVoiceCloneRow[];
+  sharedBatchVoiceStyle?: string;
   batchArtifacts?: BatchArtifactItem[];
   selectedVocals?: SelectedVocalItem[];
   selectedCategoryId?: string;
@@ -196,6 +198,7 @@ export type NodeData = {
   error?: string;
   workspaceName?: string;
   singleDownloadSettings?: SingleDownloadSettings;
+  batchDownloadSettings?: SingleDownloadSettings;
   stashedArtifactKeys?: ReadonlySet<string>;
   onPatch?: (nodeId: string, patch: Partial<NodeData>) => void;
   onDelete?: (nodeId: string) => void;
@@ -220,6 +223,8 @@ export type NodeData = {
 };
 
 export type DebugResponse = {
+  voiceId?: string;
+  assetProvider?: string;
   audioDataUrl: string;
   fileName: string;
   elapsedMs: number;

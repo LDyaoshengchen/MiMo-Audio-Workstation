@@ -11,7 +11,27 @@ export const DARK_NODE_COLOR_MAP = getThemeNodeColors({ preset: "default", ...da
 
 export const NODE_COLOR_MAP: Record<string, string> = DARK_NODE_COLOR_MAP;
 
+export const NODE_EXAMPLES_KEY = "mimo_show_node_examples";
+
+export function showNodeExamples(): boolean {
+  return typeof localStorage === "undefined" || localStorage.getItem(NODE_EXAMPLES_KEY) !== "false";
+}
+
 export function getNodeDefaultData(type: StudioNodeType): NodeData {
+  if (!showNodeExamples()) {
+    switch (type) {
+      case "integratedStudio": return { title: "全能综合工作台", batchRows: [{ id: createId("row"), title: "", instruction: "", text: "", artifacts: [] }] };
+      case "batchVoiceClone":
+      case "batchVoiceDesign":
+        return { title: type === "batchVoiceClone" ? "批量音频克隆" : "批量音色创造", batchRows: [{ id: createId("row"), title: "", instruction: "", text: "" }] };
+      case "voiceClone": return { title: "音频克隆" };
+      case "voiceDesign": return { title: "音色创造" };
+      case "prompt": return { title: "提示词" };
+      case "voiceStyle": return { title: "语音风格" };
+      case "referenceAudio": return { title: "参考音频" };
+      case "gameVocal": return { title: "游戏语气词生成", selectedVocals: [], vocalSelectedTags: [], instruction: "" };
+    }
+  }
   const p1 = GAME_CHARACTER_PRESETS[0]; // 深海狂鲨
   switch (type) {
     case "integratedStudio":
@@ -209,6 +229,32 @@ export const API_PROVIDER_STORAGE_KEY = "mimo-api-provider";
 
 export const API_PROVIDERS: ApiProviderPreset[] = [
   {
+    id: "indextts",
+    name: "IndexTTS-2.5 (本地大模型)",
+    badge: "本地离线 · 免Key",
+    endpoint: "http://127.0.0.1:7860/api/clone",
+    description: "本地部署的高保真零样本音色克隆大模型，免 API Key、完全离线、支持自定情感与批量合成",
+    hint: "请先启动本地 IndexTTS 服务（默认运行在 http://127.0.0.1:7860），无需配置 Key 即可在画布任意节点使用。",
+    capabilities: {
+      textOptimization: false,
+      presetTTS: true,
+      voiceDesign: true,
+      instantClone: true,
+      trainedClone: true,
+      asr: false
+    }
+  },
+  {
+    id: "minimax",
+    name: "MiniMax 语音",
+    badge: "Speech 2.8",
+    endpoint: "https://api.minimax.cn/v1/t2a_v2",
+    description: "预置音色、已注册 Voice ID 合成与文字音色设计",
+    getKeyUrl: "https://platform.minimax.cn/",
+    hint: "支持参考音频自动克隆、文字音色设计、预置音色与 Voice ID 合成；下方可创建、试听和管理音色。",
+    capabilities: { textOptimization: false, presetTTS: true, voiceDesign: true, instantClone: true, trainedClone: true, asr: false }
+  },
+  {
     id: "mimo",
     name: "MiMo 官方 API",
     badge: "默认/推荐",
@@ -304,15 +350,15 @@ export const API_PROVIDERS: ApiProviderPreset[] = [
     id: "volcengine",
     name: "火山引擎 (豆包语音)",
     badge: "字节豆包",
-    endpoint: "https://openspeech.bytedance.com/api/v1/tts",
+    endpoint: "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
     description: "字节跳动商业级豆包大模型语音合成与多角色声音演播",
     getKeyUrl: "https://www.volcengine.com/product/speech",
-    hint: "需配置 AppID 与 AccessToken，支持小说有声书、广播剧与角色演播",
+    hint: "支持新版 API Key 与旧版 AppID/AccessToken；V3 合成、Seed-Audio、音色设计/注册和长文本工具",
     capabilities: {
       textOptimization: false,
       presetTTS: true,
-      voiceDesign: false,
-      instantClone: false,
+      voiceDesign: true,
+      instantClone: true,
       trainedClone: true,
       asr: false
     }

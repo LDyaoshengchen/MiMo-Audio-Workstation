@@ -82,13 +82,15 @@ describe("independent node palette setting", () => {
     }
     try {
       await act(async () => root.render(<Harness />));
-      const select = host.querySelector("select")!;
-      expect(select.value).toBe("apple");
+      const select = host.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+      expect(select.textContent).toContain(nodePalettePresets.apple.label);
       expect(host.querySelectorAll(".node-palette-chip")).toHaveLength(13);
       const before = host.querySelector<HTMLElement>(".node-palette-chip")!.style.backgroundColor;
-      await act(async () => { select.value = "monet"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      await act(async () => select.click());
+      const monetOption = [...document.querySelectorAll<HTMLElement>('.styled-select-menu [role="option"]')].find(option => option.textContent?.includes(nodePalettePresets.monet.label))!;
+      await act(async () => monetOption.click());
       expect(changed).toHaveBeenCalledWith("monet");
-      expect(select.value).toBe("monet");
+      expect(select.textContent).toContain(nodePalettePresets.monet.label);
       expect(host.querySelector<HTMLElement>(".node-palette-chip")!.style.backgroundColor).not.toBe(before);
       expect(host.querySelector('[aria-label="节点配色说明"]')?.getAttribute("title")).toContain("不改变界面背景");
       expect(host.querySelectorAll(".theme-palette-sample")).toHaveLength(0);

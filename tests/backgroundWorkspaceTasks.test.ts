@@ -4,6 +4,8 @@ import { WorkspaceTaskStore } from "../src/studio/workspaceTasks";
 import { hasActiveNodeTasks } from "../src/studio/taskScope";
 import { normalizeProviderOptions } from "../src/utils/providerConfig";
 import type { BoardWorkspacePayload, StudioNode } from "../src/types/studio";
+import { computeSmartDagLayout } from "../src/utils/layout";
+import { getStudioNodeSize } from "../src/studio/artifactPlacement";
 
 afterEach(() => vi.unstubAllGlobals());
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -155,4 +157,64 @@ it("keeps stop flags separate for reused node IDs on different boards", async ()
   expect(first.vocalAbortMapRef.current["same-source"]).toBe(false);
   expect(first.activeWorkspace?.id).toBe("A");
   await first.finishTask(); await second.finishTask();
+});
+
+it.each(["voiceClone", "voiceDesign", "gameVocal"] as const)("%s follows mid-job tidy/drag, fills deleted slots and keeps the live layout in the background", async type => {
+  const source = node("A", type);
+  if (type === "gameVocal") Object.assign(source.data, { autoTrimTail: false, selectedVocals: Array.from({ length: 4 }, (_, i) => ({ id: `v${i}`, categoryId: "attack", categoryTitle: "攻击", subcategoryId: "hit", subcategoryLabel: "命中", text: "Ha!" })) });
+  const h = harness(source);
+  const pending = type === "voiceClone" ? h.actions.runVoiceClone(source.id, 4) : type === "voiceDesign" ? h.actions.runVoiceDesign(source.id, 4) : h.actions.runGameVocalClone(source.id);
+  await vi.waitFor(() => expect(h.requests).toHaveLength(1));
+  h.requests[0].release(success()); await vi.waitFor(() => expect(h.requests).toHaveLength(2));
+  const initialResult = h.ctx.nodesRef.current.find(item => item.type === "artifact")!;
+  const positions = computeSmartDagLayout(h.ctx.nodesRef.current.map(item => ({ id: item.id, type: item.type!, ...getStudioNodeSize(item), originalX: item.position.x, originalY: item.position.y, seqIndex: item.data.seqIndex })), h.ctx.edgesRef.current);
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.map(item => ({ ...item, position: positions.get(item.id)! }));
+  const tidySlot = positions.get(initialResult.id)!;
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.filter(item => item.id !== initialResult.id);
+  h.ctx.edgesRef.current = [];
+  h.requests[1].release(success()); await vi.waitFor(() => expect(h.requests).toHaveLength(3));
+  const second = h.ctx.nodesRef.current.find(item => item.type === "artifact")!;
+  expect(second.position).toEqual(tidySlot); expect(second.data.seqIndex).toBe(2);
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.map(item => item.id === source.id ? { ...item, position: { x: 2000, y: 900 } } : item);
+  h.requests[2].release(success()); await vi.waitFor(() => expect(h.requests).toHaveLength(4));
+  const third = h.ctx.nodesRef.current.find(item => item.data.seqIndex === 3)!;
+  const liveSlot = { x: 2000 + getStudioNodeSize(source).width + 60, y: 900 };
+  expect(third.position).toEqual(liveSlot);
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.filter(item => item.type !== "artifact"); h.ctx.edgesRef.current = [];
+  h.switchTo("B"); h.requests[3].release(success()); await pending;
+  const saved = h.database.get("A")!, results = saved.nodes.filter(item => item.type === "artifact");
+  expect(results).toHaveLength(1); expect(results[0].data.seqIndex).toBe(4); expect(results[0].position).toEqual(liveSlot);
+  expect(saved.nodes.some(item => item.id === initialResult.id || item.id === second.id || item.id === third.id)).toBe(false);
+  expect(saved.edges).toHaveLength(1); expect(saved.edges[0].target).toBe(results[0].id);
+  expect(h.ctx.nodesRef.current).toEqual(board("B").nodes);
+});
+
+it.each(["batchVoiceClone", "batchVoiceDesign"] as const)("%s detects a deleted in-flight result card and creates only the new audio at its live position", async type => {
+  const source = node("A", type); source.data.batchRows = [{ id: "row", title: "行", instruction: "Clear", text: "Test" }];
+  const h = harness(source), pending = type === "batchVoiceClone" ? h.actions.runSingleRowBatchVoiceClone(source.id, "row") : h.actions.runSingleRowBatchVoiceDesign(source.id, "row");
+  await vi.waitFor(() => expect(h.requests).toHaveLength(1));
+  const deleted = h.ctx.nodesRef.current.find(item => item.type === "batchArtifact")!;
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.filter(item => item.id !== deleted.id).map(item => ({ ...item, position: { x: 2100, y: 700 } })); h.ctx.edgesRef.current = [];
+  h.switchTo("B"); h.requests[0].release(success()); await pending;
+  const saved = h.database.get("A")!, result = saved.nodes.find(item => item.type === "batchArtifact")!;
+  expect(result.id).not.toBe(deleted.id); expect(result.position).toEqual({ x: 2100 + getStudioNodeSize(source).width + 60, y: 700 });
+  expect(result.data.batchArtifacts).toHaveLength(1); expect(saved.edges[0].target).toBe(result.id);
+  expect(saved.nodes[0].data.singleRunningRowId).toBeUndefined(); expect(h.ctx.nodesRef.current).toEqual(board("B").nodes);
+});
+
+it.each(["batchVoiceClone", "batchVoiceDesign"] as const)("%s creates following rows from the current grid rather than the initial row ordinal", async type => {
+  const source = node("A", type); source.data.batchRows = ["one", "two"].map(id => ({ id, title: id, text: "Test", instruction: "Clear" }));
+  const h = harness(source), pending = type === "batchVoiceClone" ? h.actions.runBatchVoiceClone(source.id) : h.actions.runBatchVoiceDesign(source.id);
+  await vi.waitFor(() => expect(h.requests).toHaveLength(1));
+  const deleted = h.ctx.nodesRef.current.find(item => item.type === "batchArtifact")!;
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.filter(item => item.id !== deleted.id).map(item => ({ ...item, position: { x: 1800, y: 600 } })); h.ctx.edgesRef.current = [];
+  h.requests[0].release(success()); await vi.waitFor(() => expect(h.requests).toHaveLength(2));
+  const results = h.ctx.nodesRef.current.filter(item => item.type === "batchArtifact"), x = 1800 + getStudioNodeSize(source).width + 60;
+  expect(results.map(item => item.position)).toEqual([{ x, y: 600 }, { x: x + 500, y: 600 }]);
+  expect(results[0].data.batchArtifacts).toHaveLength(1);
+  h.ctx.nodesRef.current = h.ctx.nodesRef.current.filter(item => item.type !== "batchArtifact"); h.ctx.edgesRef.current = [];
+  h.switchTo("B"); h.requests[1].release(success()); await pending;
+  const saved = h.database.get("A")!, final = saved.nodes.filter(item => item.type === "batchArtifact");
+  expect(final).toHaveLength(1); expect(final[0].position).toEqual({ x, y: 600 }); expect(final[0].data.batchArtifacts).toHaveLength(1);
+  expect(saved.edges).toHaveLength(1); expect(saved.nodes[0].data.isRunning).toBe(false);
 });

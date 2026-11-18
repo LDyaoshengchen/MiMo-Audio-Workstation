@@ -1,6 +1,7 @@
 import type { AudiobookWorkspacePayload, AudiobookCharacter } from "../../types/studio";
 import { BookOpen, Loader2, BookPlus, FileAudio, Plus, Wand2, Trash2, AudioLines, Sparkles, Download, Play, RefreshCw } from "lucide-react";
 import { ProviderWorkflowNotice } from "../ProviderWorkflowNotice";
+import { StyledSelect } from "../StyledSelect";
 import { StudioAudioPlayer } from "../StudioAudioPlayer";
 import { createZipInstance, getUniqueFileName } from "../../utils/zipUtils";
 import { fetchAudioUint8Array } from "../../studio/audio";
@@ -369,16 +370,16 @@ export function AudiobookConsole({
           </div>
           <div className="manual-character-panel">
             <input value={characterName} onChange={(event) => setCharacterName(event.target.value)} placeholder="音色角色名称，如：主角 / 特邀主播A" />
-            <select value={characterRoleType} onChange={(event) => setCharacterRoleType(event.target.value as AudiobookCharacter["roleType"])}>
-              <option value="protagonist">主角</option>
-              <option value="supporting">配角</option>
-              <option value="narrator">旁白</option>
-              <option value="custom">自定义</option>
-            </select>
-            <select value={characterVoiceMode} onChange={(event) => setCharacterVoiceMode(event.target.value as AudiobookCharacter["voiceMode"])}>
-              <option value="designed">自然语言音色设计</option>
-              <option value="cloned">上传参考音频克隆</option>
-            </select>
+            <StyledSelect className="manual-character-select" value={characterRoleType} onValueChange={(value) => setCharacterRoleType(value as AudiobookCharacter["roleType"])} options={[
+              { value: "protagonist", label: "主角" },
+              { value: "supporting", label: "配角" },
+              { value: "narrator", label: "旁白" },
+              { value: "custom", label: "自定义" },
+            ]} />
+            <StyledSelect className="manual-character-select" value={characterVoiceMode} onValueChange={(value) => setCharacterVoiceMode(value as AudiobookCharacter["voiceMode"])} options={[
+              { value: "designed", label: "自然语言音色设计" },
+              { value: "cloned", label: "上传参考音频克隆" },
+            ]} />
             <input value={characterAliases} onChange={(event) => setCharacterAliases(event.target.value)} placeholder="别名/称呼，可用逗号分隔" />
             <textarea value={characterTraits} onChange={(event) => setCharacterTraits(event.target.value)} placeholder="性格、身份、声音特点" rows={2} />
             {characterVoiceMode === "designed" ? (
@@ -515,11 +516,7 @@ export function AudiobookConsole({
                   <p className="segment-text">{seg.text}</p>
                   {editingSegId === seg.id && (
                     <div className="segment-editor">
-                      <select value={editCharId} onChange={(e) => setEditCharId(e.target.value)}>
-                        {workspace.characters.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                      <StyledSelect className="segment-character-select" value={editCharId} placeholder="选择角色" onValueChange={setEditCharId} options={workspace.characters.map(character => ({ value: character.id, label: character.name }))} />
                       <input
                         type="text"
                         value={editEmotion}

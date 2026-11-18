@@ -14,9 +14,10 @@ import { createId } from "../../studio/format";
 import { memo, useState, useRef, ChangeEvent, useMemo } from "react";
 import { mergeAudioFiles, blobToDataUrl } from "../../studio/audio";
 import { parseTableText } from "../../studio/tableText";
-import { sanitizeFileName, getArtifactDownloadFileName, formatHierarchyName } from "../../utils/audioNaming";
+import { sanitizeFileName, formatHierarchyName } from "../../utils/audioNaming";
 import { useAudioZipExport } from "../../utils/useAudioZipExport";
 import { useAutoUpdateNodeInternals } from "../../studio/nodeInternals";
+import { getSingleArtifactDownloadFileName, getZipArchiveFileName } from "../../utils/downloadSettings";
 import { useStableEvent } from "../../utils/useStableEvent";
 import { type ProductReview } from "../../types/studioAudio";
 import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
@@ -77,6 +78,28 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
         patchRows([
           { id: createId("row"), title: "句段 1", instruction: "", text: "", artifacts: [] }
         ]);
+        setNodeConfirm(null);
+      },
+      onCancel: () => setNodeConfirm(null)
+    });
+  }
+
+  function handleClearRowNames() {
+    if (!rows.some((row) => Boolean(row.title?.trim()))) {
+      setPasteToast("「名字/标识」列已经是空的");
+      setTimeout(() => setPasteToast(null), 2000);
+      return;
+    }
+    setNodeConfirm({
+      title: "清空「名字/标识」",
+      message: "确定要清空所有行的「名字/标识」吗？文本、参考音频和已生成产物不会受影响。",
+      confirmLabel: "清空",
+      cancelLabel: "取消",
+      isDestructive: true,
+      onConfirm: () => {
+        patchRows(rows.map((row) => ({ ...row, title: "" })));
+        setPasteToast("✨ 已清空所有行的名字/标识！");
+        setTimeout(() => setPasteToast(null), 2500);
         setNodeConfirm(null);
       },
       onCancel: () => setNodeConfirm(null)
@@ -392,10 +415,10 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
   async function handleDownloadAllZip() {
     const folderName = sanitizeFileName(data.title || "全能工作台产物");
     const files = rows.flatMap(row => (row.artifacts || []).flatMap((item, index) => [{
-      name: folderName + "/" + getArtifactDownloadFileName(formatHierarchyName(data.title, row.title, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName),
+      name: folderName + "/" + getSingleArtifactDownloadFileName(formatHierarchyName(data.title, row.title, item.seqIndex ?? (index + 1)), item.fileName, data.workspaceName, item.createdAt, data.batchDownloadSettings),
       source: item.audioDataUrl
     }]));
-    await zipExport.download(files, folderName + ".zip");
+    await zipExport.download(files, `${getZipArchiveFileName(folderName, data.workspaceName, data.batchDownloadSettings)}.zip`);
   }
 
   const recordTimeStr = `${Math.floor(recordSec / 60).toString().padStart(2, "0")}:${(recordSec % 60).toString().padStart(2, "0")}`;
@@ -469,7 +492,10 @@ export const IntegratedStudioNode = memo(function IntegratedStudioNode({ id, dat
             <button type="button" className="integrated-mini-tool danger" onClick={handleClearRows} title="清空所有句段">
               <Trash2 size={12} /> 清空
             </button>
-            <RoleVoiceLibrary nodeId={id} data={data} />
+            <button type="button" className="integrated-mini-tool danger" onClick={handleClearRowNames} title="清空所有行的名字/标识">
+              <Trash2 size={12} /> 清空名字
+            </button>
+            <RoleVoiceLibrary nodeId={id} data={data} allowOfficialPresets />
           </div>
         </div>
 

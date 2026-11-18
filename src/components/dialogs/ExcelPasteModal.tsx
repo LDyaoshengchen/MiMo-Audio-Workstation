@@ -2,6 +2,7 @@ import type { BatchVoiceCloneRow } from "../../types/studioAudio";
 import { Table, X } from "lucide-react";
 import { createId } from "../../studio/format";
 import { parseTableText } from "../../studio/tableText";
+import { StyledSelect } from "../StyledSelect";
 import { useState, useMemo, useEffect, useRef } from "react";
 
 export function ExcelPasteModal({
@@ -196,18 +197,20 @@ export function ExcelPasteModal({
                         <th key={cIdx} style={{ verticalAlign: "top" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             <span>第 {cIdx + 1} 列</span>
-                            <select
-                              className="excel-col-select"
+                            <StyledSelect
+                              className="excel-col-select-wrapper"
+                              triggerClassName="excel-col-select"
                               value={colMap[cIdx] || "ignore"}
-                              onChange={(e) => handleColSelect(cIdx, e.target.value as "title" | "instruction" | "naturalControl" | "voiceStyle" | "text" | "ignore")}
-                            >
-                              <option value="instruction">音色描述词</option>
-                              <option value="naturalControl">自然语言控制 (角色/指导)</option>
-                              <option value="voiceStyle">语音风格 (导演文本/语气)</option>
-                              <option value="text">音频文本</option>
-                              <option value="title">名字 / 标识</option>
-                              <option value="ignore">❌ 忽略此列</option>
-                            </select>
+                              onValueChange={(value) => handleColSelect(cIdx, value as "title" | "instruction" | "naturalControl" | "voiceStyle" | "text" | "ignore")}
+                              options={[
+                                { value: "instruction", label: "音色描述词" },
+                                { value: "naturalControl", label: "自然语言控制 (角色/指导)" },
+                                { value: "voiceStyle", label: "语音风格 (导演文本/语气)" },
+                                { value: "text", label: "音频文本" },
+                                { value: "title", label: "名字 / 标识" },
+                                { value: "ignore", label: "❌ 忽略此列" },
+                              ]}
+                            />
                           </div>
                         </th>
                       ))}

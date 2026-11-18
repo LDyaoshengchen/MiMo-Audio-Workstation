@@ -1,13 +1,24 @@
 import { useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
 
-export function getSettingsPopoverPosition(anchor: { left:number; top:number; bottom:number }, width:number, height:number, viewportWidth:number, viewportHeight:number) {
+export function getSettingsPopoverPosition(anchor: { left:number; top:number; bottom:number; right?:number }, width:number, height:number, viewportWidth:number, viewportHeight:number) {
   const gutter=8, gap=6;
   const panelWidth=Math.min(width, Math.max(0, viewportWidth-gutter*2));
-  const left=Math.max(gutter, Math.min(anchor.left, viewportWidth-panelWidth-gutter));
-  let top=anchor.bottom+gap;
-  if(viewportHeight-top-gutter<160 && anchor.top>viewportHeight/2) top=Math.max(gutter,anchor.top-Math.min(height,anchor.top-gap-gutter)-gap);
-  top=Math.max(gutter,Math.min(top,viewportHeight-gutter));
-  return {left,top,width:panelWidth,maxHeight:Math.max(0,viewportHeight-top-gutter)};
+  const anchorRight=anchor.right ?? anchor.left;
+  const roomRight=viewportWidth-gutter-anchorRight-gap;
+  const roomLeft=anchor.left-gap-gutter;
+  const preferRight=(anchor.left+anchorRight)/2<viewportWidth/2;
+  const openRight=preferRight ? roomRight>=panelWidth || roomRight>=roomLeft : roomRight>roomLeft;
+  const desiredLeft=openRight ? anchorRight+gap : anchor.left-panelWidth-gap;
+  const left=Math.max(gutter, Math.min(desiredLeft, viewportWidth-panelWidth-gutter));
+  const roomBelow=Math.max(0,viewportHeight-anchor.bottom-gap-gutter);
+  const roomAbove=Math.max(0,anchor.top-gap-gutter);
+  const openAbove=roomBelow<height && roomAbove>roomBelow;
+  const availableHeight=openAbove ? roomAbove : roomBelow;
+  const visibleHeight=Math.min(height,availableHeight);
+  const maxHeight=Math.max(0,availableHeight);
+  const desiredTop=openAbove ? anchor.top-gap-visibleHeight : anchor.bottom+gap;
+  const top=Math.max(gutter,Math.min(desiredTop,viewportHeight-gutter-visibleHeight));
+  return {left,top,width:panelWidth,maxHeight};
 }
 
 export function useSettingsPopover(open:boolean, trigger:string | RefObject<HTMLElement | null>, panel:RefObject<HTMLElement | null>) {

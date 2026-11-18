@@ -10,8 +10,9 @@ import { NodeConfirmModal } from "../dialogs/NodeConfirmModal";
 import { StudioNodeFrame } from "./StudioNodeFrame";
 import { GenerationButtonText } from "../GenerationButtonText";
 import { RoleVoiceLibrary } from "../studio/RoleVoiceLibrary";
+import { StyledSelect } from "../StyledSelect";
 import { createId } from "../../studio/format";
-import { memo, useState, Fragment } from "react";
+import { memo, useState } from "react";
 import { parseTableText } from "../../studio/tableText";
 import { useAutoUpdateNodeInternals } from "../../studio/nodeInternals";
 
@@ -86,8 +87,33 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
     });
   }
 
-  function handleClearColumn(columnType: "style" | "text") {
-    if (columnType === "style") {
+  function handleClearColumn(columnType: "title" | "style" | "text") {
+    if (columnType === "style" && data.sharedBatchVoiceStyle !== undefined) {
+      data.onPatch?.(id, { sharedBatchVoiceStyle: "" });
+      return;
+    }
+    if (columnType === "title") {
+      const hasContent = rows.some((r) => Boolean(r.title?.trim()));
+      if (!hasContent) {
+        setPasteToast("「名字/标识」列已经是空的");
+        setTimeout(() => setPasteToast(null), 2000);
+        return;
+      }
+      setNodeConfirm({
+        title: "清空「名字/标识」",
+        message: "确定要清空所有行的「名字/标识」吗？音频文本和语音风格不会受影响。",
+        confirmLabel: "清空",
+        cancelLabel: "取消",
+        isDestructive: true,
+        onConfirm: () => {
+          patchRows(rows.map((r) => ({ ...r, title: "" })));
+          setPasteToast("✨ 已清空所有行的名字/标识！");
+          setTimeout(() => setPasteToast(null), 2500);
+          setNodeConfirm(null);
+        },
+        onCancel: () => setNodeConfirm(null)
+      });
+    } else if (columnType === "style") {
       const hasContent = rows.some((r) => Boolean((r.instruction || r.voiceStyle || "").trim()));
       if (!hasContent) {
         setPasteToast("「语音风格」列已经是空的");
@@ -331,11 +357,12 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
           <ClipboardPaste size={14} /> 📋 从 Excel / 表格一键粘贴...
         </button>
         <div className="clone-toolbar" style={{ marginTop: 0, padding: 0 }}>
-          <select
-            className="clone-preset-select"
+          <StyledSelect
+            className="clone-preset-wrapper"
+            triggerClassName="clone-preset-select"
             value=""
-            onChange={(e) => {
-              const val = e.target.value;
+            placeholder="🎮 角色预设"
+            onValueChange={(val) => {
               if (!val) return;
               if (val === "all_zh") {
                 const nextRows = GAME_CHARACTER_PRESETS.map((p, i) => ({
@@ -381,22 +408,16 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
               }
             }}
             title="选择游戏角色预设（官方支持多语种）"
-          >
-            <option value="">🎮 角色预设</option>
-            <optgroup label="🎮 官方多语种角色预设 (支持中/英/日/韩等语种)">
-              {GAME_CHARACTER_PRESETS.map((p) => (
-                <Fragment key={p.id}>
-                  <option value={`game_${p.id}_zh`}>{p.avatar} {p.nameZh} (中)</option>
-                  <option value={`game_${p.id}_en`}>{p.avatar} {p.nameZh} (英)</option>
-                </Fragment>
-              ))}
-            </optgroup>
-            <optgroup label="⚡ 一键整套载入">
-              <option value="all_zh">🌟 一键载入全套 8 位角色 (中文对白)</option>
-              <option value="all_en">🌟 一键载入全套 8 位角色 (English 对白)</option>
-            </optgroup>
-          </select>
-          <RoleVoiceLibrary nodeId={id} data={data} />
+            options={[
+              ...GAME_CHARACTER_PRESETS.flatMap(p => [
+                { value: `game_${p.id}_zh`, label: `${p.avatar} ${p.nameZh} (中)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+                { value: `game_${p.id}_en`, label: `${p.avatar} ${p.nameZh} (英)`, group: "🎮 官方多语种角色预设（支持中/英/日/韩等语种）" },
+              ]),
+              { value: "all_zh", label: "🌟 一键载入全套 8 位角色 (中文对白)", group: "⚡ 一键整套载入" },
+              { value: "all_en", label: "🌟 一键载入全套 8 位角色 (English 对白)", group: "⚡ 一键整套载入" },
+            ]}
+          />
+          <RoleVoiceLibrary nodeId={id} data={data} allowOfficialPresets />
         </div>
         <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
           {data.isRunning ? (
@@ -431,11 +452,28 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
       ) : null}
 
       <div className="batch-table-header nodrag">
-        <div className="batch-col-meta">
-          <span>音频克隆</span>
+        <div className="batch-col-meta batch-col-header-cell">
+          <span className="batch-col-header-title">音频克隆</span>
+          <button
+            type="button"
+            className="batch-col-clear-btn"
+            onClick={() => handleClearColumn("title")}
+            title="一键清空整列「名字/标识」"
+          >
+            <Trash2 size={10} />
+            <span>清空</span>
+          </button>
         </div>
         <div className="batch-col-style batch-col-header-cell">
           <span className="batch-col-header-title">语音风格</span>
+          <button type="button" className="batch-col-clear-btn" aria-pressed={data.sharedBatchVoiceStyle !== undefined}
+            onClick={() => data.onPatch?.(id, {
+              sharedBatchVoiceStyle: data.sharedBatchVoiceStyle === undefined
+                ? rows.map(row => (row.instruction || row.voiceStyle || "").trim()).find(Boolean) ?? ""
+                : undefined
+            })}>
+            {data.sharedBatchVoiceStyle === undefined ? "合并" : "拆分"}
+          </button>
           <button
             type="button"
             className="batch-col-clear-btn"
@@ -461,6 +499,11 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
         <div className="batch-col-action">操作</div>
       </div>
 
+      {data.sharedBatchVoiceStyle !== undefined && <div className="batch-row-style-col nodrag">
+        <textarea className="nodrag nopan nowheel" aria-label="共享语音风格"
+          placeholder="输入所有句段共用的语音风格…" rows={2} value={data.sharedBatchVoiceStyle}
+          onChange={event => data.onPatch?.(id, { sharedBatchVoiceStyle: event.target.value })} />
+      </div>}
       <div className={`batch-row-list nodrag ${draggedIndex !== null ? "is-dragging-active" : ""}`}>
         {rows.map((row, index) => (
           <div
@@ -542,7 +585,7 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
               />
             </div>
 
-            <div className="batch-row-style-col">
+            {data.sharedBatchVoiceStyle === undefined && <div className="batch-row-style-col">
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.instruction}
@@ -553,9 +596,9 @@ export const BatchVoiceCloneNode = memo(function BatchVoiceCloneNode({ id, data 
                 rows={2}
                 placeholder="输入语音风格 (导演文本)..."
               />
-            </div>
+            </div>}
 
-            <div className="batch-row-text-col">
+            <div className="batch-row-text-col" style={data.sharedBatchVoiceStyle !== undefined ? { gridColumn: "2 / 4" } : undefined}>
               <textarea
                 className="nodrag nopan nowheel"
                 value={row.text}

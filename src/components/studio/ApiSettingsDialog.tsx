@@ -6,6 +6,9 @@ import { API_PROVIDERS } from "../../studio/config";
 import { X, Key, Sparkles } from "lucide-react";
 import { ProviderSettingsFields } from "../ProviderSettingsFields";
 import { normalizeProviderOptions } from "../../utils/providerConfig";
+import { VolcengineTools } from "../VolcengineTools";
+import { MiniMaxTools } from "../MiniMaxTools";
+import { buildApiHeaders } from "../../utils/audioNaming";
 
 export interface ApiSettingsDialogProps {
   showApiKeyModal: boolean;
@@ -87,7 +90,7 @@ export function ApiSettingsDialog({
                     onClick={() => {
                       setApiProviderInput(p.id);
                       setApiKeyInput("");
-                      setProviderOptionsInput(normalizeProviderOptions({ synthesisMode: p.capabilities.instantClone ? "reference" : "preset" }));
+                      setProviderOptionsInput(normalizeProviderOptions({ synthesisMode: p.id === "volcengine" ? "preset" : p.capabilities.instantClone ? "reference" : "preset" }));
                       if (p.endpoint) {
                         setApiEndpointInput(p.endpoint);
                       }
@@ -182,6 +185,10 @@ export function ApiSettingsDialog({
             </div>
           </div>
           <ProviderSettingsFields provider={apiProviderInput} options={providerOptionsInput} error={settingsError} onChange={setProviderOptionsInput} />
+          {apiProviderInput === "minimax" && <MiniMaxTools options={providerOptionsInput} onChange={setProviderOptionsInput} headers={buildApiHeaders({ apiProvider: "minimax", apiKey: apiKeyInput.trim() })} />}
+          {apiProviderInput === "volcengine" && <VolcengineTools options={providerOptionsInput} onChange={setProviderOptionsInput}
+            headers={buildApiHeaders({ apiProvider: "volcengine", apiKey: apiKeyInput.trim(), appId: providerOptionsInput.appId,
+              accessToken: providerOptionsInput.accessToken, volcengine: providerOptionsInput.volcengine })} />}
         </div>
 
         <div className="api-key-modal-footer">

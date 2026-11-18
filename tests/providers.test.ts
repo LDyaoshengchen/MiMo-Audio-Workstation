@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import http from "node:http";
 import {
   getProviderAdapter,
@@ -17,7 +17,7 @@ describe("Provider Adapters & Capabilities", () => {
     const caps = getAllProviderCapabilities();
     expect(caps.mimo.capabilities.voiceDesign).toBe(true);
     expect(caps.mimo.capabilities.instantClone).toBe(true);
-    expect(caps.mimo.capabilities.presetTTS).toBe(false);
+    expect(caps.mimo.capabilities.presetTTS).toBe(true);
 
     expect(caps.siliconflow.capabilities.presetTTS).toBe(true);
     expect(caps.siliconflow.capabilities.instantClone).toBe(true);
@@ -39,8 +39,8 @@ describe("Provider Adapters & Capabilities", () => {
 
     expect(caps.volcengine.capabilities.presetTTS).toBe(true);
     expect(caps.volcengine.capabilities.trainedClone).toBe(true);
-    expect(caps.volcengine.capabilities.voiceDesign).toBe(false);
-    expect(caps.volcengine.capabilities.instantClone).toBe(false);
+    expect(caps.volcengine.capabilities.voiceDesign).toBe(true);
+    expect(caps.volcengine.capabilities.instantClone).toBe(true);
   });
 
   it("should retrieve proper adapter instance by ID with fallback", () => {
@@ -84,15 +84,44 @@ describe("MiMo Adapter Protocol & Restrictions", () => {
       )
     ).rejects.toThrow("参考音频体积过大（最大允许 7.5MB）");
   });
+
+  it("synthesizes official preset voices with the dedicated MiMo TTS model", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ choices: [{ message: { audio: { data: Buffer.from("wav").toString("base64") } } }] }), { status: 200 }));
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await mimo.synthesizeVoiceClone({ text: "Hello", voiceId: "Chloe" }, { apiKey: "test-key" });
+      const payload = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+      expect(payload.model).toBe("mimo-v2.5-tts");
+      expect(payload.audio.voice).toBe("Chloe");
+      expect(payload.messages).toEqual([{ role: "assistant", content: "Hello" }]);
+      const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+      expect(headers["api-key"]).toBe("test-key");
+      expect(headers.Authorization).toBeUndefined();
+      expect(AbortSignal.timeout).toHaveBeenCalledWith(120_000);
+    } finally { vi.unstubAllGlobals(); timeoutSpy.mockRestore(); }
+  });
+
+  it("retries a rate-limited request with bounded backoff and succeeds", async () => {
+    const success = new Response(JSON.stringify({ choices: [{ message: { audio: { data: Buffer.from("wav").toString("base64") } } }] }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "rate limited" } }), { status: 429, headers: { "retry-after": "0.001" } }))
+      .mockResolvedValueOnce(success);
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await mimo.synthesizeVoiceClone({ text: "Hello", voiceId: "Chloe" }, { apiKey: "test-key" });
+      expect(result.audioBuffer).toEqual(Buffer.from("wav"));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
 });
 
 describe("Explicit Unsupported Features Handling", () => {
-  it("SiliconFlow, FishAudio, ElevenLabs, OpenAI, and Volcengine should explicitly throw on VoiceDesign", async () => {
+  it("unsupported providers should explicitly throw on VoiceDesign", async () => {
     const silicon = new SiliconFlowAdapter();
     const fish = new FishAudioAdapter();
     const eleven = new ElevenLabsAdapter();
     const openai = new OpenAIAdapter();
-    const volc = new VolcengineAdapter();
 
     const dummyDesign = { text: "测试", voiceDescription: "温柔女声" };
     const dummyCtx = { apiKey: "key" };
@@ -101,7 +130,6 @@ describe("Explicit Unsupported Features Handling", () => {
     await expect(fish.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂不支持自然语言提示词音色设计");
     await expect(eleven.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂未接入本项目");
     await expect(openai.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("仅支持 6 种预置声音");
-    await expect(volc.synthesizeVoiceDesign(dummyDesign, dummyCtx)).rejects.toThrow("暂不支持自然语言提示词音色设计");
   });
 
   it("Custom Adapter should throw on invalid protocol declaration", async () => {

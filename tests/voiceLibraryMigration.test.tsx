@@ -22,6 +22,7 @@ it('shows migration ETA on the right and refreshes assets and Unicode location w
     running=false;await act(async()=>vi.advanceTimersByTimeAsync(800));
     expect(document.querySelector('.voice-library-migration')).toBeNull();
     expect(document.querySelector('.voice-library-error')).toBeNull();
+    await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="展开分组 未分组"]')?.click());
     expect(document.querySelector('.voice-library-list')?.textContent).toContain('迁移后的角色');
     expect(document.querySelector('.voice-library-location')?.textContent).toContain('D:\\中文目录\\role-voice-library');
   }finally{await act(async()=>root.unmount());host.remove();vi.useRealTimers();vi.unstubAllGlobals();}

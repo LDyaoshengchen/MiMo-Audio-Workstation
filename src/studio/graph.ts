@@ -3,6 +3,7 @@ import type { StudioNode, StudioEdge, DebugResponse } from "../types/studio";
 import { createId } from "./format";
 import { getAudioFileExtension } from "../utils/audioNaming";
 import { guessMimeFromName, dataUrlToUint8Array } from "./audio";
+import { findArtifactPosition } from "./artifactPlacement";
 
 export function ensureArtifactSeqIndexes(node: StudioNode, allNodes?: StudioNode[], allEdges?: StudioEdge[]): StudioNode {
   let nodeMutated = false;
@@ -118,8 +119,9 @@ export function resolveCloneInputs(cloneNode: StudioNode, nodes: StudioNode[], e
 
   // 1. 优先从连接到 voice 的上游节点中获取第一个有有效音频数据的节点（自动跳过空参考音频节点）
   const voiceSources = getSources("voice");
+  const presetSource = voiceSources.find(src => src.type === "referenceAudio" && !!src.data.voiceId && (src.data.voiceAssetMode === "preset" || !!src.data.assetProvider));
   let voiceAudio: AudioAsset | undefined;
-  for (const src of voiceSources) {
+  for (const src of presetSource ? [] : voiceSources) {
     const asset = extractAudioAssetFromNode(src);
     if (asset && asset.dataUrl) {
       voiceAudio = asset;
@@ -128,7 +130,7 @@ export function resolveCloneInputs(cloneNode: StudioNode, nodes: StudioNode[], e
   }
 
   // 2. 如果 voice 未找到有效音频，从所有已连接到当前节点的上游节点（产物节点、参考节点等）自动寻找有效音频
-  if (!voiceAudio) {
+  if (!presetSource && !voiceAudio) {
     const allSources = getSources();
     for (const src of allSources) {
       const asset = extractAudioAssetFromNode(src);
@@ -160,7 +162,10 @@ export function resolveCloneInputs(cloneNode: StudioNode, nodes: StudioNode[], e
   }
 
   return {
-    audio: voiceAudio ?? cloneNode.data.audio,
+    audio: presetSource ? undefined : voiceAudio ?? cloneNode.data.audio,
+    voiceId: presetSource?.data.voiceId,
+    assetProvider: presetSource?.data.assetProvider,
+    voiceAssetMode: presetSource?.data.voiceAssetMode,
     instruction: instructionText || (cloneNode.data.instruction ?? ""),
     text: text || (cloneNode.data.text ?? "")
   };
@@ -175,6 +180,9 @@ export function resolveGameVocalInputs(
   sourceTitle?: string;
   sourceNodeType?: string;
   instruction?: string;
+  voiceId?: string;
+  assetProvider?: string;
+  voiceAssetMode?: "preset";
 } {
   const incoming = edges.filter((edge) => edge.target === vocalNode.id);
   const getSources = (targetHandle?: string) => {
@@ -190,7 +198,9 @@ export function resolveGameVocalInputs(
   let sourceNodeType: string | undefined;
 
   const voiceSources = getSources("voice");
+  const presetSource = voiceSources.find(src => src.type === "referenceAudio" && !!src.data.voiceId && (src.data.voiceAssetMode === "preset" || !!src.data.assetProvider));
   for (const src of voiceSources) {
+    if (presetSource) break;
     const asset = extractAudioAssetFromNode(src);
     if (asset && asset.dataUrl) {
       voiceAudio = asset;
@@ -201,7 +211,7 @@ export function resolveGameVocalInputs(
   }
 
   // 2. 如果未指定 targetHandle="voice"，从所有连接到当前节点的上游节点（自动排除纯文本节点）寻找有效音频
-  if (!voiceAudio) {
+  if (!presetSource && !voiceAudio) {
     const allSources = getSources();
     for (const src of allSources) {
       if (src.type === "voiceStyle" || src.type === "prompt") continue;
@@ -226,7 +236,10 @@ export function resolveGameVocalInputs(
   }
 
   return {
-    audio: voiceAudio ?? vocalNode.data.audio,
+    audio: presetSource ? undefined : voiceAudio ?? vocalNode.data.audio,
+    voiceId: presetSource?.data.voiceId,
+    assetProvider: presetSource?.data.assetProvider,
+    voiceAssetMode: presetSource?.data.voiceAssetMode,
     sourceTitle,
     sourceNodeType,
     instruction: instructionText || vocalNode.data.instruction || ""
@@ -276,36 +289,29 @@ export function resolveVoiceDesignInstructionInputs(designNode: StudioNode, node
     .filter(Boolean);
 }
 
+export function getNextArtifactSequence(sourceId: string, nodes: StudioNode[] = [], edges: StudioEdge[] = []) {
+  const targets = new Set(edges.filter(edge => edge.source === sourceId).map(edge => edge.target));
+  return nodes.reduce((max, node) => {
+    if (node.type !== "artifact" || !targets.has(node.id)) return max;
+    const sequence = node.data.seqIndex || Number(node.data.title?.match(/_(\d+)$/)?.[1]) || 0;
+    return Math.max(max, sequence);
+  }, 0) + 1;
+}
+
 export function createArtifactNode(
   sourceNode: StudioNode,
   result: DebugResponse,
   _title?: string,
   index: number = 0,
   currentNodes?: StudioNode[],
-  currentEdges?: StudioEdge[]
+  currentEdges?: StudioEdge[],
+  minimumSequence = 1
 ): StudioNode {
   const rawTitle = sourceNode.data.title?.trim();
   const defaultTitle = sourceNode.type === "voiceDesign" ? "音色设计" : sourceNode.type === "gameVocal" ? "游戏语气词" : "音频克隆";
   const sourceTitle = (rawTitle && rawTitle !== "节点名称") ? rawTitle : defaultTitle;
 
-  let initialMaxSeq = 0;
-  if (currentNodes && currentEdges) {
-    const downstreamArtifactNodes = currentNodes.filter(
-      (n) => n.type === "artifact" && currentEdges.some((e) => e.source === sourceNode.id && e.target === n.id)
-    );
-    downstreamArtifactNodes.forEach((n) => {
-      if (n.data.seqIndex) {
-        initialMaxSeq = Math.max(initialMaxSeq, n.data.seqIndex);
-      } else if (n.data.title) {
-        const match = n.data.title.match(/_(\d+)$/);
-        if (match) {
-          initialMaxSeq = Math.max(initialMaxSeq, parseInt(match[1], 10));
-        }
-      }
-    });
-  }
-
-  const seqNum = initialMaxSeq + index + 1;
+  const seqNum = Math.max(getNextArtifactSequence(sourceNode.id, currentNodes, currentEdges) + index, minimumSequence);
 
   const itemIndexStr = String(seqNum).padStart(2, "0");
   const detailTitle = _title?.trim();
@@ -313,23 +319,14 @@ export function createArtifactNode(
   const artifactTitle = `${baseTitle}_${itemIndexStr}`.replace(/_产物_(\d+)$/, "_$1");
   const artifactFileName = `${artifactTitle}${getAudioFileExtension(result.audioDataUrl, result.fileName)}`;
 
-  const nodeWidth = (sourceNode.type === "gameVocal" || sourceNode.type === "batchVoiceClone" || sourceNode.type === "integratedStudio") ? 660 : 360;
-  const col = (seqNum - 1) % 3;
-  const rowPos = Math.floor((seqNum - 1) / 3);
-  const stepX = 400;
-  const stepY = 205;
-  const startX = sourceNode.position.x + nodeWidth + 60;
-
   return {
     id: createId("artifact"),
     type: "artifact",
-    position: {
-      x: startX + col * stepX,
-      y: sourceNode.position.y + rowPos * stepY
-    },
+    position: findArtifactPosition(sourceNode, currentNodes || [sourceNode], currentEdges || []),
     data: {
       title: artifactTitle,
       seqIndex: seqNum,
+        ...(result.voiceId ? { voiceId: result.voiceId, assetProvider: result.assetProvider } : {}),
       artifact: {
         fileName: artifactFileName,
         audioDataUrl: result.audioDataUrl,
@@ -343,6 +340,6 @@ export function createArtifactNode(
 }
 
 export function stripNodeCallbacks(node: StudioNode): StudioNode {
-  const { workspaceName, singleDownloadSettings, stashedArtifactKeys, onPatch, onDelete, onRunClone, onRunVoiceDesign, onRunAudioMerge, onOptimizeStyle, onOptimizeVoiceDesign, onStashArtifact, onToggleStashArtifact, isArtifactStashed, ...data } = node.data;
+  const { workspaceName, singleDownloadSettings, batchDownloadSettings, stashedArtifactKeys, onPatch, onDelete, onRunClone, onRunVoiceDesign, onRunAudioMerge, onOptimizeStyle, onOptimizeVoiceDesign, onStashArtifact, onToggleStashArtifact, isArtifactStashed, ...data } = node.data;
   return { ...node, data };
 }

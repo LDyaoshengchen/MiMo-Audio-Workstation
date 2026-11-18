@@ -6,6 +6,7 @@ import { Palette, X, Monitor, Sun, Moon, RotateCcw, ChevronDown } from "lucide-r
 import { lightPresets, darkPresets } from "../../studio/theme";
 import { ThemePalettePreview } from "../ThemePalettePreview";
 import { NodePaletteSettings } from "../NodePaletteSettings";
+import { StyledSelect } from "../StyledSelect";
 
 export interface AppearanceSettingsDialogProps {
   showAppearanceModal: boolean;
@@ -184,23 +185,17 @@ export function AppearanceSettingsDialog({
                   >
                     <RotateCcw size={14} />
                   </button>
-                  <select
-                    className="appearance-select-control"
-                    aria-label="浅色主题预设"
+                  <StyledSelect
+                    className="appearance-select-wrapper"
+                    triggerClassName="appearance-select-control"
+                    ariaLabel="浅色主题预设"
                     value={themeConfig.lightTheme.preset}
-                    onChange={(e) => {
-                      const nextPreset = e.target.value;
+                    onValueChange={nextPreset => {
                       updateLightThemePreset(nextPreset);
-                      if (nextPreset === "custom") {
-                        setShowLightCustomColors(true);
-                      }
+                      if (nextPreset === "custom") setShowLightCustomColors(true);
                     }}
-                  >
-                    {Object.entries(lightPresets).map(([key, p]) => (
-                      <option key={key} value={key}>{p.label}</option>
-                    ))}
-                    <option value="custom">自定义</option>
-                  </select>
+                    options={[...Object.entries(lightPresets).map(([key, preset]) => ({ value: key, label: preset.label })), { value: "custom", label: "自定义" }]}
+                  />
                 </div>
               </div>
 
@@ -310,23 +305,17 @@ export function AppearanceSettingsDialog({
                   >
                     <RotateCcw size={14} />
                   </button>
-                  <select
-                    className="appearance-select-control"
-                    aria-label="深色主题预设"
+                  <StyledSelect
+                    className="appearance-select-wrapper"
+                    triggerClassName="appearance-select-control"
+                    ariaLabel="深色主题预设"
                     value={themeConfig.darkTheme.preset}
-                    onChange={(e) => {
-                      const nextPreset = e.target.value;
+                    onValueChange={nextPreset => {
                       updateDarkThemePreset(nextPreset);
-                      if (nextPreset === "custom") {
-                        setShowDarkCustomColors(true);
-                      }
+                      if (nextPreset === "custom") setShowDarkCustomColors(true);
                     }}
-                  >
-                    {Object.entries(darkPresets).map(([key, p]) => (
-                      <option key={key} value={key}>{p.label}</option>
-                    ))}
-                    <option value="custom">自定义</option>
-                  </select>
+                    options={[...Object.entries(darkPresets).map(([key, preset]) => ({ value: key, label: preset.label })), { value: "custom", label: "自定义" }]}
+                  />
                 </div>
               </div>
 

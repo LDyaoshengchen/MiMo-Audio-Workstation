@@ -13,7 +13,8 @@ import { appendSynthesisInputs, getAssetVoiceId } from "../utils/providerConfig"
 import { scopeNodeTask, beginNodeTask, taskWorkspaceId } from "./taskScope";
 import type { WorkspaceTaskStore } from "./workspaceTasks";
 import { resolveIntegratedReference } from "./integratedReference";
-import { resolveMergeAudioInputs, resolveCloneInputs, resolveCloneTextInputs, createArtifactNode, resolveVoiceDesignInstructionInputs, resolveVoiceDesignInputs, resolveGameVocalInputs } from "./graph";
+import { resolveMergeAudioInputs, resolveCloneInputs, resolveCloneTextInputs, createArtifactNode, getNextArtifactSequence, resolveVoiceDesignInstructionInputs, resolveVoiceDesignInputs, resolveGameVocalInputs } from "./graph";
+import { findArtifactPosition } from "./artifactPlacement";
 
 export interface SynthesisActionsContext {
   nodesRef: RefObject<StudioNode[]>;
@@ -47,6 +48,27 @@ export function createSynthesisActions(getContext: () => SynthesisActionsContext
 }
 
 function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContext) {
+  function appendGeneratedArtifact(sourceId: string, payload: DebugResponse, title: string | undefined, nextSequence: number, color: string) {
+    const { nodesRef, edgesRef } = getContext();
+    const source = nodesRef.current.find(node => node.id === sourceId);
+    if (!source) return nextSequence;
+    const artifact = createArtifactNode(source, payload, title, 0, nodesRef.current, edgesRef.current, nextSequence);
+    // Persist each result immediately, but do not hold up the next synthesis request on disk I/O.
+    void appendLiveArtifact(artifact, { id: createId("edge"), source: sourceId, sourceHandle: "output", target: artifact.id, targetHandle: "artifact", type: "deletable", animated: true, style: { stroke: color, strokeWidth: 2 } });
+    return artifact.data.seqIndex! + 1;
+  }
+  function ensureBatchArtifactNode(sourceId: string, rowId: string, title: string) {
+    const { nodesRef, edgesRef, setNodes, setEdges, activeWorkspace } = getContext();
+    const source = nodesRef.current.find(node => node.id === sourceId);
+    if (!source) return;
+    const existing = nodesRef.current.find(node => node.type === "batchArtifact" && node.data.batchRowId === rowId && edgesRef.current.some(edge => edge.source === sourceId && edge.target === node.id));
+    if (existing) return existing;
+    const artifact: StudioNode = { id: createId("batch_artifact"), type: "batchArtifact", position: findArtifactPosition(source, nodesRef.current, edgesRef.current, "batchArtifact"), data: { title, parentTitle: source.data.title?.trim() || "批量节点", batchRowId: rowId, batchArtifacts: [], workspaceName: activeWorkspace?.name } };
+    const edge: StudioEdge = { id: createId("edge"), source: sourceId, sourceHandle: "output", target: artifact.id, targetHandle: "artifact", type: "deletable", animated: true, style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 } };
+    nodesRef.current = [...nodesRef.current, artifact]; edgesRef.current = [...edgesRef.current, edge];
+    setNodes(nodesRef.current); setEdges(edgesRef.current);
+    return artifact;
+  }
   async function appendLiveArtifact(artifactNode: StudioNode, artifactEdge: StudioEdge) {
     const { nodesRef, edgesRef, setNodes, setEdges, saveWorkspace } = getContext();
     const nextNodes = [...nodesRef.current, artifactNode];
@@ -69,6 +91,9 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     patchNode(nodeId, { isRunning: true, error: undefined });
     try {
       const audio = await mergeAudioAssets(audioAssets);
+      const latestMergeNode = nodesRef.current.find(node => node.id === nodeId && node.type === "audioMerge");
+      const latestInputs = latestMergeNode ? resolveMergeAudioInputs(latestMergeNode, nodesRef.current, edgesRef.current) : [];
+      if (latestInputs.length !== audioAssets.length || latestInputs.some((asset, index) => asset !== audioAssets[index])) return;
       if (audio.size > maxAudioBytes) {
         throw new Error(`整合后的音频超过 ${formatBytes(maxAudioBytes)}，请减少输入音频或缩短时长。`);
       }
@@ -96,7 +121,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     }
 
     const resolved = resolveCloneInputs(cloneNode, initialNodes, initialEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !cloneNode.data.voiceId && !resolved.audio?.dataUrl) {
+    const resolvedVoiceAssetMode = resolved.voiceAssetMode ?? cloneNode.data.voiceAssetMode;
+    if (providerOptionsRef.current.synthesisMode === "reference" && resolvedVoiceAssetMode !== "preset" && !resolved.voiceId && !cloneNode.data.voiceId && !resolved.audio?.dataUrl) {
       patchNode(nodeId, { error: "缺少参考音频，请连接参考音频节点或在节点中上传。" });
       return;
     }
@@ -114,12 +140,13 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
 
     try {
       const totalRuns = count > 1 ? count : validTextItems.length;
+      let nextSequence = getNextArtifactSequence(nodeId, initialNodes, initialEdges);
       patchNode(nodeId, { generationProgress: { completed: 0, total: totalRuns } });
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
         const item = validTextItems[runIdx % validTextItems.length];
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(cloneNode.data, getApiHeaders(false)));
+        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId({ voiceId: resolved.voiceId ?? cloneNode.data.voiceId, assetProvider: resolved.assetProvider ?? cloneNode.data.assetProvider }, getApiHeaders(false)), resolvedVoiceAssetMode);
         formData.append("text", item.text.trim());
         formData.append("instruction", resolved.instruction.trim());
         formData.append("format", "wav");
@@ -137,20 +164,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           return;
         }
 
-        const artifactNode = createArtifactNode(cloneNode, payload, item.title, runIdx, initialNodes, initialEdges);
-        const artifactEdge: StudioEdge = {
-          id: createId("edge"),
-          source: cloneNode.id,
-          sourceHandle: "output",
-          target: artifactNode.id,
-          targetHandle: "artifact",
-          type: "deletable",
-          animated: true,
-          style: { stroke: "#facc15", strokeWidth: 2 }
-        };
-
         patchNode(nodeId, { generationProgress: { completed: runIdx + 1, total: totalRuns } });
-        await appendLiveArtifact(artifactNode, artifactEdge);
+        nextSequence = appendGeneratedArtifact(nodeId, payload, item.title, nextSequence, "#facc15");
       }
 
       const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
@@ -248,7 +263,7 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
         }
 
         const formData = new FormData();
-        await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId);
+        await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId, reference.voiceAssetMode);
         formData.append("text", row.text.trim());
         formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
         formData.append("format", "wav");
@@ -345,7 +360,7 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
 
     try {
       const formData = new FormData();
-      await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId);
+      await appendSynthesisInputs(formData, reference.options, reference.audio, reference.voiceId, reference.voiceAssetMode);
       formData.append("text", row.text.trim());
       formData.append("instruction", (row.instruction || row.voiceStyle || "").trim());
       formData.append("format", "wav");
@@ -417,7 +432,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     }
 
     const resolved = resolveCloneInputs(batchNode, currentNodes, currentEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !batchNode.data.voiceId && !resolved.audio) {
+    const resolvedVoiceAssetMode = resolved.voiceAssetMode ?? batchNode.data.voiceAssetMode;
+    if (providerOptionsRef.current.synthesisMode === "reference" && resolvedVoiceAssetMode !== "preset" && !resolved.voiceId && !batchNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "批量音频克隆节点需要连接一个参考音频或音频整合节点。" });
       return;
     }
@@ -436,56 +452,13 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
         patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         const rowArtifactTitle = row.title.trim() || `句段 ${index + 1}`;
 
-        let rowArtifactNode = nodesRef.current.find(
-          (n) => n.type === "batchArtifact" && n.data.batchRowId === row.id && edgesRef.current.some((e) => e.source === nodeId && e.target === n.id)
-        );
-
-        if (!rowArtifactNode) {
-          const col = index % 3;
-          const rowPos = Math.floor(index / 3);
-          const stepX = 500;
-          const stepY = 500;
-          const startX = batchNode.position.x + 680;
-
-          const newArtifactNode: StudioNode = {
-            id: createId("batch_artifact"),
-            type: "batchArtifact",
-            position: {
-              x: startX + col * stepX,
-              y: batchNode.position.y + rowPos * stepY
-            },
-            data: {
-              title: rowArtifactTitle,
-              parentTitle: batchNode.data.title?.trim() || "批量节点",
-              batchRowId: row.id,
-              batchArtifacts: [],
-              workspaceName: activeWorkspace?.name
-            }
-          };
-          const newEdge: StudioEdge = {
-            id: createId("edge"),
-            source: nodeId,
-            sourceHandle: "output",
-            target: newArtifactNode.id,
-            targetHandle: "artifact",
-            type: "deletable",
-            animated: true,
-            style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
-          };
-
-          nodesRef.current = nodesRef.current.concat(newArtifactNode);
-          edgesRef.current = edgesRef.current.concat(newEdge);
-          setNodes(nodesRef.current);
-          setEdges(edgesRef.current);
-          rowArtifactNode = newArtifactNode;
-        }
-
-        const targetArtifactNodeId = rowArtifactNode.id;
+        let targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+        if (!targetArtifactNodeId) return;
 
         const formData = new FormData();
-        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(batchNode.data, getApiHeaders(false)));
+        await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId({ voiceId: resolved.voiceId ?? batchNode.data.voiceId, assetProvider: resolved.assetProvider ?? batchNode.data.assetProvider }, getApiHeaders(false)), resolvedVoiceAssetMode);
         formData.append("text", row.text.trim());
-        formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
+        formData.append("instruction", (batchNode.data.sharedBatchVoiceStyle ?? (row.instruction || resolved.instruction || "")).trim());
         formData.append("format", "wav");
         formData.append("title", rowArtifactTitle);
 
@@ -501,6 +474,10 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           patchNode(nodeId, { isRunning: false, error: payload.error || `行「${row.title || `句段 ${index + 1}`}」克隆失败。` });
           return;
         }
+
+        // A result card can be deleted while the request is in flight; keep only this new result.
+        targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+        if (!targetArtifactNodeId) return;
 
         const intermediateNodes = nodesRef.current.map((n) => {
           if (n.id === targetArtifactNodeId) {
@@ -562,7 +539,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     }
 
     const resolved = resolveCloneInputs(batchNode, currentNodes, currentEdges);
-    if (providerOptionsRef.current.synthesisMode === "reference" && !batchNode.data.voiceId && !resolved.audio) {
+    const resolvedVoiceAssetMode = resolved.voiceAssetMode ?? batchNode.data.voiceAssetMode;
+    if (providerOptionsRef.current.synthesisMode === "reference" && resolvedVoiceAssetMode !== "preset" && !resolved.voiceId && !batchNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "批量音频克隆节点需要连接一个参考音频或音频整合节点。" });
       return;
     }
@@ -580,57 +558,13 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     try {
       const rowArtifactTitle = row.title.trim() || `句段 ${rowIndex >= 0 ? rowIndex + 1 : 1}`;
 
-      let rowArtifactNode = currentNodes.find(
-        (n) => n.type === "batchArtifact" && n.data.batchRowId === row.id && currentEdges.some((e) => e.source === nodeId && e.target === n.id)
-      );
-
-      if (!rowArtifactNode) {
-        const itemIdx = rowIndex >= 0 ? rowIndex : 0;
-        const col = itemIdx % 3;
-        const rowPos = Math.floor(itemIdx / 3);
-        const stepX = 500;
-        const stepY = 500;
-        const startX = batchNode.position.x + 680;
-
-        const newArtifactNode: StudioNode = {
-          id: createId("batch_artifact"),
-          type: "batchArtifact",
-          position: {
-            x: startX + col * stepX,
-            y: batchNode.position.y + rowPos * stepY
-          },
-          data: {
-            title: rowArtifactTitle,
-            parentTitle: batchNode.data.title?.trim() || "批量节点",
-            batchRowId: row.id,
-            batchArtifacts: [],
-            workspaceName: activeWorkspace?.name
-          }
-        };
-        const newEdge: StudioEdge = {
-          id: createId("edge"),
-          source: nodeId,
-          sourceHandle: "output",
-          target: newArtifactNode.id,
-          targetHandle: "artifact",
-          type: "deletable",
-          animated: true,
-          style: { stroke: "#facc15", strokeWidth: 2 }
-        };
-
-        nodesRef.current = nodesRef.current.concat(newArtifactNode);
-        edgesRef.current = edgesRef.current.concat(newEdge);
-        setNodes(nodesRef.current);
-        setEdges(edgesRef.current);
-        rowArtifactNode = newArtifactNode;
-      }
-
-      const targetArtifactNodeId = rowArtifactNode.id;
+      let targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+      if (!targetArtifactNodeId) return;
 
       const formData = new FormData();
-      await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(batchNode.data, getApiHeaders(false)));
+      await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId({ voiceId: resolved.voiceId ?? batchNode.data.voiceId, assetProvider: resolved.assetProvider ?? batchNode.data.assetProvider }, getApiHeaders(false)), resolvedVoiceAssetMode);
       formData.append("text", row.text.trim());
-      formData.append("instruction", (row.instruction || resolved.instruction || "").trim());
+      formData.append("instruction", (batchNode.data.sharedBatchVoiceStyle ?? (row.instruction || resolved.instruction || "")).trim());
       formData.append("format", "wav");
       formData.append("title", rowArtifactTitle);
 
@@ -646,6 +580,10 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
         patchNode(nodeId, { singleRunningRowId: undefined, error: payload.error || `行「${row.title || `句段 ${rowIndex + 1}`}」克隆失败。` });
         return;
       }
+
+      // A result card can be deleted while the request is in flight; keep only this new result.
+      targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+      if (!targetArtifactNodeId) return;
 
       const finalNodes = nodesRef.current.map((n) => {
         if (n.id === targetArtifactNodeId) {
@@ -723,51 +661,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
         patchNode(nodeId, { generationProgress: { completed: index, total: validRows.length } });
         const rowArtifactTitle = row.title.trim() || `句段 ${index + 1}`;
 
-        let rowArtifactNode = nodesRef.current.find(
-          (n) => n.type === "batchArtifact" && n.data.batchRowId === row.id && edgesRef.current.some((e) => e.source === nodeId && e.target === n.id)
-        );
-
-        if (!rowArtifactNode) {
-          const col = index % 3;
-          const rowPos = Math.floor(index / 3);
-          const stepX = 500;
-          const stepY = 500;
-          const startX = batchNode.position.x + 940;
-
-          const newArtifactNode: StudioNode = {
-            id: createId("batch_artifact"),
-            type: "batchArtifact",
-            position: {
-              x: startX + col * stepX,
-              y: batchNode.position.y + rowPos * stepY
-            },
-            data: {
-              title: rowArtifactTitle,
-              parentTitle: batchNode.data.title?.trim() || "批量节点",
-              batchRowId: row.id,
-              batchArtifacts: [],
-              workspaceName: activeWorkspace?.name
-            }
-          };
-          const newEdge: StudioEdge = {
-            id: createId("edge"),
-            source: nodeId,
-            sourceHandle: "output",
-            target: newArtifactNode.id,
-            targetHandle: "artifact",
-            type: "deletable",
-            animated: true,
-            style: { stroke: "#38bdf8", strokeWidth: 2 }
-          };
-
-          nodesRef.current = nodesRef.current.concat(newArtifactNode);
-          edgesRef.current = edgesRef.current.concat(newEdge);
-          setNodes(nodesRef.current);
-          setEdges(edgesRef.current);
-          rowArtifactNode = newArtifactNode;
-        }
-
-        const targetArtifactNodeId = rowArtifactNode.id;
+        let targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+        if (!targetArtifactNodeId) return;
 
         const rawDesc = (row.instruction || "").trim();
         const rawStyle = (row.voiceStyle || "").trim();
@@ -790,6 +685,10 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           patchNode(nodeId, { isRunning: false, error: payload.error || `行「${row.title || `句段 ${index + 1}`}」音色创造生成失败。` });
           return;
         }
+
+        // A result card can be deleted while the request is in flight; keep only this new result.
+        targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+        if (!targetArtifactNodeId) return;
 
         const intermediateNodes = nodesRef.current.map((n) => {
           if (n.id === targetArtifactNodeId) {
@@ -862,52 +761,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     try {
       const rowArtifactTitle = row.title.trim() || `句段 ${rowIndex >= 0 ? rowIndex + 1 : 1}`;
 
-      let rowArtifactNode = currentNodes.find(
-        (n) => n.type === "batchArtifact" && n.data.batchRowId === row.id && edgesRef.current.some((e) => e.source === nodeId && e.target === n.id)
-      );
-
-      if (!rowArtifactNode) {
-        const itemIdx = rowIndex >= 0 ? rowIndex : 0;
-        const col = itemIdx % 3;
-        const rowPos = Math.floor(itemIdx / 3);
-        const stepX = 500;
-        const stepY = 500;
-        const startX = batchNode.position.x + 940;
-
-        const newArtifactNode: StudioNode = {
-          id: createId("batch_artifact"),
-          type: "batchArtifact",
-          position: {
-            x: startX + col * stepX,
-            y: batchNode.position.y + rowPos * stepY
-          },
-          data: {
-            title: rowArtifactTitle,
-            parentTitle: batchNode.data.title?.trim() || "批量节点",
-            batchRowId: row.id,
-            batchArtifacts: [],
-            workspaceName: activeWorkspace?.name
-          }
-        };
-        const newEdge: StudioEdge = {
-          id: createId("edge"),
-          source: nodeId,
-          sourceHandle: "output",
-          target: newArtifactNode.id,
-          targetHandle: "artifact",
-          type: "deletable",
-          animated: true,
-          style: { stroke: "#38bdf8", strokeWidth: 2 }
-        };
-
-        nodesRef.current = nodesRef.current.concat(newArtifactNode);
-        edgesRef.current = edgesRef.current.concat(newEdge);
-        setNodes(nodesRef.current);
-        setEdges(edgesRef.current);
-        rowArtifactNode = newArtifactNode;
-      }
-
-      const targetArtifactNodeId = rowArtifactNode.id;
+      let targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+      if (!targetArtifactNodeId) return;
 
       const rawDesc = (row.instruction || "").trim();
       const rawStyle = (row.voiceStyle || "").trim();
@@ -930,6 +785,10 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
         patchNode(nodeId, { singleRunningRowId: undefined, error: payload.error || `行「${row.title || `句段 ${rowIndex + 1}`}」生成失败。` });
         return;
       }
+
+      // A result card can be deleted while the request is in flight; keep only this new result.
+      targetArtifactNodeId = ensureBatchArtifactNode(nodeId, row.id, rowArtifactTitle)?.id;
+      if (!targetArtifactNodeId) return;
 
       const finalNodes = nodesRef.current.map((n) => {
         if (n.id === targetArtifactNodeId) {
@@ -1018,6 +877,7 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
     try {
       const validTextItems = textItems.filter((entry) => entry.text.trim());
       const totalRuns = count > 1 ? count : validTextItems.length;
+      let nextSequence = getNextArtifactSequence(nodeId, initialNodes, initialEdges);
       patchNode(nodeId, { generationProgress: { completed: 0, total: totalRuns } });
 
       for (let runIdx = 0; runIdx < totalRuns; runIdx++) {
@@ -1040,20 +900,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           return;
         }
 
-        const artifactNode = createArtifactNode(designNode, payload, item.title, runIdx, initialNodes, initialEdges);
         patchNode(nodeId, { generationProgress: { completed: runIdx + 1, total: totalRuns } });
-        const artifactEdge: StudioEdge = {
-          id: createId("edge"),
-          source: designNode.id,
-          sourceHandle: "output",
-          target: artifactNode.id,
-          targetHandle: "artifact",
-          type: "deletable",
-          animated: true,
-          style: { stroke: NODE_COLOR_MAP.artifact || "#e5c07b", strokeWidth: 2 }
-        };
-
-        await appendLiveArtifact(artifactNode, artifactEdge);
+        nextSequence = appendGeneratedArtifact(nodeId, payload, item.title, nextSequence, NODE_COLOR_MAP.artifact || "#e5c07b");
       }
 
       const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, error: undefined } } : n));
@@ -1086,7 +934,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
 
     const isDesignMode = vocalNode.data.vocalRefMode === "design";
     const resolved = resolveGameVocalInputs(vocalNode, currentNodes, currentEdges);
-    if (!isDesignMode && providerOptionsRef.current.synthesisMode === "reference" && !vocalNode.data.voiceId && !resolved.audio) {
+    const resolvedVoiceAssetMode = resolved.voiceAssetMode ?? vocalNode.data.voiceAssetMode;
+    if (!isDesignMode && providerOptionsRef.current.synthesisMode === "reference" && resolvedVoiceAssetMode !== "preset" && !resolved.voiceId && !vocalNode.data.voiceId && !resolved.audio) {
       patchNode(nodeId, { error: "当前为【参考音频克隆】模式，需要从左侧连接一个参考音频、音频整合或产物卡片。如无需参考音频，可切换为【免参考·角色特征生成】模式。" });
       return;
     }
@@ -1102,6 +951,7 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
 
     const initialNodes = nodesRef.current;
     const initialEdges = edgesRef.current;
+    let nextSequence = getNextArtifactSequence(nodeId, initialNodes, initialEdges);
 
     try {
       for (const [index, vocal] of vocals.entries()) {
@@ -1157,7 +1007,7 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           payload = (await response.json()) as DebugResponse & { error?: string };
         } else {
           const formData = new FormData();
-          await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId(vocalNode.data, getApiHeaders(false)));
+          await appendSynthesisInputs(formData, providerOptionsRef.current, resolved.audio, getAssetVoiceId({ voiceId: resolved.voiceId ?? vocalNode.data.voiceId, assetProvider: resolved.assetProvider ?? vocalNode.data.assetProvider }, getApiHeaders(false)), resolvedVoiceAssetMode);
           formData.append("text", vocal.text.trim());
           formData.append("instruction", optimizedInstruction.trim());
           formData.append("format", "wav");
@@ -1189,20 +1039,8 @@ function createUnscopedSynthesisActions(getContext: () => SynthesisActionsContex
           }
         }
 
-        const artifactNode = createArtifactNode(vocalNode, payload, itemTitle, index, initialNodes, initialEdges);
         patchNode(nodeId, { generationProgress: { completed: index + 1, total: vocals.length } });
-        const artifactEdge: StudioEdge = {
-          id: createId("edge"),
-          source: vocalNode.id,
-          sourceHandle: "output",
-          target: artifactNode.id,
-          targetHandle: "artifact",
-          type: "deletable",
-          animated: true,
-          style: { stroke: "#8b5cf6", strokeWidth: 2 }
-        };
-
-        await appendLiveArtifact(artifactNode, artifactEdge);
+        nextSequence = appendGeneratedArtifact(nodeId, payload, itemTitle, nextSequence, "#8b5cf6");
       }
 
       const nextNodes = nodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, isRunning: false, vocalProgressText: undefined, error: undefined } } : n));

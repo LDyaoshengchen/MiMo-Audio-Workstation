@@ -38,6 +38,10 @@ export interface LayoutNodeInput {
   originalX: number;
   originalY: number;
   seqIndex?: number;
+  title?: string;
+  batchRowId?: string;
+  batchRows?: Array<{ id: string; title?: string }>;
+  batchArtifacts?: Array<{ rowTitle?: string; seqIndex?: number }>;
 }
 
 export interface LayoutEdgeInput {
@@ -108,6 +112,45 @@ export function calculateBranchColumns(
 }
 
 /**
+ * 确定产物节点（包含单条产物与批量产物）的排序序号：
+ * 1. 显式有效 seqIndex (1, 2, ...) 优先；
+ * 2. 批量产物节点在未命名或命名为句段时，优先匹配所属批量生成器中行顺序 (0-based + 1 -> 句段 1, 2, 3...)；
+ * 3. 从节点标题中提取句段编号（如 "句段 1", "句段 2" 等）；
+ * 4. 从内部条目的 rowTitle / seqIndex 中提取句段编号；
+ * 5. 兜底返回 999。
+ */
+export function resolveArtifactSequence(art: LayoutNodeInput, sourceNode?: LayoutNodeInput): number {
+  if (typeof art.seqIndex === "number" && art.seqIndex > 0 && art.seqIndex < 999) {
+    return art.seqIndex;
+  }
+  // 批量产物节点：如果有关联行且父节点有 batchRows，按行顺序排序
+  if (art.batchRowId && sourceNode?.batchRows && Array.isArray(sourceNode.batchRows)) {
+    const rIdx = sourceNode.batchRows.findIndex((r) => r.id === art.batchRowId);
+    if (rIdx >= 0) return rIdx + 1;
+  }
+  // 从标题提取句段编号（例如 "句段 1", "句段 2", "句段_3" 等）
+  if (art.title) {
+    const match = art.title.match(/句段\s*(\d+)/i);
+    if (match) return parseInt(match[1], 10);
+    const endNum = art.title.match(/(?:^|_)(\d+)$/);
+    if (endNum) return parseInt(endNum[1], 10);
+  }
+  // 从内部条目的 rowTitle 中提取句段编号
+  if (art.batchArtifacts && Array.isArray(art.batchArtifacts)) {
+    for (const item of art.batchArtifacts) {
+      if (item.rowTitle) {
+        const match = item.rowTitle.match(/句段\s*(\d+)/i);
+        if (match) return parseInt(match[1], 10);
+      }
+      if (typeof item.seqIndex === "number" && item.seqIndex > 0 && item.seqIndex < 999) {
+        return item.seqIndex;
+      }
+    }
+  }
+  return 999;
+}
+
+/**
  * 智能分层 DAG 网格排版算法（还原潜行画板真实规整排版）
  */
 export function computeSmartDagLayout(
@@ -171,11 +214,12 @@ export function computeSmartDagLayout(
     }
   });
 
-  // 对直属产物排序 (seqIndex 优先，原 Y 次之)
-  generatorArtifactMap.forEach((arts) => {
+  // 对直属产物排序 (seqIndex / 句段序号优先，原 Y 次之)
+  generatorArtifactMap.forEach((arts, sourceId) => {
+    const sourceNode = nodeMap.get(sourceId);
     arts.sort((a, b) => {
-      const seqA = a.seqIndex ?? 999;
-      const seqB = b.seqIndex ?? 999;
+      const seqA = resolveArtifactSequence(a, sourceNode);
+      const seqB = resolveArtifactSequence(b, sourceNode);
       if (seqA !== seqB) return seqA - seqB;
       return a.originalY - b.originalY;
     });
@@ -817,7 +861,7 @@ export function computeSmartDagLayout(
             const minGenY = Math.min(...genPositions.map((p) => p!.y));
             const maxGenBottom = Math.max(...targetGens.map((tg) => (resultPositions.get(tg!.id)?.y || 0) + getNodeH(tg!)));
             const centerY = Math.round((minGenY + maxGenBottom) / 2 - getNodeH(n) / 2);
-            
+
             const currentPos = resultPositions.get(n.id);
             const myX = currentPos?.x || globalColStartX;
             const myH = getNodeH(n);

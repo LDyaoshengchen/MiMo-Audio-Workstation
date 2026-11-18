@@ -11,6 +11,25 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 afterEach(() => vi.clearAllMocks());
 
 describe.each([BatchVoiceCloneNode, BatchVoiceDesignNode])("batch row editing and ordering", Component => {
+  it("clears only all row names after confirmation", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const patch = vi.fn();
+    const rows = [0, 1].map(index => ({ id: `row-${index}`, title: `VO_000${index}`, instruction: "Warm", naturalControl: "Calm", voiceStyle: "Soft", text: "Hello" }));
+    try {
+      await act(async () => root.render(<Component {...({ id: "batch", data: { title: "Batch", batchRows: rows, onPatch: patch } } as any)} />));
+      const clearButton = host.querySelector<HTMLButtonElement>(".batch-col-meta .batch-col-clear-btn")!;
+      expect(clearButton).toBeTruthy();
+      await act(async () => clearButton.click());
+      expect(host.querySelector('[role="alertdialog"]')?.textContent).toContain("名字/标识");
+      await act(async () => host.querySelector<HTMLButtonElement>(".apple-confirm-btn.confirm")!.click());
+      expect(patch).toHaveBeenCalledWith("batch", { batchRows: rows.map(row => ({ ...row, title: "" })) });
+    } finally {
+      await act(async () => root.unmount()); host.remove();
+    }
+  });
+
   it("keeps text selection separate from handle-only sorting", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

@@ -239,7 +239,7 @@ export const GameVocalNode = memo(function GameVocalNode({ id, data }: NodeProps
             <Sparkles size={13} />
             <span>✨ 角色特征生成 (免参考)</span>
           </button>
-          <RoleVoiceLibrary nodeId={id} data={data} />
+          <RoleVoiceLibrary nodeId={id} data={data} allowOfficialPresets={refMode === "clone"} />
         </div>
 
         {/* 1. 根据模式呈现：参考音频卡片 VS 角色形容词特征选择面板 */}

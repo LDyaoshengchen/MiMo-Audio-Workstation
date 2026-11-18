@@ -141,6 +141,7 @@ export async function audioSourceToBlob(source: string, mimeType?: string): Prom
 }
 
 export function buildApiHeaders(config: {
+  volcengine?: import("../../shared/volcengine").VolcengineOptions;
   apiKey?: string;
   apiEndpoint?: string;
   apiProvider?: string;
@@ -151,6 +152,7 @@ export function buildApiHeaders(config: {
   extraHeaders?: Record<string, string>;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
+  if (config.apiProvider === "volcengine" && config.volcengine) headers["X-API-Volcengine"] = JSON.stringify(config.volcengine);
   if (config.isJson) {
     headers["Content-Type"] = "application/json";
   }

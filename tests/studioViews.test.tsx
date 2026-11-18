@@ -20,8 +20,10 @@ describe("extracted settings and confirmation views", () => {
   it("storage download switches keep their appearance and naming behavior", async () => {
     function Harness() {
       const [settings, setSettings] = useState<SingleDownloadSettings>({ includeWorkspaceName: true, includeTime: false });
+      const [batchSettings, setBatchSettings] = useState<SingleDownloadSettings>({ includeWorkspaceName: false, includeTime: true });
       return <StorageSettingsDialog showStoragePathModal handleBackdropMouseDown={vi.fn()} handleBackdropClick={vi.fn()}
         setShowStoragePathModal={vi.fn()} singleDownloadSettings={settings} setSingleDownloadSettings={setSettings}
+        batchDownloadSettings={batchSettings} setBatchDownloadSettings={setBatchSettings}
         activeWorkspace={{ id: "board", type: "board", name: "怪物", createdAt: "", updatedAt: "", nodes: [], edges: [], stashItems: [] }}
         customPathInput="D:/mock" setCustomPathInput={vi.fn()} storagePathInfo={null}
         selectFolderAndSave={vi.fn()} saveCustomStoragePath={vi.fn()} resetStoragePath={vi.fn()}
@@ -29,8 +31,10 @@ describe("extracted settings and confirmation views", () => {
     }
     await act(async () => root.render(<Harness />));
     const preview = () => host.querySelector(".download-naming-filename")?.textContent;
-    const boardSwitch = host.querySelector('[aria-label="带画板名称"]') as HTMLButtonElement;
-    const timeSwitch = host.querySelector('[aria-label="带时间"]') as HTMLButtonElement;
+    const boardSwitch = host.querySelector('[data-download-scope="single"][aria-label="带画板名称"]') as HTMLButtonElement;
+    const timeSwitch = host.querySelector('[data-download-scope="single"][aria-label="带时间"]') as HTMLButtonElement;
+    expect(host.querySelector('[data-download-scope="batch"][aria-label="带画板名称"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[data-download-scope="batch"][aria-label="带时间"]')?.getAttribute("aria-checked")).toBe("true");
     expect(boardSwitch.classList.contains("capsule-switch")).toBe(true);
     expect(preview()).toBe("怪物_VO_00085_01.wav");
     await act(async () => boardSwitch.click());

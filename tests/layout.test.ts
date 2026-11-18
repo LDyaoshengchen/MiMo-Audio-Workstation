@@ -609,6 +609,92 @@ describe("Tidy & Pipeline Tree Layout Algorithm (生产算法真实测试)", () 
     // 3. 验证后续的 finalNode 排布在批量克隆节点的最右侧之后
     expect(finalNodePos.x).toBeGreaterThanOrEqual(batchClonePos.x + 640 + 60);
   });
+
+  it("should sort unnamed batchArtifact nodes by 句段 1, 2, 3, 4, 5... when originalY positions are scrambled", () => {
+    const generatorNode = {
+      id: "batchGen",
+      type: "batchVoiceClone",
+      width: 660,
+      height: 460,
+      originalX: 80,
+      originalY: 80,
+      batchRows: [
+        { id: "row_1", title: "句段 1" },
+        { id: "row_2", title: "句段 2" },
+        { id: "row_3", title: "句段 3" },
+        { id: "row_4", title: "句段 4" },
+        { id: "row_5", title: "句段 5" }
+      ]
+    };
+
+    // 故意让 originalY 倒序或打乱：
+    // art_3 原位置在最上方 (y=50)，art_1 在中下方 (y=400)
+    const batchArtifacts = [
+      { id: "art_3", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 50, batchRowId: "row_3", title: "" },
+      { id: "art_5", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 120, batchRowId: "row_5", title: "批量产物" },
+      { id: "art_1", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 350, batchRowId: "row_1", title: "句段 1" },
+      { id: "art_4", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 480, batchRowId: "row_4", title: "" },
+      { id: "art_2", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 600, batchRowId: "row_2", title: "节点名称" }
+    ];
+
+    const nodes = [generatorNode, ...batchArtifacts];
+    const edges = batchArtifacts.map((art) => ({
+      source: "batchGen",
+      target: art.id,
+      targetHandle: "artifact"
+    }));
+
+    const pos = computeSmartDagLayout(nodes, edges, 80, 80);
+
+    const artStartX = 80 + 660 + 60; // 800
+    const colStep = 440 + 60; // 500
+    const rowStep = 440 + 60; // 500
+    const startY = 80;
+
+    // 句段 1 (art_1): 第 0 行，第 0 列
+    expect(pos.get("art_1")).toEqual({ x: artStartX, y: startY });
+    // 句段 2 (art_2): 第 0 行，第 1 列
+    expect(pos.get("art_2")).toEqual({ x: artStartX + colStep, y: startY });
+    // 句段 3 (art_3): 第 0 行，第 2 列
+    expect(pos.get("art_3")).toEqual({ x: artStartX + colStep * 2, y: startY });
+    // 句段 4 (art_4): 第 1 行，第 0 列
+    expect(pos.get("art_4")).toEqual({ x: artStartX, y: startY + rowStep });
+    // 句段 5 (art_5): 第 1 行，第 1 列
+    expect(pos.get("art_5")).toEqual({ x: artStartX + colStep, y: startY + rowStep });
+  });
+
+  it("should sort batchArtifact nodes by 句段 title numbers even without batchRowId", () => {
+    const generatorNode = {
+      id: "batchGen",
+      type: "batchVoiceClone",
+      width: 660,
+      height: 460,
+      originalX: 80,
+      originalY: 80
+    };
+
+    const batchArtifacts = [
+      { id: "art_b", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 100, title: "句段 2" },
+      { id: "art_c", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 20, title: "句段 3" },
+      { id: "art_a", type: "batchArtifact", width: 440, height: 440, originalX: 800, originalY: 300, title: "句段 1" }
+    ];
+
+    const nodes = [generatorNode, ...batchArtifacts];
+    const edges = batchArtifacts.map((art) => ({
+      source: "batchGen",
+      target: art.id,
+      targetHandle: "artifact"
+    }));
+
+    const pos = computeSmartDagLayout(nodes, edges, 80, 80);
+
+    const artStartX = 80 + 660 + 60; // 800
+    const colStep = 440 + 60; // 500
+
+    expect(pos.get("art_a")).toEqual({ x: artStartX, y: 80 });
+    expect(pos.get("art_b")).toEqual({ x: artStartX + colStep, y: 80 });
+    expect(pos.get("art_c")).toEqual({ x: artStartX + colStep * 2, y: 80 });
+  });
 });
 
 
